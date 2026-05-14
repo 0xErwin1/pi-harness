@@ -14,7 +14,8 @@ this adds the discipline for using them well.
 | --- | --- |
 | `extensions/engram.ts` | Engram persistent-memory integration. |
 | `extensions/sdd-orchestrator.ts` | Programmatic SDD orchestrator — reads the DAG state from Engram and drives phase delegation. |
-| `extensions/` (planned) | Shell safety guards, skill registry, SDD init detection, harness core. |
+| `extensions/shell-guard.ts` | Shell safety guard — blocks destructive `bash` commands and confirms sensitive ones. |
+| `extensions/` (planned) | Skill registry, SDD init detection, harness core. |
 | `assets/chains/` (planned) | SDD phase chains. |
 | `assets/orchestrator.md` (planned) | Parent-session orchestration contract. |
 
@@ -46,8 +47,12 @@ Nothing updates silently.
 ## Development
 
 ```bash
-pnpm check   # type-check all extensions
+pnpm run check   # tsc --noEmit over harness extensions
 ```
+
+`engram.ts` and `sdd-orchestrator.ts` are excluded from the strict type-check:
+they were moved in unchanged and are validated by Pi's runtime loader. A strict
+pass over them is tracked as separate cleanup.
 
 ## Companion packages
 
