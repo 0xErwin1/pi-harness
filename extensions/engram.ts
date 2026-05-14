@@ -192,9 +192,13 @@ export default function (pi: ExtensionAPI) {
       const observation = data.observations.find((item) => item.id === params.id);
 
       if (!observation) {
+        const details: { id: number; found: boolean; topic_key?: string; session_id?: string } = {
+          id: params.id,
+          found: false,
+        };
         return {
           content: [{ type: "text", text: `Observation #${params.id} not found.` }],
-          details: { id: params.id, found: false },
+          details,
         };
       }
 

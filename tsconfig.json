@@ -11,6 +11,5 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["extensions/**/*.ts"],
-  "exclude": ["extensions/engram.ts", "extensions/sdd-orchestrator.ts"]
+  "include": ["extensions/**/*.ts"]
 }

@@ -47,12 +47,8 @@ Nothing updates silently.
 ## Development
 
 ```bash
-pnpm run check   # tsc --noEmit over harness extensions
+pnpm run check   # tsc --noEmit over all harness extensions
 ```
-
-`engram.ts` and `sdd-orchestrator.ts` are excluded from the strict type-check:
-they were moved in unchanged and are validated by Pi's runtime loader. A strict
-pass over them is tracked as separate cleanup.
 
 ## Companion packages
 
