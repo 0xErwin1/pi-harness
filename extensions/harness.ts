@@ -54,7 +54,7 @@ function readOrchestratorPrompt(): string | undefined {
 const SDD_AGENT_NAMES = [
 	"sdd-init",
 	"sdd-explore",
-	"sdd-proposal",
+	"sdd-propose",
 	"sdd-spec",
 	"sdd-design",
 	"sdd-tasks",
@@ -513,6 +513,11 @@ class ModelPanel implements OverlayComponent {
 			return;
 		}
 		if (data === "e") {
+			// Ignore the effort key when the cursor is on the "Continue" or
+			// "Back" rows: there is no agent row to act on, and falling back
+			// to SET_ALL_AGENTS would silently retarget every agent.
+			if (this.cursor >= this.rows.length) return;
+
 			this.selectedRow = this.rows[this.cursor] ?? SET_ALL_AGENTS;
 			this.mode = "effort";
 			this.effortCursor = 0;
