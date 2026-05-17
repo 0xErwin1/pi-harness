@@ -135,26 +135,6 @@ Prefer delegation when fresh context improves correctness more than token saving
 - Use file-only output for large child reports and summarize only decisions, blockers, and paths in the parent thread.
 - Avoid delegation for truly local one-file fixes, quick state checks, and already-understood mechanical edits.
 
-### Canonical Lightweight Workflows
-
-Bugfix with unfamiliar flow:
-
-```text
-parent git/status + clarify → scout fresh maps flow/files → parent decides → worker fork implements + tests → reviewer fresh audits diff → parent validates
-```
-
-Conflict or dependency-marker cleanup:
-
-```text
-parent reproduces/checks conflict → parent or worker resolves → reviewer fresh checks markers, package/lock consistency, and repo cleanliness → parent reports/pushes
-```
-
-After tooling/worktree incident:
-
-```text
-stop writes → parent captures git status → reviewer fresh audits affected repos/worktrees with no edits → parent applies only confirmed recovery steps
-```
-
 ## SDD Workflow (Spec-Driven Development)
 
 ### Phase Graph
@@ -337,7 +317,7 @@ The parent should synthesize these envelopes, not paste long raw reports unless 
 
 The parent resolves skills once per session or before first delegation:
 
-1. Read `.atl/skill-registry.md` if present.
+1. Read `.agent/skill-registry.md` if present.
 2. Use matching compact rules based on code context and task intent.
 3. Inject matching rule text into subagent prompts under `## Project Standards (auto-resolved)`.
 4. If the registry is absent, continue but mention that project-specific skill rules were unavailable.
@@ -361,7 +341,7 @@ For skill-shaped requests, do not treat injected `<available_skills>` as complet
 
 Discovery order:
 
-1. Read `.atl/skill-registry.md` when present.
+1. Read `.agent/skill-registry.md` when present.
 2. If the registry suggests a specific skill, load that skill before acting.
 3. If the expected skill is absent from the registry but the request clearly names a known workflow, search common project/user skill dirs such as `./skills`, `.pi/skills`, `.agents/skills`, `~/.config/opencode/skills`, `~/.claude/skills`, and other configured skill roots.
 4. Prefer the most specific project skill over a global skill with the same intent.
