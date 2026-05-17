@@ -253,7 +253,7 @@ This package is Engram-native.
 
 ## Engram Persistent Memory — Protocol
 
-You have access to Engram, a persistent memory system that survives across sessions and compactions. This protocol is MANDATORY and ALWAYS ACTIVE — not something you activate on demand. It applies regardless of the underlying model or provider.
+The Engram MCP server injects the full protocol (proactive save triggers, mem_save format, topic update rules, search rules, conflict surfacing) at session start. The rules below add orchestrator-specific behavior on top.
 
 ### Orchestrator vs Subagent Roles
 
@@ -263,58 +263,7 @@ The parent owns memory retrieval and subagents own write-back for significant fi
 - Write context: subagents MUST save significant discoveries, decisions, bug fixes, and completed SDD phase artifacts to memory via `mem_save` before returning.
 - Prompt forwarding: when delegating, add a concrete instruction such as: `If you make important discoveries, decisions, or fix bugs, save them to Engram via mem_save with project: '<project>' before returning.`
 - SDD artifact keys: phase artifacts use the stable topic keys `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, `sdd/{change}/apply-progress`, and `sdd/{change}/verify-report`.
-
-### PROACTIVE SAVE TRIGGERS (mandatory — do NOT wait for user to ask)
-
-Call `mem_save` IMMEDIATELY and WITHOUT BEING ASKED after any of these:
-
-- Architecture or design decision made
-- Team convention documented or established
-- Workflow change agreed upon
-- Tool or library choice made with tradeoffs
-- Bug fix completed (include root cause)
-- Feature implemented with non-obvious approach
-- Notion/Jira/GitHub artifact created or updated with significant content
-- Configuration change or environment setup done
-- Non-obvious discovery about the codebase
-- Gotcha, edge case, or unexpected behavior found
-- Pattern established (naming, structure, convention)
-- User preference or constraint learned
-
-Self-check after EVERY task: "Did I make a decision, fix a bug, learn something non-obvious, or establish a convention? If yes, call `mem_save` NOW."
-
-Format for `mem_save`:
-
-- **title**: Verb + what — short, searchable (e.g. "Fixed N+1 query in UserList")
-- **type**: `bugfix` | `decision` | `architecture` | `discovery` | `pattern` | `config` | `preference`
-- **scope**: `project` (default) | `personal`
-- **topic_key** (recommended for evolving topics): stable key like `architecture/auth-model`
-- **content**:
-  - **What**: One sentence — what was done
-  - **Why**: What motivated it (user request, bug, performance, etc.)
-  - **Where**: Files or paths affected
-  - **Learned**: Gotchas, edge cases, things that surprised you (omit if none)
-
-Topic update rules:
-
-- Different topics MUST NOT overwrite each other.
-- Same topic evolving → use the same `topic_key` (upsert).
-- Unsure about the key → call `mem_suggest_topic_key` first.
-- Know the exact ID to fix → use `mem_update`.
-
-### WHEN TO SEARCH MEMORY
-
-On any variation of "remember", "recall", "what did we do", "how did we solve", "recordar", "qué hicimos", or references to past work:
-
-1. Call `mem_context` — checks recent session history (fast, cheap).
-2. If not found, call `mem_search` with relevant keywords.
-3. If found, use `mem_get_observation` for full untruncated content.
-
-Also search PROACTIVELY when:
-
-- Starting work on something that might have been done before.
-- User mentions a topic you have no context on.
-- **User's FIRST message references the project, a feature, or a problem — call `mem_search` (and `mem_context` for recent sessions) with keywords from their message to check for prior work BEFORE responding.** Do not jump to `git`, `gh`, grep, or file reads on the first turn until memory has been checked. The orchestrator owns this search and passes any relevant observations into delegations.
+- First-turn search: when the user's FIRST message references the project, a feature, or a problem, the orchestrator (not subagents) calls `mem_search` and `mem_context` before jumping to `git`, `gh`, grep, or file reads, and passes any relevant observations into delegations.
 
 ### SESSION CLOSE PROTOCOL (mandatory)
 
