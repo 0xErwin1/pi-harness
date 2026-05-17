@@ -13,12 +13,12 @@ import { homedir } from "node:os";
 import { basename, join, normalize, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-const REGISTRY_REL_PATH = ".atl/skill-registry.md";
-const CACHE_REL_PATH = ".atl/.skill-registry.cache.json";
+const REGISTRY_REL_PATH = ".agent/skill-registry.md";
+const CACHE_REL_PATH = ".agent/.skill-registry.cache.json";
 const SECTION_MARKER = "## Selected skills and compact rules";
 const EXCLUDE_NAMES = new Set(["_shared", "skill-registry"]);
 const EXCLUDE_PREFIXES = ["sdd-"];
-const ATL_IGNORE_ENTRY = ".atl/";
+const AGENT_IGNORE_ENTRY = ".agent/";
 const WATCH_DEBOUNCE_MS = 500;
 const REGISTRY_SCHEMA_VERSION = 4;
 const NO_SKILL_REGISTRY_FLAG = "no-skill-registry";
@@ -71,7 +71,6 @@ function projectSkillDirs(cwd: string): string[] {
 		join(cwd, ".pi/skills"),
 		join(cwd, ".agent/skills"),
 		join(cwd, ".agents/skills"),
-		join(cwd, ".atl/skills"),
 	];
 }
 
@@ -321,20 +320,20 @@ interface RegenResult {
 	reason: string;
 }
 
-function ensureAtlIgnored(cwd: string): void {
+function ensureAgentIgnored(cwd: string): void {
 	const gitignorePath = join(cwd, ".gitignore");
 	let existing = "";
 	if (existsSync(gitignorePath)) {
 		existing = readFileSync(gitignorePath, "utf8");
 	}
-	const hasAtlIgnore = existing
+	const hasAgentIgnore = existing
 		.split("\n")
 		.map((line) => line.trim())
-		.some((line) => line === ".atl" || line === ATL_IGNORE_ENTRY);
-	if (hasAtlIgnore) return;
+		.some((line) => line === ".agent" || line === AGENT_IGNORE_ENTRY);
+	if (hasAgentIgnore) return;
 	const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
 	const header = existing.includes("# Local Pi runtime state") ? "" : "# Local Pi runtime state\n";
-	writeFileSync(gitignorePath, `${existing}${prefix}${header}${ATL_IGNORE_ENTRY}\n`);
+	writeFileSync(gitignorePath, `${existing}${prefix}${header}${AGENT_IGNORE_ENTRY}\n`);
 }
 
 function isGeneratedLegacyProjectRegistry(source: string): boolean {
@@ -404,7 +403,7 @@ function regenerateRegistry(cwd: string, force: boolean): RegenResult {
 		return rel.startsWith("..") ? d : rel || ".";
 	});
 	const md = renderRegistry(cwd, sources, deduped);
-	mkdirSync(join(cwd, ".atl"), { recursive: true });
+	mkdirSync(join(cwd, ".agent"), { recursive: true });
 	writeFileSync(registryPath, md);
 	writeFileSync(cachePath, JSON.stringify({ fingerprint: fp }, null, 2));
 	return { regenerated: true, skillCount: deduped.length, reason: force ? "forced" : "fingerprint-changed" };
@@ -479,7 +478,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		if (shouldSkipSkillRegistryStartup(pi)) return;
 		try {
-			ensureAtlIgnored(ctx.cwd);
+			ensureAgentIgnored(ctx.cwd);
 			const quarantinedLegacy = quarantineLegacyProjectRegistry(ctx.cwd);
 			const result = regenerateRegistry(ctx.cwd, quarantinedLegacy);
 			if (result.regenerated && ctx.hasUI) {
@@ -512,10 +511,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("skill-registry:refresh", {
-		description: "Regenerate .atl/skill-registry.md from local skill sources.",
+		description: "Regenerate .agent/skill-registry.md from local skill sources.",
 		handler: async (_args, ctx) => {
 			try {
-				ensureAtlIgnored(ctx.cwd);
+				ensureAgentIgnored(ctx.cwd);
 				const result = regenerateRegistry(ctx.cwd, true);
 				ctx.ui.notify(
 					`Skill registry: ${result.skillCount} skill(s) written to ${REGISTRY_REL_PATH}`,
