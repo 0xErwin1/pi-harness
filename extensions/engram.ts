@@ -8,7 +8,7 @@
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,42 @@ import { promisify } from "node:util";
 
 const execAsync = promisify(execFile);
 const ENGRAM = "engram";
+
+/**
+ * Cache of resolved project names keyed by cwd, so a worktree's project name
+ * is computed once per session instead of forking `git` on every memory call.
+ */
+const projectCache = new Map<string, string | undefined>();
+
+/**
+ * Resolve the project name for a given cwd by asking git for the origin
+ * remote, then taking the repository basename (without the `.git` suffix).
+ * Returns undefined when the directory is not a git repo or has no origin —
+ * the caller should fall back to `basename(cwd)` in that case.
+ *
+ * This matches what the engram CLI does at MCP startup, but evaluated at
+ * call time so worktrees (`<repo>-worktree/<branch>`) resolve to the actual
+ * repo name instead of the branch directory.
+ */
+function projectFromGitRemote(cwd: string): string | undefined {
+  try {
+    const out = execFileSync("git", ["-C", cwd, "remote", "get-url", "origin"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (!out) return undefined;
+
+    const lastSlash = out.lastIndexOf("/");
+    const lastColon = out.lastIndexOf(":");
+    const sep = Math.max(lastSlash, lastColon);
+    const tail = sep >= 0 ? out.slice(sep + 1) : out;
+    const repo = tail.endsWith(".git") ? tail.slice(0, -4) : tail;
+    const normalized = repo.trim().toLowerCase();
+    return normalized.length > 0 ? normalized : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 interface EngramSession {
   id: string;
@@ -62,8 +98,18 @@ function toProject(paramsProject?: string, ctxCwd?: string): string | undefined 
 
   if (!ctxCwd) return undefined;
 
+  if (projectCache.has(ctxCwd)) return projectCache.get(ctxCwd);
+
+  const fromRemote = projectFromGitRemote(ctxCwd);
+  if (fromRemote) {
+    projectCache.set(ctxCwd, fromRemote);
+    return fromRemote;
+  }
+
   const parts = ctxCwd.split("/").filter(Boolean);
-  return parts.at(-1);
+  const fallback = parts.at(-1);
+  projectCache.set(ctxCwd, fallback);
+  return fallback;
 }
 
 function formatObservation(observation: EngramObservation): string {
