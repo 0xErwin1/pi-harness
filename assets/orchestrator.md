@@ -222,6 +222,8 @@ Before any SDD flow, make sure project context exists.
 
 Project context is stored in Engram under topic_key `sdd-init/{project}`. Before starting a substantial SDD flow, search Engram for it. If it is missing, ask the user for the minimal information needed or run `/sdd-init` if available. Do not proceed with a substantial SDD flow while pretending project context and testing capability are known.
 
+**Hard gate:** existing SDD changes in Engram, installed SDD assets, prior-session artifacts, or a todo named "preflight" are project context only — they are not session preferences. Do not mark execution mode/artifact-store choices as resolved, start `sdd-init`, launch SDD subagents, or move into explore/proposal/spec/design/tasks until the current conversation has either an explicit user answer covering the choices in `## Execution Mode` and `## Artifact Store Policy`, or a clearly applicable default the user has acknowledged. Memory tool unavailability is a reason to ask, not permission to assume.
+
 ## Artifact Store Policy
 
 This package is Engram-native.
@@ -318,22 +320,23 @@ The parent should synthesize these envelopes, not paste long raw reports unless 
 The parent resolves skills once per session or before first delegation:
 
 1. Read `.agent/skill-registry.md` if present.
-2. Use matching compact rules based on code context and task intent.
-3. Inject matching rule text into subagent prompts under `## Project Standards (auto-resolved)`.
-4. If the registry is absent, continue but mention that project-specific skill rules were unavailable.
+2. Match task context and target files against the `Trigger / description` column.
+3. Pass only matching `Path` values to subagents under `## Skills to load before work`.
+4. Tell subagents to read those exact `SKILL.md` files before reading, writing, reviewing, testing, or creating artifacts.
+5. If the registry is absent, continue but mention that project-specific skill paths were unavailable.
 
-Subagents should receive pre-digested project/user rules. They should not have to rediscover the registry.
+Subagents should receive exact indexed paths. They should not have to rediscover the registry.
 
-Important distinction: SDD subagents still use their assigned executor/phase skill (for example `sdd-apply`, `sdd-design`, or `sdd-verify`). What they should not do during normal runtime is independently discover or load additional project/user `SKILL.md` files or the registry. Those project/user rules arrive pre-digested from the parent under `## Project Standards (auto-resolved)`.
+Important distinction: SDD subagents still use their assigned executor/phase skill (for example `sdd-apply`, `sdd-design`, or `sdd-verify`). What they should not do during normal runtime is independently discover additional project/user `SKILL.md` files or the registry. The parent passes selected project/user skill paths explicitly.
 
 If a subagent reports `skill_resolution`, interpret it as project/user skill resolution:
 
-- `injected`: parent supplied `## Project Standards (auto-resolved)`.
-- `fallback-registry`: subagent self-loaded compact rules from a registry because Project Standards were missing; degraded but auditable.
-- `fallback-path`: subagent loaded explicit `SKILL: Load` paths because Project Standards were missing; degraded but auditable.
+- `paths-injected`: parent supplied `## Skills to load before work` with exact `SKILL.md` paths.
+- `fallback-registry`: subagent self-loaded skill paths from the registry because parent paths were missing; degraded but auditable.
+- `fallback-path`: subagent loaded explicit skill paths because parent paths were missing; degraded but auditable.
 - `none`: no project/user skills were loaded.
 
-If any subagent reports a fallback instead of `injected`, treat it as an orchestration gap and correct future delegations by injecting the compact rules directly.
+If any subagent reports a fallback instead of `paths-injected`, treat it as an orchestration gap and correct future delegations by passing exact indexed paths directly.
 
 ## Intent-Driven Skill Discovery
 
@@ -342,7 +345,7 @@ For skill-shaped requests, do not treat injected `<available_skills>` as complet
 Discovery order:
 
 1. Read `.agent/skill-registry.md` when present.
-2. If the registry suggests a specific skill, load that skill before acting.
+2. If the registry suggests a specific skill, load the indexed `SKILL.md` path before acting.
 3. If the expected skill is absent from the registry but the request clearly names a known workflow, search common project/user skill dirs such as `./skills`, `.pi/skills`, `.agents/skills`, `~/.config/opencode/skills`, `~/.claude/skills`, and other configured skill roots.
 4. Prefer the most specific project skill over a global skill with the same intent.
 5. If no matching skill exists, continue with the smallest safe fallback and say which expected skill was unavailable.
@@ -374,9 +377,14 @@ Do not rely on the child agent to discover this independently.
 
 After `sdd-tasks` and before `sdd-apply`, inspect the task output for review workload risk.
 
-If estimated changed lines exceed 400, chained PRs are recommended, or a decision is needed, pause and ask unless the user already approved a delivery strategy.
+If estimated changed lines exceed 400, chained PRs are recommended, or a decision is needed, pause and ask unless the user already approved a delivery strategy. Cached choices: `delivery_strategy` (`ask-on-risk`, `auto-chain`, `single-pr`, `exception-ok`) and `chain_strategy` (`stacked-to-main` or `feature-branch-chain`).
 
-Automatic mode does not override reviewer burnout protection.
+When chained PRs are selected and `chain_strategy` is not yet cached, ask which one to use:
+
+- **`stacked-to-main`**: Each PR merges to main in order. Fast iteration, fix on the go.
+- **`feature-branch-chain`**: PR #1 targets the feature/tracker branch; later PRs target the immediate previous PR branch; only the tracker merges to main. Best for rollback control and coordinated releases.
+
+Automatic mode does not override reviewer burnout protection. When launching `sdd-apply`, include the resolved `delivery_strategy`, `chain_strategy`, and any chosen PR boundary/exception in the prompt.
 
 ## Safety
 
