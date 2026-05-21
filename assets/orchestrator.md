@@ -338,6 +338,15 @@ If a subagent reports `skill_resolution`, interpret it as project/user skill res
 
 If any subagent reports a fallback instead of `paths-injected`, treat it as an orchestration gap and correct future delegations by passing exact indexed paths directly.
 
+### Mandatory writing skills
+
+Comments and documentation are not freeform. Whenever you, or a subagent you launch, will write a comment (PR/issue/review comment, chat or async reply) or any documentation (README, RFC, guide, onboarding, architecture doc, PR description), you MUST pass the relevant writing skill path under `## Skills to load before work`:
+
+- Comments -> `comment-writer`
+- Documentation -> `cognitive-doc-design`
+
+This is not optional and overrides the "lightweight, not hard routing" guidance below: even if the registry match is uncertain, pass these paths. Also pass the destination context (target repo/thread/channel and its primary language) so the writer applies the correct language: write in the destination's language, not the chat language -- English when the destination is primarily English, even if the user is talking to you in Spanish.
+
 ## Intent-Driven Skill Discovery
 
 For skill-shaped requests, do not treat injected `<available_skills>` as complete. Use the registry and filesystem only as a discovery aid; do not let a trigger table override the user's concrete request or turn a small request into a larger workflow.
