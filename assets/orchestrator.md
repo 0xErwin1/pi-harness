@@ -140,13 +140,13 @@ Prefer delegation when fresh context improves correctness more than token saving
 ### Phase Graph
 
 ```text
-explore → propose → [user approval] → spec + design → tasks → [user approval] → apply → verify → archive
+explore → propose → [user approval] → spec + design → tasks → [user approval] → apply → verify → sync → archive
 ```
 
 Dependency graph:
 
 ```text
-proposal → spec ─┬→ tasks → apply → verify → archive
+proposal → spec ─┬→ tasks → apply → verify → sync → archive
 proposal → design ┘
 ```
 
@@ -156,7 +156,7 @@ Run phases in order. After **propose** and after **tasks**, pause and ask the us
 
 ### How to execute phases
 
-Call the `subagent` tool with the appropriate agent. Each phase agent reads its own SKILL.md — you do not need to inject phase-skill instructions, just provide context.
+Call the `subagent` tool with the appropriate agent. Phase agents read their assigned SKILL.md when one exists; `sdd-sync` is self-contained for Pi Harness artifact reconciliation. You do not need to inject phase-skill instructions, just provide context.
 
 Minimal task context to include in every phase call:
 
@@ -193,6 +193,7 @@ subagent(
 | Tasks         | sdd-tasks     | `sdd/{change}/tasks`             |
 | Apply         | sdd-apply     | `sdd/{change}/apply-progress`    |
 | Verify        | sdd-verify    | `sdd/{change}/verify-report`     |
+| Sync          | sdd-sync      | `sdd/{change}/sync-report`       |
 | Archive       | sdd-archive   | `sdd/{change}/archive-report`    |
 
 Project name for engram = `basename(cwd)` unless the user specifies otherwise.
@@ -212,9 +213,11 @@ subagent(tasks: [
 
 For large task lists, apply in batches. Each batch must read the existing `apply-progress` artifact, merge progress, and save the combined result back. Tell the sub-agent explicitly: "Read existing apply-progress first, merge your progress, save combined result."
 
-### Verify after apply
+### Verify and sync after apply
 
 Always run `sdd-verify` after apply completes. Do not wait for the user to ask.
+
+After a successful verification, run `sdd-sync` before `sdd-archive` when a change will continue across agents or sessions. In Pi Harness, sync reconciles Obsidian full artifacts with Engram summaries/pointers; it does not create or merge OpenSpec files unless the user explicitly requested a file-backed exception.
 
 ## Init Guard
 
@@ -226,12 +229,12 @@ Project context is stored in Engram under topic_key `sdd-init/{project}`. Before
 
 ## Artifact Store Policy
 
-This package is Engram-native.
+This package is Engram + Obsidian native.
 
 - Default: SDD phase artifacts are persisted to Engram under stable topic keys (see the artifact convention table above).
-- Human-readable artifacts — proposals, specs, design notes, and long-running planning documents intended for a person to read — are kept in the Obsidian vault.
+- Full human-readable artifacts — exploration, proposals, specs, design notes, tasks, apply progress, verification, sync, archive reports, and long-running planning documents intended for a person to read — are kept in the Obsidian vault.
 - Do not write OpenSpec-style artifacts into a normal repository tree unless the user explicitly asks.
-- If memory tools are unavailable, do not pretend persistence exists; return artifacts inline and tell the user persistence is not active.
+- If Engram or Obsidian is unavailable, do not pretend persistence exists; block or return partial results and tell the user which persistence backend is not active.
 
 ## Engram Persistent Memory — Protocol
 
@@ -244,7 +247,7 @@ The parent owns memory retrieval and subagents own write-back for significant fi
 - Read context: the parent/orchestrator searches memory (`mem_search`, `mem_context`), selects relevant observations (`mem_get_observation` for full content), and passes them into subagent prompts. Subagents should not independently search memory during normal runtime unless the parent explicitly instructs them to retrieve a specific artifact or observation.
 - Write context: subagents MUST save significant discoveries, decisions, bug fixes, and completed SDD phase artifacts to memory via `mem_save` before returning.
 - Prompt forwarding: when delegating, add a concrete instruction such as: `If you make important discoveries, decisions, or fix bugs, save them to Engram via mem_save with project: '<project>' before returning.`
-- SDD artifact keys: phase artifacts use the stable topic keys `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, `sdd/{change}/apply-progress`, and `sdd/{change}/verify-report`.
+- SDD artifact keys: phase artifacts use the stable topic keys `sdd/{change}/explore`, `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, `sdd/{change}/apply-progress`, `sdd/{change}/verify-report`, `sdd/{change}/sync-report`, and `sdd/{change}/archive-report`.
 - First-turn search: when the user's FIRST message references the project, a feature, or a problem, the orchestrator (not subagents) calls `mem_search` and `mem_context` before jumping to `git`, `gh`, grep, or file reads, and passes any relevant observations into delegations.
 
 ### SESSION CLOSE PROTOCOL (mandatory)
@@ -285,7 +288,7 @@ Do not skip step 1. Without it, everything done before compaction is lost from m
 
 ### Memory unavailability
 
-If memory tools are unavailable, do not pretend persistence exists. Return artifacts inline, tell the user persistence is not active, and skip the save/search steps above for the current session.
+If Engram or Obsidian is unavailable, do not pretend persistence exists. Block or return partial results, tell the user which persistence backend is not active, and skip save/search steps only for the unavailable backend.
 
 ## Execution Mode
 
@@ -327,7 +330,7 @@ The parent resolves skills once per session or before first delegation:
 
 Subagents should receive exact indexed paths. They should not have to rediscover the registry.
 
-Important distinction: SDD subagents still use their assigned executor/phase skill (for example `sdd-apply`, `sdd-design`, or `sdd-verify`). What they should not do during normal runtime is independently discover additional project/user `SKILL.md` files or the registry. The parent passes selected project/user skill paths explicitly.
+Important distinction: SDD subagents still use their assigned executor/phase skill when one exists (for example `sdd-apply`, `sdd-design`, or `sdd-verify`; `sdd-sync` is self-contained). What they should not do during normal runtime is independently discover additional project/user `SKILL.md` files or the registry. The parent passes selected project/user skill paths explicitly.
 
 If a subagent reports `skill_resolution`, interpret it as project/user skill resolution:
 

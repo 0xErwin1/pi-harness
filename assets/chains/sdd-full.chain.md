@@ -74,11 +74,20 @@ progress: true
 
 Verify {task} against specs, design, tasks, implementation, apply-progress, strict TDD evidence, assertion quality, and review workload boundaries.
 
+## sdd-sync
+
+reads: proposal.md+spec.md+design.md+tasks.md+apply-progress.md+verify-report.md
+output: sync-report.md
+outputMode: file-only
+progress: true
+
+Sync {task} artifacts between Obsidian and Engram so later agents can recover the same state. Do not create OpenSpec files unless explicitly requested.
+
 ## sdd-archive
 
-reads: verify-report.md
+reads: verify-report.md+sync-report.md
 output: archive-report.md
 outputMode: file-only
 progress: true
 
-Archive {task} only when the verification report passes; otherwise report that archive is blocked and preserve active artifacts.
+Archive {task} only when the verification report passes and artifact sync is clean; otherwise report that archive is blocked and preserve active artifacts.
