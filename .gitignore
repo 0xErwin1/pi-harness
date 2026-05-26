@@ -2,5 +2,7 @@ node_modules/
 *.log
 .DS_Store
 # Local Pi runtime state
-.agent/
+.agent/skill-registry.md
+.agent/.skill-registry.cache.json
 .logs/
+.agent/
