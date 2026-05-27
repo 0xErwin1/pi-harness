@@ -343,12 +343,18 @@ If any subagent reports a fallback instead of `paths-injected`, treat it as an o
 
 ### Mandatory writing skills
 
-Comments and documentation are not freeform. Whenever you, or a subagent you launch, will write a comment (PR/issue/review comment, chat or async reply) or any documentation (README, RFC, guide, onboarding, architecture doc, PR description), you MUST pass the relevant writing skill path under `## Skills to load before work`:
+Comments and documentation are not freeform. Whenever you, or a subagent you launch, will write a comment (PR/issue/review comment, chat or async reply) or any documentation (README, RFC, guide, onboarding, architecture doc, PR description), you MUST load the relevant writing skill:
 
 - Comments -> `comment-writer`
 - Documentation -> `cognitive-doc-design`
 
-This is not optional and overrides the "lightweight, not hard routing" guidance below: even if the registry match is uncertain, pass these paths. Also pass the destination context (target repo/thread/channel and its primary language) so the writer applies the correct language: write in the destination's language, not the chat language -- English when the destination is primarily English, even if the user is talking to you in Spanish.
+This is not optional and overrides the "lightweight, not hard routing" guidance below. It is also independent of registry matching: if the activity is writing a comment or a doc, the corresponding skill applies even when the registry returned no match for "comment" or "doc".
+
+Applies in BOTH modes:
+- **Delegating**: include the matching `SKILL.md` path in the subagent prompt under `## Skills to load before work`.
+- **Writing directly (no subagent)**: YOU must read the matching `SKILL.md` yourself BEFORE drafting a single line. Self-check before any comment/doc output: "Did I load the writing skill this turn? If no, STOP and load it now." Do not rely on prior session memory of the skill -- read the file in the current turn.
+
+Also pass the destination context (target repo/thread/channel and its primary language) so the writer applies the correct language: write in the destination's language, not the chat language -- English when the destination is primarily English, even if the user is talking to you in Spanish.
 
 ## Intent-Driven Skill Discovery
 
