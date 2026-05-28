@@ -343,7 +343,7 @@ If any subagent reports a fallback instead of `paths-injected`, treat it as an o
 
 ### Mandatory writing skills
 
-Comments and documentation are not freeform. Whenever you, or a subagent you launch, will write a comment (PR/issue/review comment, chat or async reply) or any documentation (README, RFC, guide, onboarding, architecture doc, PR description), you MUST load the relevant writing skill:
+Comments and documentation are not freeform. Whenever you, or a subagent you launch, will write a comment (PR/issue/review comment, chat or async reply, support ticket, email) or any documentation (README, RFC, guide, onboarding, architecture doc, PR description), you MUST load the relevant writing skill:
 
 - Comments -> `comment-writer`
 - Documentation -> `cognitive-doc-design`
