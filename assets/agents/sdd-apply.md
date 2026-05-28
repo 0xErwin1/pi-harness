@@ -77,6 +77,10 @@ If `sdd-init/{project}` or the parent prompt declares strict TDD and a test runn
 
 If strict TDD is active and no external support file is available, follow the RED/GREEN/TRIANGULATE/REFACTOR contract from this prompt. Do not silently fall back to standard mode.
 
+## Code Comment Hygiene
+
+Applies in both Standard and Strict TDD modes. Default to NO inline comments. Add one only when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug, or behavior that would surprise a reader. If deleting the comment would not confuse a future reader, do not write it. Function-level documentation (intent, invariants, assumptions, side effects) is allowed and preferred over inline statement comments. Never write comments that restate what the code does, and never reference the current task, fix, PR, or ticket.
+
 ## Standard Mode
 
 If strict TDD is not active, implement assigned tasks against specs and design, update task checkboxes, and record verification evidence.

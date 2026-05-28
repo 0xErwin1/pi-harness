@@ -356,6 +356,12 @@ Applies in BOTH modes:
 
 Also pass the destination context (target repo/thread/channel and its primary language) so the writer applies the correct language: write in the destination's language, not the chat language -- English when the destination is primarily English, even if the user is talking to you in Spanish.
 
+### Code comment hygiene
+
+Code comments are not freeform either. Default to NO inline comments. Add one only when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug, or behavior that would surprise a reader. If deleting the comment would not confuse a future reader, do not write it. Function-level documentation (intent, invariants, assumptions, side effects) is allowed and preferred over inline statement comments. Never write comments that restate what the code does, and never reference the current task, fix, PR, or ticket.
+
+This applies whether you write code inline or delegate it. Pi subagents (workers, sdd-apply, executors) are self-sufficient and do NOT load this orchestrator file or any CLAUDE.md/AGENTS.md, so they will not follow this rule unless you state it in the subagent prompt. When delegating any code-writing task, include this rule.
+
 ## Intent-Driven Skill Discovery
 
 For skill-shaped requests, do not treat injected `<available_skills>` as complete. Use the registry and filesystem only as a discovery aid; do not let a trigger table override the user's concrete request or turn a small request into a larger workflow.
