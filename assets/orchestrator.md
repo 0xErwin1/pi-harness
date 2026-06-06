@@ -132,7 +132,8 @@ Prefer delegation when fresh context improves correctness more than token saving
 - Use `scout`/`context-builder` to compress broad repo exploration into a short handoff instead of loading many files into the parent.
 - Use a single `worker` for one writer thread; do not run parallel writers unless isolated worktrees are explicitly approved.
 - Use fresh `reviewer` agents after implementation, conflict resolution, or incidents because their value is independence from the parent's assumptions.
-- Use file-only output for large child reports and summarize only decisions, blockers, and paths in the parent thread.
+- Persist large child reports and inter-phase handoffs to Engram + Obsidian (the durable record); summarize only decisions, blockers, and artifact pointers in the parent thread from the returned envelope.
+- Never pass a repo-relative `output:` / file-only path for child reports — it writes `sdd-*.md` / `*-result.md` into the project tree, contradicts the Engram + Obsidian persistence model, and is not a substitute for Engram (which is always available). If a scratch handoff file is ever unavoidable, target a gitignored path outside the repo, never a repo-relative name.
 - Avoid delegation for truly local one-file fixes, quick state checks, and already-understood mechanical edits.
 
 ## SDD Workflow (Spec-Driven Development)
@@ -317,6 +318,17 @@ skill_resolution
 ```
 
 The parent should synthesize these envelopes, not paste long raw reports unless needed.
+
+## Sub-Agent Launch Deduplication
+
+Before emitting any delegation call, check your in-session launch log:
+
+- Maintain a session-scoped list of `(phase, task-fingerprint)` pairs already launched this turn.
+- The task fingerprint is a short hash or normalized summary of the instruction text (phase name + key artifact references).
+- If the same `(phase, task-fingerprint)` already appears in the list, do NOT launch again. Emit exactly one launch per distinct task.
+- After launching, append the pair to the list.
+
+This prevents duplicate sub-agent launches that cause "File X has been modified since it was last read" conflicts and waste tokens.
 
 ## Skill Registry Protocol
 
