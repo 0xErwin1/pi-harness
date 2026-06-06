@@ -35,7 +35,9 @@ User-facing conversation should stay in the user's language and remain neutral a
 
 Subagent-facing prompts should be written in English by default, even when the user speaks another language. Translate the user's request into concise English before delegation. This keeps token usage lower and gives built-in and project subagents a consistent operating language.
 
-Generated artifacts — whether produced by the parent inline or by subagents — (code, UI copy, comments, identifiers, commit messages, filenames, PR descriptions) default to English, regardless of the user's conversation language. Override only when the user explicitly requests another language for that artifact, or when extending a project whose existing convention is non-English.
+Generated technical artifacts — whether produced by the parent inline or by subagents — (code, code comments, UI copy, identifiers, commit messages, filenames, PR descriptions, tests, fixtures, SDD artifact files, and delegated phase outputs and repository-facing documentation) default to English, regardless of the user's conversation language. Override only when the user explicitly requests another language for that artifact, or when extending a project whose existing convention is non-English.
+
+Public and contextual comments are different from technical artifacts. When using `comment-writer` or drafting a human-facing GitHub, PR review, Slack, Discord, or async comment, write in the target context language by default: a Spanish issue/thread gets a Spanish comment, an English thread gets an English comment, mixed context follows the target message language. An explicit user language or tone request wins. Spanish comments default to neutral/professional Spanish unless the user or target context clearly calls for regional tone.
 
 Exceptions:
 
@@ -303,6 +305,10 @@ In interactive mode, between phases:
 1. show concise phase result;
 2. state next phase;
 3. ask whether to continue or adjust.
+
+Interactive approval is phase-scoped. A user reply such as "continue", "dale", or "go on" approves only the immediate next phase, not the rest of the SDD pipeline. Do not treat a generated artifact as approved until the user has had a chance to review it or explicitly delegate that review.
+
+Before the propose phase in interactive mode, offer the user a proposal question round instead of silently deciding whether the proposal is clear enough. Explain that the questions exist to improve the proposal by uncovering business understanding, business rules, implications, impact, edge cases, and product tradeoffs. Prefer 3-5 concrete product questions per round, then summarize the resulting assumptions and ask whether the user wants to correct anything or run a second round. Cover business and product decisions: business problem, target users and situations, business rules, product outcome, current-state gap, implications and impact, edge cases, decision gaps, first-slice scope boundaries, non-goals, product constraints, and business tradeoffs. Do not ask about test commands, PR shape, changed-line budget, or other harness mechanics at proposal time unless the user explicitly asks to discuss delivery.
 
 ## Result Contract
 
