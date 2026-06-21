@@ -81,6 +81,8 @@ nextRecommended: <command-or-action>
 - `sync` is `ready` only when verify-report exists and has no unresolved `FAIL`, `BLOCKED`, `CRITICAL`, or verification blockers. `engram`/`none` modes may mark sync `not_applicable`.
 - `archive` is `ready` only when verify-report exists, sync is complete or not applicable, and tasks are complete. CRITICAL verification issues have no override. Explicit recorded exceptions are limited to non-critical partial archives or stale-checkbox reconciliation when apply-progress/verify-report prove completion.
 
+Missing planning artifacts are not blockers. When `nextRecommended` is a planning action (`propose`, `spec`, `design`, or `tasks`), launch the corresponding planning phase — a missing proposal/spec/design/tasks artifact is the expected output of that phase, not a genuine blocker. Reserve blocking routing for unsafe edit scope, ambiguous change selection, or unresolved CRITICAL verification issues.
+
 ## Action Context Guard
 
 The orchestrator MUST carry `actionContext` into any phase launch.

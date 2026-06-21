@@ -291,6 +291,16 @@ The parent owns memory retrieval and subagents own write-back for significant fi
 - SDD artifact keys: phase artifacts use the stable topic keys `sdd/{change}/explore`, `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, `sdd/{change}/apply-progress`, `sdd/{change}/verify-report`, `sdd/{change}/sync-report`, and `sdd/{change}/archive-report`.
 - First-turn search: when the user's FIRST message references the project, a feature, or a problem, the orchestrator (not subagents) calls `mem_search` and `mem_context` before jumping to `git`, `gh`, grep, or file reads, and passes any relevant observations into delegations.
 
+### Memory lifecycle
+
+When Engram exposes lifecycle metadata or tooling:
+
+- At session start, or before architecture-sensitive work, call `mem_review` with action `list` for the current project when the tool is available.
+- If `mem_review` is unavailable, do not fail the task. Continue with normal `mem_context`/`mem_search`, and still apply lifecycle metadata from any returned observations when present.
+- `active` memories may be used normally.
+- `needs_review` memories are stale context, not trusted facts. Surface that stale context to the user and verify it against current evidence before relying on it.
+- Do NOT call `mem_review` with action `mark_reviewed` automatically. Only call `mark_reviewed` after explicit user confirmation or through a dedicated memory maintenance command.
+
 ### SESSION CLOSE PROTOCOL (mandatory)
 
 Before ending a session or saying "done" / "listo" / "that's it", call `mem_session_summary` with this structure:
@@ -336,7 +346,7 @@ If Engram or Obsidian is unavailable, do not pretend persistence exists. Block o
 For substantial SDD flows, choose or ask once per change:
 
 - `interactive`: default — pause between major phases and ask whether to continue.
-- `auto`: run phases back-to-back when the user explicitly wants speed and trusts the flow.
+- `auto`: run phases back-to-back when the user explicitly wants speed and trusts the flow. Phases still run without interrupting the user, BUT the orchestrator runs the gatekeeper validation (below) after every phase before launching the next subagent — the user is interrupted only when the gatekeeper catches a real problem.
 
 In interactive mode, between phases:
 
@@ -347,6 +357,22 @@ In interactive mode, between phases:
 Interactive approval is phase-scoped. A user reply such as "continue", "dale", or "go on" approves only the immediate next phase, not the rest of the SDD pipeline. Do not treat a generated artifact as approved until the user has had a chance to review it or explicitly delegate that review.
 
 Before the propose phase in interactive mode, offer the user a proposal question round instead of silently deciding whether the proposal is clear enough. Explain that the questions exist to improve the proposal by uncovering business understanding, business rules, implications, impact, edge cases, and product tradeoffs. Prefer 3-5 concrete product questions per round, then summarize the resulting assumptions and ask whether the user wants to correct anything or run a second round. Cover business and product decisions: business problem, target users and situations, business rules, product outcome, current-state gap, implications and impact, edge cases, decision gaps, first-slice scope boundaries, non-goals, product constraints, and business tradeoffs. Do not ask about test commands, PR shape, changed-line budget, or other harness mechanics at proposal time unless the user explicitly asks to discuss delivery.
+
+### Automatic Mode Gatekeeper
+
+In `auto` mode the orchestrator is the gatekeeper between phases. When a delegated phase returns and BEFORE launching the next subagent, validate that the phase reached its objective with everything in order. This is autonomous validation — it does NOT ask the user (that is interactive mode); it surfaces only when it catches a problem.
+
+Check every phase against the Result Contract:
+
+- **Contract conformance**: the phase returned the expected fields and `status` indicates success, not partial/failed/blocked.
+- **Artifact existence**: the declared artifact actually exists and is readable in the active backend — read it back (Engram: `mem_search` + `mem_get_observation` on the topic key; Obsidian/file: read the path). A phase that reports success but produced no retrievable artifact FAILS the gate.
+- **No hallucination**: spot-check the concrete file paths, symbols, commands, or artifacts the phase claims it created or referenced; a path that does not resolve FAILS the gate.
+- **No drift from inputs**: output stays consistent with the phase's required inputs per the dependency graph — spec within proposal scope, design answers the proposal, tasks cover spec and design, apply implements the tasks. Invented requirements, scope creep, or dropped requirements FAIL the gate.
+- **Routing coherence**: the recommended next action follows the dependency graph and risks are within tolerance (no unaddressed CRITICAL).
+
+Cost-aware mechanism: run the checks inline for low-risk phases (`sdd-explore`, `sdd-spec`, `sdd-tasks`, `sdd-archive`) by reading the artifact back; delegate a fresh-context reviewer (the `sdd-verify` model) for high-risk phases (`sdd-design`, `sdd-apply`) whose errors compound downstream; escalate any inline smell to a fresh-context review before deciding.
+
+On PASS, continue automatically. On FAIL, re-run the same phase exactly once with corrective feedback naming the specific failures, then re-gate; if it fails again, STOP the automatic chain and report the phase, what was caught, both attempts, and the recommended fix. Do not advance dependent phases on a failed gate. The gatekeeper runs in addition to the Review Workload Guard and never auto-marks anything reviewed in memory.
 
 ## Result Contract
 
@@ -465,6 +491,19 @@ When chained PRs are selected and `chain_strategy` is not yet cached, ask which 
 - **`feature-branch-chain`**: PR #1 targets the feature/tracker branch; later PRs target the immediate previous PR branch; only the tracker merges to main. Best for rollback control and coordinated releases.
 
 Automatic mode does not override reviewer burnout protection. When launching `sdd-apply`, include the resolved `delivery_strategy`, `chain_strategy`, and any chosen PR boundary/exception in the prompt.
+
+## 4R Review
+
+Four read-only review lenses are available as subagents (`review-risk`, `review-readability`, `review-reliability`, `review-resilience`) and as the `4r-review` chain, which runs all four in sequence and writes one report per lens. Each lens reports findings only with `severity: BLOCKER | CRITICAL | WARNING | SUGGESTION`; they never fix code.
+
+The `review-gate` extension (`extensions/review-gate.ts`) gates `bash` calls that look like git/gh workflow events, using the trigger rules in `lib/review-triggers.ts`:
+
+- **pre-commit / pre-push** (`git commit`, `git push`): advisory only. The extension notifies the user to consider running one cheap lens (`review-readability`) but does NOT block. No orchestrator action is required.
+- **pre-pr** (`gh pr create`): strong gate. The extension BLOCKS the command when the changed paths match hot globs (`**/auth/**`, `**/update/**`, `**/security/**`, `**/payments/**`) OR the diff exceeds 400 changed lines; the block reason names the four lenses to run first. The gate is fail-open — if it cannot compute the diff it lets the command through.
+
+When the extension blocks a `gh pr create`, the orchestrator must launch the `4r-review` chain (or run the four lenses individually), surface their reports, and only then let the user retry the PR command. Do NOT bypass the block by reshaping the command. Treat the lens reports as findings for the user, not as tasks to silently act on.
+
+After a high-risk SDD phase (design, apply), prefer `judgment-day` for adversarial dual review; the 4R lenses complement it for pre-PR breadth.
 
 ## Safety
 
