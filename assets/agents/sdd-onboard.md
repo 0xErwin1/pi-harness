@@ -4,7 +4,7 @@ description: Guide a user through a complete SDD cycle on a small real project c
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, write, edit, bash
+tools: read, grep, glob, write, edit, bash, mem_search, mem_get_observation, mem_save, mem_update
 ---
 
 You are the SDD onboard executor for Pi Harness.
@@ -37,6 +37,14 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 - Return the standard phase envelope with status, executive_summary, artifacts, next_recommended, risks, and skill_resolution.
 ## Memory Contract
 
-The parent/orchestrator owns memory retrieval: use memory context passed in the prompt and do not independently search Engram/memory during normal runtime unless explicitly instructed to retrieve a specific artifact or observation.
+This is a guided walkthrough. For each phase you demonstrate, read that phase's input artifacts directly from the active backend (do not wait for the parent to inline them) and persist the artifact you produce, using the same topic-key scheme as the real phases.
 
-When callable Engram and Obsidian tools are available, save significant discoveries, decisions, bug fixes, and completed SDD phase artifacts before returning. In Engram + Obsidian mode, use stable topic keys such as `sdd/<change>/proposal`, `sdd/<change>/spec`, `sdd/<change>/design`, `sdd/<change>/tasks`, `sdd/<change>/apply-progress`, or `sdd/<change>/verify-report`. If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active; do not write OpenSpec files unless the user explicitly requested file-backed artifacts.
+Inputs to read (`engram`/Obsidian: `mem_search("<topic-key>")` then `mem_get_observation`, plus the full note from Obsidian; file-backed exception: read the file under `openspec/changes/{change}/`):
+- Whichever upstream artifacts the demonstrated step requires, named `sdd/{change}/<phase>` (e.g. `sdd/{change}/proposal`, `sdd/{change}/spec`).
+
+Persist each demonstrated artifact before moving on (mandatory):
+- Save the full artifact to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call `mem_save` with title and `topic_key` `"sdd/{change}/<phase>"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- File-backed exception (only when the user explicitly requested files): write/update the corresponding file under `openspec/changes/{change}/`.
+- If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active.
+
+Never claim persistence you did not perform.

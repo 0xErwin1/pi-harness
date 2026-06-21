@@ -4,7 +4,7 @@ description: Sync SDD artifacts between Obsidian and Engram so all agents can re
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, write, edit, bash
+tools: read, grep, glob, write, edit, bash, mem_search, mem_get_observation, mem_save, mem_update
 ---
 
 You are the SDD sync executor for Pi Harness.
@@ -28,14 +28,18 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 
 ## Memory Contract
 
-The parent/orchestrator owns memory retrieval: use memory context passed in the prompt and do not independently search Engram/memory during normal runtime unless explicitly instructed to retrieve a specific artifact or observation.
+Read the change artifacts directly from the active backend before syncing; do not wait for the parent to inline them. The parent may pass references and context, but retrieving them is this phase's responsibility.
 
-When callable Engram and Obsidian tools are available, save the sync report before returning:
+Inputs to read (`engram`/Obsidian: `mem_search("<topic-key>")` then `mem_get_observation`, plus the full notes from Obsidian; file-backed exception: read the files under `openspec/changes/{change}/`):
+- Core change artifacts: `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, and `sdd/{change}/verify-report`.
 
-- Full report: Obsidian note under `sdd/{project}/{change}-sync-report-{YYYY-MM-DD}.md`.
-- Engram summary/pointer: `topic_key: sdd/{change}/sync-report`.
+Persist this phase's artifact before returning (mandatory):
+- Full report: Obsidian note under `sdd/{project}/{change}-sync-report-{YYYY-MM-DD}.md`, then call `mem_save` with title and `topic_key` `"sdd/{change}/sync-report"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- If Engram or Obsidian is unavailable, return `blocked` or `partial`; do not silently fall back to repo files.
 
-If Engram or Obsidian is unavailable, return `blocked` or `partial`; do not silently fall back to repo files.
+Never claim persistence you did not perform.
+
+**Non-authoritative store carve-out:** when native status JSON shows `nextRecommended: "resolve-via-engram"` (covers `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` without an `openspec/` directory), the status is non-authoritative. Do not treat `dependencies` or `blockedReasons` from that status as real blockers. In normal Pi Harness operation the store is Engram + Obsidian (non-authoritative for the native engine), so reconcile artifact state directly from Engram + Obsidian rather than from the native engine's dependency states.
 
 ## Purpose
 
