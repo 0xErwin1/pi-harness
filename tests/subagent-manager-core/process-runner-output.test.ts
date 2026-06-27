@@ -166,6 +166,40 @@ test("process-runner: a tool_execution_start with args emits a progress event ca
 	assert.equal(toolProgress.target, "src/foo.ts", "the progress event must carry the extracted target");
 });
 
+test("process-runner: a thinking block emits a separate kind:'thinking' run.output, excluded from result and turns", async () => {
+	const store = new InMemoryRunStore();
+	const ctx = makeContext(store);
+
+	const previousBin = process.env.PI_HARNESS_PI_BIN;
+	process.env.PI_HARNESS_PI_BIN = fakePiBin;
+	process.env.PI_THINKING = "1";
+
+	let result: Awaited<ReturnType<typeof runPiProcessProvider>> | undefined;
+	try {
+		result = await runPiProcessProvider(ctx);
+	} finally {
+		process.env.PI_HARNESS_PI_BIN = previousBin;
+		delete process.env.PI_THINKING;
+	}
+
+	const outputs = store.eventsFor("r1").filter((e): e is RunOutputEvent => e.type === "run.output");
+	const thinkingOutputs = outputs.filter((e) => e.kind === "thinking");
+	const assistantOutputs = outputs.filter((e) => e.role === "assistant");
+
+	assert.equal(thinkingOutputs.length, 1, "the thinking block must emit one kind:'thinking' run.output");
+	assert.equal(thinkingOutputs[0].text, "Let me weigh the options first.");
+	assert.equal(thinkingOutputs[0].role, undefined, "thinking output must not carry the assistant role");
+
+	assert.equal(assistantOutputs.length, 1, "the final text must emit one assistant run.output");
+	assert.equal(assistantOutputs[0].text, "final answer");
+
+	const msgs = store.messagesFor("r1");
+	assert.equal(msgs.length, 1, "thinking must not be accumulated as a message");
+	assert.equal(msgs[0].text, "final answer");
+
+	assert.equal(result!.summary.text, "final answer", "run result text must be the final answer, not the thinking");
+});
+
 test("process-runner: single-message run.output (default fake-pi, no PI_MULTI_MESSAGE)", async () => {
 	const store = new InMemoryRunStore();
 	const ctx = makeContext(store);

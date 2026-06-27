@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProviderRunContext, RunResult } from "../runtime.ts";
 import { buildCompletedSummary } from "../store.ts";
-import { assistantTextOf, finalAssistantText, isMessageEnd, parseNdjsonLine } from "./pi-json-events.ts";
+import {
+	assistantTextOf,
+	assistantThinkingOf,
+	finalAssistantText,
+	isMessageEnd,
+	parseNdjsonLine,
+} from "./pi-json-events.ts";
 
 /** Prefix for run.progress messages that represent a tool invocation. */
 export const TOOL_PROGRESS_PREFIX = "tool:";
@@ -169,6 +175,17 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 				}
 
 				if (isMessageEnd(event) && event.message) {
+					const thinking = assistantThinkingOf(event.message);
+					if (thinking) {
+						context.emit({
+							type: "run.output",
+							chunk: thinking,
+							kind: "thinking",
+							text: thinking,
+							turn: turn + 1,
+						});
+					}
+
 					const text = assistantTextOf(event.message);
 					if (text) {
 						turn += 1;

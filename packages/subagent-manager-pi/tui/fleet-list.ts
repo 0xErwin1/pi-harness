@@ -164,8 +164,8 @@ export class FleetList implements Component {
 		const th = this.theme;
 
 		const hint = this.selectedIndex >= 0
-			? "↑↓ select · enter view · esc back"
-			: "↓ to manage subagents";
+			? "up/down select · enter view · esc back"
+			: "down to manage subagents";
 
 		const lines: string[] = [];
 		lines.push(truncateToWidth("  " + th.fg("dim", hint), width));
@@ -176,7 +176,7 @@ export class FleetList implements Component {
 		}
 
 		if (model.overflow > 0) {
-			lines.push(rightAlign("", th.fg("dim", `↓ ${model.overflow} more`), width));
+			lines.push(rightAlign("", th.fg("dim", `+${model.overflow} more`), width));
 		}
 
 		return lines;
@@ -191,7 +191,7 @@ export class FleetList implements Component {
 
 	private renderRow(row: FleetRow, width: number): string {
 		const th = this.theme;
-		const bullet = row.selected ? th.fg("accent", "⏺") : th.fg("dim", "◯");
+		const bullet = row.selected ? th.fg("accent", ">") : th.fg("dim", "-");
 		const left = `  ${bullet} ${th.fg(statusColor(row.status), row.agent)}  ${th.fg("muted", row.status)}`;
 		const right = th.fg("dim", formatElapsed(row.elapsedMs));
 		return rightAlign(left, right, width);

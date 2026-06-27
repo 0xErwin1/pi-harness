@@ -54,6 +54,13 @@ export interface RunOutputEvent extends RunEventBase {
 	type: "run.output";
 	chunk: string;
 	role?: "assistant";
+	/**
+	 * Distinguishes a final assistant text turn (`"assistant"`, the default when
+	 * absent) from a separate reasoning/thinking stream (`"thinking"`). Thinking
+	 * output is shown live but is never accumulated into the run result text nor
+	 * counted as a turn.
+	 */
+	kind?: "assistant" | "thinking";
 	text?: string;
 	turn?: number;
 }

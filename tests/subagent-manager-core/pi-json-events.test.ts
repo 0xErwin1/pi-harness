@@ -4,6 +4,7 @@ import {
 	parseNdjsonLine,
 	isMessageEnd,
 	assistantTextOf,
+	assistantThinkingOf,
 	finalAssistantText,
 	type PiJsonEvent,
 	type PiMessage,
@@ -132,6 +133,67 @@ test("assistantTextOf: per-message streaming — returns text from a single inte
 		content: [{ type: "text", text: "Thinking about the problem…" }],
 	};
 	assert.equal(assistantTextOf(partialMessage), "Thinking about the problem…");
+});
+
+test("assistantThinkingOf: reads the `thinking` field of a thinking block", () => {
+	const message: PiMessage = {
+		role: "assistant",
+		content: [
+			{ type: "thinking", thinking: "  let me reason  " },
+			{ type: "text", text: "answer" },
+		],
+	};
+	assert.equal(assistantThinkingOf(message), "let me reason");
+});
+
+test("assistantThinkingOf: falls back to the `text` field of a thinking block", () => {
+	const message: PiMessage = {
+		role: "assistant",
+		content: [{ type: "thinking", text: "reasoning in text field" }],
+	};
+	assert.equal(assistantThinkingOf(message), "reasoning in text field");
+});
+
+test("assistantThinkingOf: reads a `reasoning` block via text or reasoning field", () => {
+	assert.equal(
+		assistantThinkingOf({ role: "assistant", content: [{ type: "reasoning", text: "via text" }] }),
+		"via text",
+	);
+	assert.equal(
+		assistantThinkingOf({ role: "assistant", content: [{ type: "reasoning", reasoning: "via reasoning" }] }),
+		"via reasoning",
+	);
+});
+
+test("assistantThinkingOf: redacted_thinking carries no readable text → undefined", () => {
+	const message: PiMessage = {
+		role: "assistant",
+		content: [{ type: "redacted_thinking" }, { type: "text", text: "answer" }],
+	};
+	assert.equal(assistantThinkingOf(message), undefined);
+});
+
+test("assistantThinkingOf: returns undefined when there is no thinking and for non-assistant roles", () => {
+	assert.equal(assistantThinkingOf({ role: "assistant", content: [{ type: "text", text: "just an answer" }] }), undefined);
+	assert.equal(assistantThinkingOf({ role: "user", content: [{ type: "thinking", thinking: "x" }] }), undefined);
+	assert.equal(assistantThinkingOf({ role: "assistant" }), undefined);
+});
+
+test("thinking is a separate stream: assistantTextOf and finalAssistantText return only final text", () => {
+	const message: PiMessage = {
+		role: "assistant",
+		content: [
+			{ type: "thinking", thinking: "internal reasoning that must not leak" },
+			{ type: "text", text: "public answer" },
+		],
+	};
+
+	assert.equal(assistantTextOf(message), "public answer", "final text only, never the thinking");
+	assert.equal(
+		finalAssistantText([{ type: "message_end", message }]),
+		"public answer",
+		"run result text must exclude thinking",
+	);
 });
 
 test("assistantTextOf: per-message streaming — distinct from finalAssistantText (single vs last-scan)", () => {

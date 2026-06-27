@@ -49,6 +49,10 @@ function assistant(text: string, turn: number): RunEvent {
 	return { id: `e${eventSeq++}`, runId: "r1", type: "run.output", chunk: text, role: "assistant", text, turn, at: new Date().toISOString() };
 }
 
+function thinking(text: string): RunEvent {
+	return { id: `e${eventSeq++}`, runId: "r1", type: "run.output", chunk: text, kind: "thinking", text, turn: 1, at: new Date().toISOString() };
+}
+
 function started(): RunEvent {
 	return { id: `e${eventSeq++}`, runId: "r1", type: "run.started", agent: "viewer-agent", at: new Date().toISOString() };
 }
@@ -104,7 +108,7 @@ test("eventsToBodyLines: terminal events surface completed/failed", () => {
 		[{ id: "c1", runId: "r1", type: "run.completed", summary: { text: "ok", executionMode: "subprocess", routedBy: "t" }, at: BASE_STARTED_AT }],
 		80,
 	);
-	assert.ok(completed.some((l) => l.includes("completed")), "completed must surface");
+	assert.ok(completed.some((l) => l.includes("[done]")), "completion must surface");
 
 	const failed = eventsToBodyLines(
 		[{ id: "f1", runId: "r1", type: "run.failed", error: "boom", at: BASE_STARTED_AT }],
@@ -220,7 +224,7 @@ test("eventsToBodyLines: a tool line shows its target after the tool name", () =
 	const lines = eventsToBodyLines([toolWithTarget("read", "src/foo.ts")], 80);
 
 	assert.ok(
-		lines.some((l) => l.includes("🔧 read src/foo.ts")),
+		lines.some((l) => l.includes("[tool] read src/foo.ts")),
 		"tool line must include the target after the name",
 	);
 });
@@ -228,7 +232,7 @@ test("eventsToBodyLines: a tool line shows its target after the tool name", () =
 test("eventsToBodyLines: a tool with no target falls back to the bare name", () => {
 	const lines = eventsToBodyLines([tool("bash")], 80);
 
-	assert.ok(lines.some((l) => l === "🔧 bash"), "no target → bare tool line");
+	assert.ok(lines.some((l) => l === "[tool] bash"), "no target → bare tool line");
 });
 
 test("eventsToBodyLines: consecutive identical tool lines collapse with a ×N count", () => {
@@ -239,7 +243,7 @@ test("eventsToBodyLines: consecutive identical tool lines collapse with a ×N co
 	];
 
 	const lines = eventsToBodyLines(events, 80);
-	const toolLines = lines.filter((l) => l.startsWith("🔧"));
+	const toolLines = lines.filter((l) => l.startsWith("[tool]"));
 
 	assert.equal(toolLines.length, 1, "three identical tool calls must collapse to one line");
 	assert.ok(toolLines[0].includes("×3"), `collapsed line must carry the count, got: ${toolLines[0]}`);
@@ -253,7 +257,7 @@ test("eventsToBodyLines: distinct tool targets are NOT collapsed (no information
 	];
 
 	const lines = eventsToBodyLines(events, 80);
-	const toolLines = lines.filter((l) => l.startsWith("🔧"));
+	const toolLines = lines.filter((l) => l.startsWith("[tool]"));
 
 	assert.equal(toolLines.length, 3, "distinct targets must each keep their own line");
 	assert.ok(!toolLines.some((l) => l.includes("×")), "distinct lines must not be counted");
@@ -262,7 +266,7 @@ test("eventsToBodyLines: distinct tool targets are NOT collapsed (no information
 test("eventsToBodyLines: a long tool target is truncated to width", () => {
 	const longTarget = "x".repeat(200);
 	const lines = eventsToBodyLines([toolWithTarget("read", longTarget)], 40);
-	const toolLine = lines.find((l) => l.startsWith("🔧"));
+	const toolLine = lines.find((l) => l.startsWith("[tool]"));
 
 	assert.ok(toolLine !== undefined, "tool line must exist");
 	assert.ok(toolLine.length <= 40, `tool line must fit width, got ${toolLine.length}`);
@@ -286,7 +290,7 @@ test("buildViewerModel: header includes turn and tool counts", () => {
 		now: BASE_NOW,
 	});
 
-	assert.ok(model.headerLines[0].includes("2t/2🔧"), `header must show counts, got: ${model.headerLines[0]}`);
+	assert.ok(model.headerLines[0].includes("2t/2 tools"), `header must show counts, got: ${model.headerLines[0]}`);
 });
 
 test("buildViewerModel: footer shows 'following' when pinned to the bottom", () => {
@@ -363,14 +367,37 @@ test("buildViewerModel: a paused viewport stays anchored when new events arrive"
 	assert.deepEqual(after.bodyLines, before.bodyLines, "paused viewport must show the same window after new events");
 });
 
-test("transcriptLineColor: distinct semantic colours per line kind", () => {
+test("transcriptLineColor: distinct semantic colours per line kind (plain-text markers, no emoji)", () => {
 	assert.equal(transcriptLineColor("[Assistant]"), "accent");
-	assert.equal(transcriptLineColor("🔧 read src/foo.ts"), "success");
-	assert.equal(transcriptLineColor("✓ completed"), "success");
-	assert.equal(transcriptLineColor("✗ failed: boom"), "error");
-	assert.equal(transcriptLineColor("⚠ degraded"), "warning");
-	assert.equal(transcriptLineColor("■ interrupted"), "warning");
-	assert.equal(transcriptLineColor("▶ started"), "dim");
+	assert.equal(transcriptLineColor("[tool] read src/foo.ts"), "success");
+	assert.equal(transcriptLineColor("[done]"), "success");
+	assert.equal(transcriptLineColor("[failed] boom"), "error");
+	assert.equal(transcriptLineColor("[attention] needs input"), "warning");
+	assert.equal(transcriptLineColor("[degraded] provider: down"), "warning");
+	assert.equal(transcriptLineColor("[interrupted]"), "warning");
+	assert.equal(transcriptLineColor("[started]"), "dim");
+	assert.equal(transcriptLineColor("[thinking] weighing the options"), "dim");
 	assert.equal(transcriptLineColor("· starting subprocess"), "dim");
 	assert.equal(transcriptLineColor("plain assistant body text"), "text");
+});
+
+test("eventsToBodyLines: a thinking output renders dim-classified [thinking] lines, distinct from assistant text", () => {
+	const lines = eventsToBodyLines([thinking("I should read the spec before editing"), assistant("the answer", 1)], 80);
+
+	const thinkingLines = lines.filter((l) => l.startsWith("[thinking]"));
+	assert.ok(thinkingLines.length > 0, "thinking output must surface as [thinking] lines");
+	assert.ok(thinkingLines.every((l) => transcriptLineColor(l) === "dim"), "every thinking line must classify dim");
+	assert.ok(thinkingLines.some((l) => l.includes("read the spec")), "thinking text must be present");
+
+	assert.ok(lines.includes("[Assistant]"), "final assistant text keeps its own [Assistant] header");
+	assert.ok(!lines.some((l) => l.startsWith("[thinking]") && l.includes("the answer")), "final text must not be tagged thinking");
+});
+
+test("eventsToBodyLines: thinking text wraps to width under the [thinking] marker", () => {
+	const longThought = "reasoning ".repeat(30).trim();
+	const lines = eventsToBodyLines([thinking(longThought)], 40);
+	const thinkingLines = lines.filter((l) => l.startsWith("[thinking]"));
+
+	assert.ok(thinkingLines.length > 1, "a long thought must wrap into multiple lines");
+	assert.ok(thinkingLines.every((l) => l.length <= 40), "wrapped thinking lines must fit the width");
 });

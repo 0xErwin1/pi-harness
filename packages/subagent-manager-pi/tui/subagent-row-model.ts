@@ -1,4 +1,4 @@
-import type { RunEvent, RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
+import type { RunEvent, RunOutputEvent, RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunMessage } from "../../subagent-manager-core/store.ts";
 import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/providers/process-runner.ts";
 import { eventsToBodyLines } from "./conversation-viewer-model.ts";
@@ -31,7 +31,7 @@ function truncateFirstLine(text: string): string {
 function humanizeActivity(message: string): string {
 	if (!message) return "";
 	if (message.startsWith(TOOL_PROGRESS_PREFIX)) {
-		return `🔧 ${message.slice(TOOL_PROGRESS_PREFIX.length).trim()}`;
+		return `[tool] ${message.slice(TOOL_PROGRESS_PREFIX.length).trim()}`;
 	}
 	return message;
 }
@@ -52,6 +52,7 @@ export function buildSubagentRowModel(
 	let tools = 0;
 	let lastProgressMessage = "";
 	let lastMessageText = "";
+	let lastThinkingText = "";
 
 	for (const id of runIds) {
 		const msgs = access.messages(id);
@@ -67,6 +68,9 @@ export function buildSubagentRowModel(
 				const msg = (ev as { message?: string }).message ?? "";
 				if (msg.startsWith(TOOL_PROGRESS_PREFIX)) tools += 1;
 				lastProgressMessage = msg;
+			} else if (ev.type === "run.output") {
+				const out = ev as RunOutputEvent;
+				if (out.kind === "thinking" && out.text) lastThinkingText = out.text;
 			}
 		}
 	}
@@ -74,7 +78,9 @@ export function buildSubagentRowModel(
 	const activity = lastProgressMessage || status;
 	const lastLine = lastMessageText
 		? truncateFirstLine(lastMessageText)
-		: truncateFirstLine(humanizeActivity(lastProgressMessage));
+		: lastThinkingText
+			? truncateFirstLine(`thinking ${lastThinkingText}`)
+			: truncateFirstLine(humanizeActivity(lastProgressMessage));
 
 	return { agent, status, activity, elapsedMs, turns, tools, lastLine };
 }
@@ -82,7 +88,7 @@ export function buildSubagentRowModel(
 /**
  * Builds the chronological transcript lines for the expanded (native Ctrl-O) tool
  * row. Mirrors the conversation overlay: each run's event stream is rendered via
- * the shared `eventsToBodyLines`, so tool-only turns surface their `🔧 <tool>`
+ * the shared `eventsToBodyLines`, so tool-only turns surface their `[tool] <tool>`
  * activity instead of an empty transcript. A `width` of 0 leaves assistant text
  * unwrapped so the caller's text component can wrap it to the terminal.
  *

@@ -677,15 +677,15 @@ class ModelPanel implements OverlayComponent {
 				row === SET_ALL_AGENTS
 					? this.renderSetAllLabel(row)
 					: this.renderAgentLabel(row);
-			lines.push(line(`${focused ? "▸" : " "} ${label}`));
+			lines.push(line(`${focused ? ">" : " "} ${label}`));
 		}
 
 		lines.push("");
 		lines.push(
-			line(`${this.cursor === this.rows.length ? "▸" : " "} Continue`),
+			line(`${this.cursor === this.rows.length ? ">" : " "} Continue`),
 		);
 		lines.push(
-			line(`${this.cursor === this.rows.length + 1 ? "▸" : " "} ← Back`),
+			line(`${this.cursor === this.rows.length + 1 ? ">" : " "} < Back`),
 		);
 		lines.push("");
 		lines.push(
@@ -705,7 +705,7 @@ class ModelPanel implements OverlayComponent {
 
 		lines.push(line(`Select model for ${this.selectedRow}`));
 		lines.push("");
-		lines.push(line(`◎ ${this.query || "search..."}`));
+		lines.push(line(`/ ${this.query || "search..."}`));
 		lines.push("");
 
 		const maxVisible = 12;
@@ -720,7 +720,7 @@ class ModelPanel implements OverlayComponent {
 
 		for (let i = start; i < end; i++) {
 			const focused = i === this.modelCursor;
-			lines.push(line(`${focused ? "▸" : " "} ${options[i]}`));
+			lines.push(line(`${focused ? ">" : " "} ${options[i]}`));
 		}
 		if (options.length === 0) lines.push(line("  No matching models"));
 
@@ -771,7 +771,7 @@ class ModelPanel implements OverlayComponent {
 
 		for (let i = 0; i < THINKING_OPTIONS.length; i++) {
 			const focused = i === this.effortCursor;
-			lines.push(line(`${focused ? "▸" : " "} ${THINKING_OPTIONS[i]}`));
+			lines.push(line(`${focused ? ">" : " "} ${THINKING_OPTIONS[i]}`));
 		}
 
 		lines.push("");

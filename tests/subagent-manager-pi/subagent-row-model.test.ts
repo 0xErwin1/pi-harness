@@ -191,6 +191,20 @@ test("buildSubagentRowModel: lastLine falls back to the latest tool activity whe
 	assert.ok(!model.lastLine.startsWith("tool:"), "the raw 'tool:' marker must be humanized");
 });
 
+test("buildSubagentRowModel: lastLine surfaces the latest thinking when there is no assistant text", () => {
+	const events: RunEvent[] = [
+		{ id: "e1", runId: "r1", type: "run.progress", message: "tool: Read", at: new Date().toISOString() },
+		{ id: "e2", runId: "r1", type: "run.output", chunk: "weighing options", kind: "thinking", text: "weighing options", turn: 1, at: new Date().toISOString() },
+	];
+	const access = makeAccess({ r1: makeSnapshot("r1") }, {}, { r1: events });
+
+	const model = buildSubagentRowModel(access, ["r1"], now);
+
+	assert.equal(model.turns, 0, "thinking output must not count as an assistant turn");
+	assert.ok(model.lastLine.includes("weighing options"), "lastLine must surface the latest thinking");
+	assert.ok(model.lastLine.startsWith("thinking"), "thinking lastLine must carry the plain-text label");
+});
+
 test("buildSubagentRowModel: assistant text takes precedence over tool activity for lastLine", () => {
 	const events: RunEvent[] = [
 		{ id: "e1", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() },
@@ -217,8 +231,8 @@ test("buildExpandedBodyLines: tool-only run yields the tool activity, not an emp
 	const lines = buildExpandedBodyLines(access, ["r1"], 0);
 
 	assert.ok(lines.length > 0, "expanded body must not be empty during a tool-only run");
-	assert.ok(lines.some((l) => l.includes("🔧") && l.includes("Read")), "must surface the Read tool line");
-	assert.ok(lines.some((l) => l.includes("🔧") && l.includes("Bash")), "must surface the Bash tool line");
+	assert.ok(lines.some((l) => l.includes("[tool]") && l.includes("Read")), "must surface the Read tool line");
+	assert.ok(lines.some((l) => l.includes("[tool]") && l.includes("Bash")), "must surface the Bash tool line");
 });
 
 test("buildExpandedBodyLines: merges tool activity and assistant text chronologically", () => {
@@ -230,7 +244,7 @@ test("buildExpandedBodyLines: merges tool activity and assistant text chronologi
 
 	const lines = buildExpandedBodyLines(access, ["r1"], 0);
 
-	const toolIndex = lines.findIndex((l) => l.includes("🔧") && l.includes("Read"));
+	const toolIndex = lines.findIndex((l) => l.includes("[tool]") && l.includes("Read"));
 	const textIndex = lines.findIndex((l) => l.includes("here is the answer"));
 
 	assert.ok(toolIndex >= 0, "tool line must be present");

@@ -29,14 +29,14 @@ export interface SubagentRenderContext {
 /** Resolves the live row accessor for a tool execution's working directory. */
 export type RuntimeAccessor = (cwd: string) => SubagentRowAccess;
 
-const ICON_RUNNING = "●";
-const ICON_DONE = "✓";
-const ICON_FAILED = "✗";
-const ICON_INTERRUPTED = "⊘";
-const ICON_ATTENTION = "⚠";
-const ICON_QUEUED = "○";
+const ICON_RUNNING = ">";
+const ICON_DONE = "+";
+const ICON_FAILED = "x";
+const ICON_INTERRUPTED = "/";
+const ICON_ATTENTION = "!";
+const ICON_QUEUED = "-";
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_FRAMES = ["-", "\\", "|", "/"];
 
 function statusGlyph(status: RunStatus): string {
 	switch (status) {
@@ -107,7 +107,7 @@ export function buildCollapsedLine(
 	if (model.agent) parts.push(model.agent);
 	if (model.activity) parts.push(model.activity);
 	parts.push(formatElapsed(model.elapsedMs));
-	parts.push(`${counts.turns}t/${counts.tools}🔧`);
+	parts.push(`${counts.turns}t/${counts.tools} tools`);
 	if (model.lastLine) parts.push(model.lastLine);
 
 	return parts.join(" · ");

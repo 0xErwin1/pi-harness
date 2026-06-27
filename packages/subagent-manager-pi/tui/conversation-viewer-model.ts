@@ -53,7 +53,8 @@ function truncateByLength(text: string, max: number): string {
 	return `${text.slice(0, max - 1)}…`;
 }
 
-const TOOL_LINE_PREFIX = "🔧 ";
+const TOOL_LINE_PREFIX = "[tool] ";
+const THINKING_LINE_PREFIX = "[thinking] ";
 
 /**
  * Collapses consecutive identical tool lines into a single `… ×N` line so a long
@@ -100,18 +101,23 @@ export type TranscriptColor = "accent" | "success" | "error" | "warning" | "dim"
 
 /**
  * Maps a transcript line to a semantic colour so the viewer can give assistant
- * text, tool activity, and status transitions a distinct visual hierarchy.
- * Pure and theme-agnostic: callers translate the colour name through their
- * theme. Detection mirrors the glyphs emitted by `eventsToBodyLines`.
+ * text, reasoning, tool activity, and status transitions a distinct visual
+ * hierarchy. Pure and theme-agnostic: callers translate the colour name through
+ * their theme. Detection keys off the plain-text markers emitted by
+ * `eventsToBodyLines` (no pictographs), so the markers and this classifier must
+ * stay in sync.
  */
 export function transcriptLineColor(line: string): TranscriptColor {
 	if (line.startsWith("[Assistant")) return "accent";
-	if (line.startsWith("🔧")) return "success";
-	if (line.startsWith("✓")) return "success";
-	if (line.startsWith("✗")) return "error";
-	if (line.startsWith("⚠")) return "warning";
-	if (line.startsWith("■")) return "warning";
-	if (line.startsWith("▶") || line.startsWith("·")) return "dim";
+	if (line.startsWith(TOOL_LINE_PREFIX)) return "success";
+	if (line.startsWith("[done]")) return "success";
+	if (line.startsWith("[failed]")) return "error";
+	if (line.startsWith("[attention]")) return "warning";
+	if (line.startsWith("[degraded]")) return "warning";
+	if (line.startsWith("[interrupted]")) return "warning";
+	if (line.startsWith("[started]")) return "dim";
+	if (line.startsWith(THINKING_LINE_PREFIX)) return "dim";
+	if (line.startsWith("·")) return "dim";
 	return "text";
 }
 
@@ -141,37 +147,40 @@ export function eventsToBodyLines(events: RunEvent[], width: number): string[] {
 	for (const event of events) {
 		switch (event.type) {
 			case "run.started":
-				lines.push("▶ started");
+				lines.push("[started]");
 				break;
 			case "run.progress": {
 				const tool = toolNameFromProgress(event.message);
 				if (tool) {
-					lines.push(event.target ? `🔧 ${tool} ${event.target}` : `🔧 ${tool}`);
+					lines.push(event.target ? `${TOOL_LINE_PREFIX}${tool} ${event.target}` : `${TOOL_LINE_PREFIX}${tool}`);
 				} else {
 					lines.push(`· ${event.message}`);
 				}
 				break;
 			}
 			case "run.output":
-				if (event.role === "assistant" && event.text) {
+				if (event.kind === "thinking" && event.text) {
+					const wrapWidth = width > 0 ? width - THINKING_LINE_PREFIX.length : width;
+					for (const line of wrapText(event.text, wrapWidth)) lines.push(`${THINKING_LINE_PREFIX}${line}`);
+				} else if (event.role === "assistant" && event.text) {
 					lines.push("[Assistant]");
 					for (const line of wrapText(event.text, width)) lines.push(line);
 				}
 				break;
 			case "run.needs_attention":
-				lines.push(`⚠ ${event.reason}`);
+				lines.push(`[attention] ${event.reason}`);
 				break;
 			case "run.completed":
-				lines.push("✓ completed");
+				lines.push("[done]");
 				break;
 			case "run.failed":
-				lines.push(`✗ failed: ${event.error}`);
+				lines.push(`[failed] ${event.error}`);
 				break;
 			case "run.interrupted":
-				lines.push("■ interrupted");
+				lines.push("[interrupted]");
 				break;
 			case "provider.degraded":
-				lines.push(`⚠ ${event.provider}: ${event.reason}`);
+				lines.push(`[degraded] ${event.provider}: ${event.reason}`);
 				break;
 		}
 	}
@@ -201,7 +210,7 @@ export function buildViewerModel(input: {
 		if (event.type === "run.output" && event.role === "assistant" && event.text) turns += 1;
 		if (event.type === "run.progress" && toolNameFromProgress(event.message) !== undefined) tools += 1;
 	}
-	const counts = `${turns}t/${tools}🔧`;
+	const counts = `${turns}t/${tools} tools`;
 
 	const headerParts = [agent, status, elapsed, counts].filter((p) => p.length > 0);
 	const headerLines = [headerParts.join(" · ")];

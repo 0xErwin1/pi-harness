@@ -11,6 +11,8 @@
  *   PI_IGNORE_SIGTERM  — when set, traps SIGTERM without exiting (to test SIGKILL fallback)
  *   PI_TOOL_WITH_ARGS  — when set, emits a tool_execution_start carrying {toolName, args}
  *                        before a final message_end (for tool-target extraction tests)
+ *   PI_THINKING        — when set, emits a message_end whose assistant content carries
+ *                        a thinking block before the final text (for thinking-stream tests)
  */
 
 import { writeFileSync } from "node:fs";
@@ -46,6 +48,20 @@ if (process.env.PI_IGNORE_SIGTERM) {
 				message: {
 					role: "assistant",
 					content: [{ type: "text", text: "done" }],
+				},
+			}) + "\n",
+		);
+		process.exit(0);
+	} else if (process.env.PI_THINKING) {
+		process.stdout.write(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "Let me weigh the options first." },
+						{ type: "text", text: "final answer" },
+					],
 				},
 			}) + "\n",
 		);

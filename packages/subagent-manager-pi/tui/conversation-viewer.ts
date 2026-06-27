@@ -195,12 +195,12 @@ export class ConversationViewer implements Component {
 		const th = this.theme;
 		const status = snapshot?.status ?? "unknown";
 		const icon = status === "running"
-			? th.fg("accent", "●")
+			? th.fg("accent", ">")
 			: status === "completed"
-				? th.fg("success", "✓")
+				? th.fg("success", "+")
 				: status === "failed"
-					? th.fg("error", "✗")
-					: th.fg("dim", "○");
+					? th.fg("error", "x")
+					: th.fg("dim", "-");
 		return `${icon} ${th.bold(headerLines[0] ?? "")}`;
 	}
 
@@ -217,7 +217,7 @@ export class ConversationViewer implements Component {
 	private renderFooter(footerLine: string, innerW: number): string {
 		const th = this.theme;
 		const left = th.fg("dim", footerLine);
-		const hint = th.fg("dim", "↑↓/jk · PgUp/PgDn · End/G follow · Esc close");
+		const hint = th.fg("dim", "up/down/jk · PgUp/PgDn · End/G follow · Esc close");
 		const gap = Math.max(1, innerW - visibleWidth(left) - visibleWidth(hint));
 		return left + " ".repeat(gap) + hint;
 	}
