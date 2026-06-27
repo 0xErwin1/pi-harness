@@ -6,3 +6,8 @@ export * from "./store";
 export * from "./providers/subprocess";
 export * from "./providers/process-runner";
 export * from "./providers/pi-json-events";
+export * from "./file-tree/paths.ts";
+export * from "./file-tree/meta.ts";
+export * from "./file-tree/jsonl.ts";
+export * from "./file-tree/sink.ts";
+export * from "./file-tree/reader.ts";
