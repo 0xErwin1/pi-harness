@@ -27,6 +27,28 @@ import type {
 	ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
 import { matchesKey, truncateToWidth } from "@mariozechner/pi-tui";
+import { Type } from "@sinclair/typebox";
+import {
+	builtinAgentDirectories,
+	createManagerCommandSurface,
+	readSubagentManagerConfig,
+	registerFleetWidget,
+	renderSubagentCall,
+	renderSubagentResult,
+	saveBuiltinAgentRoutingOverride,
+	selectMostRecentRunId,
+	showConversationViewer,
+	translateSubagentPayload,
+	type CompatPayload,
+	type SubagentResultDetails,
+} from "../packages/subagent-manager-pi/index.ts";
+import {
+	ManagerRuntime,
+	TOOL_PROGRESS_PREFIX,
+	createSubprocessProvider,
+	type AgentSpec,
+	type RunResult,
+} from "../packages/subagent-manager-core/index.ts";
 
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const ASSETS_DIR = join(PACKAGE_ROOT, "assets");
@@ -277,11 +299,7 @@ function listAgentsFromDir(dir: string, source: AgentSource): AgentEntry[] {
  * agents first, followed by the rest sorted alphabetically.
  */
 function listDiscoverableAgents(cwd: string): AgentEntry[] {
-	const builtinDirs = [
-		join(PACKAGE_ROOT, "..", "pi-subagents", "agents"),
-		join(cwd, ".pi", "npm", "node_modules", "pi-subagents", "agents"),
-		join(homedir(), ".local", "lib", "node_modules", "pi-subagents", "agents"),
-	];
+	const builtinDirs = builtinAgentDirectories(cwd, PACKAGE_ROOT);
 
 	const agents = [
 		...builtinDirs.flatMap((dir) => listAgentsFromDir(dir, "builtin")),
@@ -321,47 +339,7 @@ function updateBuiltinModelOverride(
 	name: string,
 	entry: AgentRoutingEntry | undefined,
 ): boolean {
-	const path = projectSettingsPath(cwd);
-
-	let settings: Record<string, unknown> = {};
-	if (existsSync(path)) {
-		try {
-			const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-			if (isRecord(parsed)) settings = parsed;
-		} catch {
-			settings = {};
-		}
-	}
-
-	const subagents = isRecord(settings.subagents)
-		? { ...settings.subagents }
-		: {};
-	const agentOverrides = isRecord(subagents.agentOverrides)
-		? { ...subagents.agentOverrides }
-		: {};
-	const current = isRecord(agentOverrides[name])
-		? { ...agentOverrides[name] }
-		: {};
-
-	if (entry?.model === undefined) delete current.model;
-	else current.model = entry.model;
-
-	if (entry?.thinking === undefined) delete current.thinking;
-	else current.thinking = entry.thinking;
-
-	if (Object.keys(current).length > 0) agentOverrides[name] = current;
-	else delete agentOverrides[name];
-
-	if (Object.keys(agentOverrides).length > 0)
-		subagents.agentOverrides = agentOverrides;
-	else delete subagents.agentOverrides;
-
-	if (Object.keys(subagents).length > 0) settings.subagents = subagents;
-	else delete settings.subagents;
-
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(settings, null, "\t")}\n`);
-	return true;
+	return saveBuiltinAgentRoutingOverride(cwd, name, entry);
 }
 
 /**
@@ -843,6 +821,107 @@ async function showModelPanel(
  * custom-model input requests by re-opening the panel with the updated draft,
  * and on save persists the config and applies it to all agents.
  */
+function readDefaultModelId(): string | undefined {
+	try {
+		const settings = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "settings.json"), "utf8")) as { defaultProvider?: string; defaultModel?: string };
+		if (settings.defaultProvider && settings.defaultModel) return `${settings.defaultProvider}/${settings.defaultModel}`;
+	} catch {
+		return undefined;
+	}
+	return undefined;
+}
+
+function createManagerRegistry(cwd: string): AgentSpec[] {
+	const defaultModel = readDefaultModelId();
+	const genericAgents: AgentSpec[] = [
+		{
+			name: "general-purpose",
+			description: "Generic subagent controlled by the parent prompt",
+			promptRef: "You are a generic Pi subagent. Follow the parent prompt exactly, stay within scope, use available tools when needed, and return a concise result with evidence.",
+			policyMode: "writer",
+			model: defaultModel,
+			execution: "auto",
+			inheritProjectContext: true,
+			inheritSkills: true,
+		},
+		{
+			name: "Explore",
+			description: "Read-only exploration subagent",
+			promptRef: "You are an exploration subagent. Inspect the project with read-only tools, explain what you find, include key files, and do not modify files.",
+			policyMode: "advisory",
+			model: defaultModel,
+			execution: "auto",
+			inheritProjectContext: true,
+			inheritSkills: true,
+		},
+		{
+			name: "Plan",
+			description: "Read-only planning subagent",
+			promptRef: "You are a planning subagent. Analyze the request and repository context, then produce an implementation plan. Do not modify files.",
+			policyMode: "advisory",
+			model: defaultModel,
+			execution: "auto",
+			inheritProjectContext: true,
+			inheritSkills: true,
+		},
+	];
+
+	const discoveredAgents: AgentSpec[] = listDiscoverableAgents(cwd).map((agent): AgentSpec => ({
+		name: agent.name,
+		description: `${agent.source} agent ${agent.name}`,
+		promptRef: agent.filePath ?? agent.name,
+		policyMode: agent.name.startsWith("review-") || agent.name === "sdd-verify" ? "reviewer" : "writer",
+		model: defaultModel,
+		execution: "auto",
+		inheritProjectContext: true,
+		inheritSkills: false,
+	}));
+
+	return [...genericAgents, ...discoveredAgents];
+}
+
+function createHarnessManagerRuntime(cwd: string): ManagerRuntime {
+	return new ManagerRuntime({
+		registry: { builtin: createManagerRegistry(cwd) },
+		providers: [createSubprocessProvider()],
+	});
+}
+
+const runtimes = new Map<string, ManagerRuntime>();
+
+const registeredCwds = new Set<string>();
+
+function getManagerRuntime(cwd: string): ManagerRuntime {
+	const existing = runtimes.get(cwd);
+	if (existing) return existing;
+
+	const runtime = createHarnessManagerRuntime(cwd);
+	runtimes.set(cwd, runtime);
+	return runtime;
+}
+
+const MAX_CONCURRENCY = 4;
+
+export async function mapWithConcurrencyLimit<T, R>(
+	items: T[],
+	limit: number,
+	fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const results: R[] = new Array(items.length);
+	let index = 0;
+
+	async function worker(): Promise<void> {
+		while (index < items.length) {
+			const current = index++;
+			results[current] = await fn(items[current]!);
+		}
+	}
+
+	const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+	await Promise.all(workers);
+	return results;
+}
+
 async function handleModelsCommand(ctx: ExtensionContext): Promise<void> {
 	let config = readModelConfig(ctx.cwd);
 	let result = await showModelPanel(ctx, config);
@@ -902,7 +981,124 @@ async function handleModelsCommand(ctx: ExtensionContext): Promise<void> {
 	);
 }
 
+function lastUserText(ctx: ExtensionContext): string | undefined {
+	const branch = ctx.sessionManager.getBranch();
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index] as { type?: string; message?: { role?: string; content?: Array<{ type?: string; text?: string }> } };
+		if (entry.type !== "message" || entry.message?.role !== "user") continue;
+		const text = entry.message.content?.find((part) => part.type === "text")?.text?.trim();
+		if (text) return text;
+	}
+	return undefined;
+}
+
+function normalizeSubagentPayload(params: unknown, ctx: ExtensionContext): CompatPayload {
+	if (!params || typeof params !== "object" || Array.isArray(params)) {
+		return { prompt: lastUserText(ctx) ?? "Execute the requested subagent task." };
+	}
+	const payload = { ...(params as Record<string, unknown>) };
+	const hasPrompt = ["task", "prompt", "message", "instructions", "input", "query", "description"].some(
+		(key) => typeof payload[key] === "string" && (payload[key] as string).trim().length > 0,
+	);
+	if (!hasPrompt && !Array.isArray(payload.tasks) && !Array.isArray(payload.chain) && typeof payload.action !== "string") {
+		payload.prompt = lastUserText(ctx) ?? "Execute the requested subagent task.";
+	}
+	return payload as CompatPayload;
+}
+
+const SubagentToolParameters = Type.Object(
+	{
+		agent: Type.Optional(Type.String({ description: "Agent name, e.g. general-purpose, Explore, Plan, sdd-apply." })),
+		task: Type.Optional(Type.String({ description: "Task for agent/task style calls." })),
+		subagent_type: Type.Optional(Type.String({ description: "Claude/OpenCode-style agent type, e.g. Explore or general-purpose." })),
+		prompt: Type.Optional(Type.String({ description: "Prompt for Claude/OpenCode-style calls. Use this for the full delegated instruction." })),
+		description: Type.Optional(Type.String({ description: "Short task description; also used as prompt if no prompt/task is provided." })),
+		message: Type.Optional(Type.String()),
+		instructions: Type.Optional(Type.String()),
+		input: Type.Optional(Type.String()),
+		query: Type.Optional(Type.String()),
+		tasks: Type.Optional(Type.Array(Type.Any(), { description: "Parallel task array." })),
+		chain: Type.Optional(Type.Array(Type.Any(), { description: "Sequential chain array." })),
+		action: Type.Optional(Type.String({ description: "Manager action; unsupported actions fail explicitly until implemented." })),
+	},
+	{ additionalProperties: true },
+);
+
 export default function harness(pi: ExtensionAPI): void {
+	pi.registerTool({
+		name: "subagent",
+		label: "Subagent",
+		description: "Launch a harness-owned subagent manager run. Supports agent+task, subagent_type+prompt, and generic prompt-only delegation.",
+		parameters: SubagentToolParameters,
+		renderCall: renderSubagentCall,
+		renderResult: renderSubagentResult((cwd) => getManagerRuntime(cwd)),
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			const payload = normalizeSubagentPayload(params, ctx);
+			const translation = translateSubagentPayload(payload);
+			if (translation.unsupported) {
+				return {
+					content: [{ type: "text", text: `Subagent request unsupported by harness manager (${translation.unsupportedReason}).` }],
+					details: {} as SubagentResultDetails,
+				};
+			}
+
+			const runtime = getManagerRuntime(ctx.cwd);
+			const results: RunResult[] = [];
+			const runIds: string[] = [];
+			const runIdSet = new Set<string>();
+			let turns = 0;
+			let tools = 0;
+
+			const unsubscribe = runtime.subscribe((event, snapshot) => {
+				if (!runIdSet.has(event.runId)) return;
+
+				if (event.type === "run.output" && event.role === "assistant") {
+					turns += 1;
+				} else if (event.type === "run.progress" && event.message.startsWith(TOOL_PROGRESS_PREFIX)) {
+					tools += 1;
+				}
+
+				const text = event.type === "run.progress"
+					? event.message
+					: `${snapshot.agent} · ${snapshot.status}`;
+
+				onUpdate?.({
+					content: [{ type: "text", text }],
+					details: { runIds, turns, tools },
+				});
+			});
+
+			try {
+				if (translation.mode === "parallel") {
+					const parallelConcurrency = typeof translation.requests[0]?.metadata?.parallelConcurrency === "number"
+						? (translation.requests[0].metadata.parallelConcurrency as number)
+						: translation.requests.length;
+					const cap = Math.min(MAX_CONCURRENCY, parallelConcurrency, translation.requests.length);
+					results.push(...await mapWithConcurrencyLimit(
+						translation.requests,
+						cap,
+						(r) => runtime.run(r, { signal, onStart: (id) => { runIds.push(id); runIdSet.add(id); } }),
+					));
+				} else {
+					for (const request of translation.requests) {
+						results.push(await runtime.run(request, { signal, onStart: (id) => { runIds.push(id); runIdSet.add(id); } }));
+					}
+				}
+
+				const text = results
+					.map((r) => `## ${r.runId}\n${r.summary.text}`)
+					.join("\n\n") || "No subagent requests were produced.";
+
+				return {
+					content: [{ type: "text", text }],
+					details: { runIds, turns, tools },
+				};
+			} finally {
+				unsubscribe();
+			}
+		},
+	});
+
 	// Append the orchestrator contract to the system prompt. The asset is read
 	// at runtime so a not-yet-created or unreadable file simply skips injection.
 	pi.on("before_agent_start", (event, _ctx) => {
@@ -912,6 +1108,13 @@ export default function harness(pi: ExtensionAPI): void {
 		return {
 			systemPrompt: `${event.systemPrompt}\n\n${orchestratorPrompt}`,
 		};
+	});
+
+	// Register the fleet widget once per cwd so it captures every run from session start.
+	pi.on("session_start", (_event, ctx) => {
+		if (registeredCwds.has(ctx.cwd)) return;
+		registeredCwds.add(ctx.cwd);
+		registerFleetWidget(ctx, getManagerRuntime(ctx.cwd));
 	});
 
 	pi.registerCommand("sdd:models", {
@@ -936,6 +1139,60 @@ export default function harness(pi: ExtensionAPI): void {
 				].join("\n"),
 				"info",
 			);
+		},
+	});
+
+	pi.registerCommand("subagent:status", {
+		description: "Show in-flight subagent manager run status.",
+		handler: async (args, ctx) => {
+			const surface = createManagerCommandSurface({
+				cwd: ctx.cwd,
+				backend: getManagerRuntime(ctx.cwd),
+			});
+			const result = await surface.status(args.trim() || undefined);
+			ctx.ui.notify(result.lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("subagent:interrupt", {
+		description: "Request interruption for a subagent manager run by id.",
+		handler: async (args, ctx) => {
+			const runId = args.trim();
+			if (!runId) {
+				ctx.ui.notify("Usage: /subagent:interrupt <runId>", "error");
+				return;
+			}
+			const surface = createManagerCommandSurface({
+				cwd: ctx.cwd,
+				backend: getManagerRuntime(ctx.cwd),
+			});
+			const result = await surface.interrupt(runId);
+			ctx.ui.notify(result.lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("subagent:doctor", {
+		description: "Explain subagent manager runtime readiness.",
+		handler: async (_args, ctx) => {
+			const surface = createManagerCommandSurface({
+				cwd: ctx.cwd,
+				backend: getManagerRuntime(ctx.cwd),
+			});
+			const result = surface.doctor();
+			ctx.ui.notify(result.lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerCommand("subagent:view", {
+		description: "Open the conversation viewer for a subagent run. Optionally pass a run ID; defaults to the most recent active run.",
+		handler: async (args, ctx) => {
+			const runtime = getManagerRuntime(ctx.cwd);
+			const runId = args.trim() || selectMostRecentRunId(await runtime.status());
+			if (!runId) {
+				ctx.ui.notify("No subagent runs found.", "info");
+				return;
+			}
+			await showConversationViewer(ctx, runtime, runId);
 		},
 	});
 }

@@ -1,0 +1,229 @@
+import {
+	type Component,
+	matchesKey,
+	truncateToWidth,
+	type TUI,
+	visibleWidth,
+} from "@mariozechner/pi-tui";
+import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+import type { RunSnapshot } from "../../subagent-manager-core/events.ts";
+import type { RunMessage, RunStoreListener } from "../../subagent-manager-core/store.ts";
+import { buildViewerModel } from "./conversation-viewer-model.ts";
+
+/** Live accessor surface the viewer needs from the manager runtime. */
+export interface ViewerRuntime {
+	subscribe(listener: RunStoreListener): () => void;
+	messages(id: string): RunMessage[];
+	snapshot(id: string): RunSnapshot | undefined;
+}
+
+/** Lines consumed by the bordered chrome: top, header, header separator, footer separator, footer, bottom. */
+const CHROME_LINES = 6;
+const MIN_VIEWPORT = 3;
+const VIEWPORT_HEIGHT_PCT = 80;
+
+export type ScrollAction = "up" | "down" | "pageUp" | "pageDown" | "home" | "end";
+
+export interface ScrollState {
+	scrollOffset: number;
+	autoScroll: boolean;
+}
+
+/**
+ * Pure scroll reducer. `autoScroll` re-engages whenever the offset reaches the
+ * bottom so live updates keep following the tail, and disengages on any upward
+ * or absolute-top movement.
+ */
+export function applyScroll(
+	action: ScrollAction,
+	state: ScrollState,
+	maxScroll: number,
+	viewportHeight: number,
+): ScrollState {
+	const clamp = (value: number) => Math.max(0, Math.min(value, maxScroll));
+
+	switch (action) {
+		case "up": {
+			const offset = clamp(state.scrollOffset - 1);
+			return { scrollOffset: offset, autoScroll: offset >= maxScroll };
+		}
+		case "down": {
+			const offset = clamp(state.scrollOffset + 1);
+			return { scrollOffset: offset, autoScroll: offset >= maxScroll };
+		}
+		case "pageUp": {
+			const offset = clamp(state.scrollOffset - viewportHeight);
+			return { scrollOffset: offset, autoScroll: false };
+		}
+		case "pageDown": {
+			const offset = clamp(state.scrollOffset + viewportHeight);
+			return { scrollOffset: offset, autoScroll: offset >= maxScroll };
+		}
+		case "home":
+			return { scrollOffset: 0, autoScroll: false };
+		case "end":
+			return { scrollOffset: maxScroll, autoScroll: true };
+	}
+}
+
+function classifyScrollKey(data: string): ScrollAction | undefined {
+	if (matchesKey(data, "up") || matchesKey(data, "k")) return "up";
+	if (matchesKey(data, "down") || matchesKey(data, "j")) return "down";
+	if (matchesKey(data, "pageUp") || matchesKey(data, "shift+up")) return "pageUp";
+	if (matchesKey(data, "pageDown") || matchesKey(data, "shift+down")) return "pageDown";
+	if (matchesKey(data, "home")) return "home";
+	if (matchesKey(data, "end")) return "end";
+	return undefined;
+}
+
+/**
+ * Scrollable overlay that replays a run's accumulated assistant transcript and
+ * live-updates as the run streams. Built on the proven `ctx.ui.custom({ overlay })`
+ * lifecycle (mirrors `showModelPanel`); unsubscribes from the runtime on dispose.
+ */
+export class ConversationViewer implements Component {
+	private scrollOffset = 0;
+	private autoScroll = true;
+	private closed = false;
+	private unsubscribe: (() => void) | undefined;
+
+	private lastMaxScroll = 0;
+	private lastViewportHeight = MIN_VIEWPORT;
+
+	constructor(
+		private readonly tui: TUI,
+		private readonly theme: Theme,
+		private readonly runtime: ViewerRuntime,
+		private readonly runId: string,
+		private readonly done: (result: void) => void,
+	) {
+		this.unsubscribe = this.runtime.subscribe((event) => {
+			if (this.closed || event.runId !== this.runId) return;
+			this.tui.requestRender();
+		});
+	}
+
+	handleInput(data: string): void {
+		if (matchesKey(data, "escape") || matchesKey(data, "q")) {
+			this.closed = true;
+			this.done(undefined);
+			return;
+		}
+
+		const action = classifyScrollKey(data);
+		if (!action) return;
+
+		const next = applyScroll(
+			action,
+			{ scrollOffset: this.scrollOffset, autoScroll: this.autoScroll },
+			this.lastMaxScroll,
+			this.lastViewportHeight,
+		);
+		this.scrollOffset = next.scrollOffset;
+		this.autoScroll = next.autoScroll;
+		this.tui.requestRender();
+	}
+
+	render(width: number): string[] {
+		if (width < 6) return [];
+
+		const th = this.theme;
+		const innerW = width - 4;
+		const viewportHeight = this.viewportHeight();
+		this.lastViewportHeight = viewportHeight;
+
+		const snapshot = this.runtime.snapshot(this.runId);
+		const model = buildViewerModel({
+			snapshot,
+			messages: this.runtime.messages(this.runId),
+			scrollOffset: this.scrollOffset,
+			width: innerW,
+			height: viewportHeight,
+			now: Date.now(),
+			autoScroll: this.autoScroll,
+		});
+
+		this.lastMaxScroll = model.maxScroll;
+		if (this.autoScroll) this.scrollOffset = model.maxScroll;
+
+		const pad = (text: string) => text + " ".repeat(Math.max(0, innerW - visibleWidth(text)));
+		const row = (content: string) =>
+			`${th.fg("border", "│")} ${truncateToWidth(pad(content), innerW)} ${th.fg("border", "│")}`;
+		const top = th.fg("border", `╭${"─".repeat(width - 2)}╮`);
+		const bottom = th.fg("border", `╰${"─".repeat(width - 2)}╯`);
+		const separator = row(th.fg("dim", "─".repeat(innerW)));
+
+		const lines: string[] = [];
+		lines.push(top);
+		lines.push(row(this.renderHeader(model.headerLines, snapshot)));
+		lines.push(separator);
+
+		for (let i = 0; i < viewportHeight; i++) {
+			lines.push(row(model.bodyLines[i] ?? ""));
+		}
+
+		lines.push(separator);
+		lines.push(row(this.renderFooter(model.footerLine, innerW)));
+		lines.push(bottom);
+
+		return lines;
+	}
+
+	invalidate(): void {}
+
+	dispose(): void {
+		this.closed = true;
+		this.unsubscribe?.();
+		this.unsubscribe = undefined;
+	}
+
+	private renderHeader(headerLines: string[], snapshot: RunSnapshot | undefined): string {
+		const th = this.theme;
+		const status = snapshot?.status ?? "unknown";
+		const icon = status === "running"
+			? th.fg("accent", "●")
+			: status === "completed"
+				? th.fg("success", "✓")
+				: status === "failed"
+					? th.fg("error", "✗")
+					: th.fg("dim", "○");
+		return `${icon} ${th.bold(headerLines[0] ?? "")}`;
+	}
+
+	private renderFooter(footerLine: string, innerW: number): string {
+		const th = this.theme;
+		const left = th.fg("dim", footerLine);
+		const hint = th.fg("dim", "↑↓ scroll · PgUp/PgDn · Esc close");
+		const gap = Math.max(1, innerW - visibleWidth(left) - visibleWidth(hint));
+		return left + " ".repeat(gap) + hint;
+	}
+
+	private viewportHeight(): number {
+		const rows = this.tui.terminal.rows;
+		const maxRows = Math.floor((rows * VIEWPORT_HEIGHT_PCT) / 100);
+		return Math.max(MIN_VIEWPORT, maxRows - CHROME_LINES);
+	}
+}
+
+/**
+ * Opens the conversation viewer as a focused overlay and resolves when it closes.
+ * Mirrors the `showModelPanel` overlay pattern.
+ */
+export function showConversationViewer(
+	ctx: ExtensionContext,
+	runtime: ViewerRuntime,
+	runId: string,
+): Promise<void> {
+	return ctx.ui.custom<void>(
+		(tui, theme, _keybindings, done) =>
+			new ConversationViewer(tui, theme, runtime, runId, done),
+		{
+			overlay: true,
+			overlayOptions: {
+				anchor: "center",
+				width: "80%",
+				maxHeight: "80%",
+			},
+		},
+	);
+}

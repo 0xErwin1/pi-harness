@@ -75,7 +75,7 @@ Examples:
 - run tests/builds and summarize results;
 - fresh-context review.
 
-Use `pi-subagents` when available. Prefer background/async for long exploration, implementation, tests, or review when the parent has independent work.
+Use the harness-owned `subagent` tool. Prefer delegation for long exploration, implementation, tests, or review when the parent has independent work.
 
 Default balanced pattern for bounded implementation:
 
@@ -231,6 +231,26 @@ When launching `sdd-apply`, enumerate the EXACT assigned task IDs in the prompt 
 After `sdd-apply` returns, BEFORE launching the next batch or trusting the report: verify the executor stayed within the assigned scope against the REAL repo state (commits, changed files, the tasks artifact), not the executor's prose. If the report is internally inconsistent or claims work the commits do not show, treat it as unreliable and reconcile from git/Engram. If apply overran its scope, STOP — do not launch further batches on top of an unsupervised overrun; surface the real state to the user.
 
 Defense in depth: the executor has its own hard boundary (the `sdd-apply` skill's **Assigned Scope — HARD BOUNDARY**), and the orchestrator independently scopes each launch and checks the result.
+
+## Harness Subagent Manager Runtime
+
+The harness owns the `subagent` tool. Do not depend on `pi-subagents` or route
+delegation to a package fallback.
+
+Runtime modes from `.pi/settings.json`:
+
+- `manager` — default. Route all compatible delegation through the harness-owned
+  manager.
+- `hybrid` — reserved for provider experiments inside the harness manager.
+
+Manager-runtime rules:
+
+1. Preserve fixed SDD agent identities when routing SDD phases.
+2. If status/interrupt/doctor or payload translation is unsupported, report the
+   unsupported manager capability explicitly and adjust the delegation request.
+3. Do not silently fall back to another package or invent partial semantics.
+4. Keep unsupported payload failures actionable so the parent can choose a
+   supported manager workflow.
 
 ### Visual-Aware Apply Split (local policy, MANDATORY)
 

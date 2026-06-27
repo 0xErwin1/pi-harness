@@ -48,14 +48,38 @@ Nothing updates silently.
 
 ```bash
 pnpm run check   # tsc --noEmit over all harness extensions
+pnpm run test    # focused harness/package tests
 ```
+
+## Subagent manager
+
+The harness owns the `subagent` tool through `packages/subagent-manager-*`.
+`pi-subagents` is no longer required and should not be installed for this
+harness. The default runtime is the harness manager.
+
+Optional per-project configuration in `.pi/settings.json`:
+
+```json
+{
+  "subagentManager": {
+    "runtime": "manager"
+  }
+}
+```
+
+Runtime modes:
+
+- `manager` — default; route through the harness-owned manager.
+- `hybrid` — reserved for provider experiments inside the harness manager.
+
+Unsupported payloads fail explicitly with an actionable manager error. They do
+not fall back to another package.
 
 ## Companion packages
 
-Only `pi-subagents` is a hard dependency of this harness. Recommended
-companions, installed separately via `~/.pi/agent/settings.json` (pinned):
+Recommended companions, installed separately via `~/.pi/agent/settings.json`
+(pinned):
 
-- `pi-subagents` — subagent delegation (required).
 - `pi-lens` — real-time LSP / lint / type-check feedback.
 - `@juicesharp/rpiv-ask-user-question` — structured questionnaires for SDD
   approval gates.

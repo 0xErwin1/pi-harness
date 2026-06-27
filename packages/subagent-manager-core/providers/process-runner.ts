@@ -1,0 +1,198 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ProviderRunContext, RunResult } from "../runtime.ts";
+import { buildCompletedSummary } from "../store.ts";
+import { assistantTextOf, finalAssistantText, isMessageEnd, parseNdjsonLine } from "./pi-json-events.ts";
+
+/** Prefix for run.progress messages that represent a tool invocation. */
+export const TOOL_PROGRESS_PREFIX = "tool:";
+
+function stripFrontmatter(markdown: string): string {
+	if (!markdown.startsWith("---\n")) return markdown;
+	const end = markdown.indexOf("\n---", 4);
+	if (end < 0) return markdown;
+	return markdown.slice(end + 4).trimStart();
+}
+
+async function resolvePromptText(promptRef: string): Promise<string> {
+	if (existsSync(promptRef)) return stripFrontmatter(await readFile(promptRef, "utf8"));
+	return promptRef;
+}
+
+function resolvePiInvocation(piArgs: string[]): { command: string; args: string[] } {
+	const override = process.env.PI_HARNESS_PI_BIN;
+
+	if (override) {
+		const isNodeScript = /\.(m?[jt]s|cjs)$/.test(override);
+		if (isNodeScript) {
+			return { command: process.execPath, args: [override, ...piArgs] };
+		}
+		return { command: override, args: piArgs };
+	}
+
+	const currentScript = process.argv[1];
+	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
+	if (currentScript && !isBunVirtualScript && existsSync(currentScript)) {
+		return { command: process.execPath, args: [currentScript, ...piArgs] };
+	}
+
+	const execName = currentScript
+		? undefined
+		: process.execPath.replace(/^.*[\\/]/, "").replace(/\.exe$/i, "").toLowerCase();
+
+	if (execName && !/^(node|bun)$/.test(execName)) {
+		return { command: process.execPath, args: piArgs };
+	}
+
+	return { command: "pi", args: piArgs };
+}
+
+export async function runPiProcessProvider(context: ProviderRunContext): Promise<RunResult> {
+	const systemPrompt = await resolvePromptText(context.agent.promptRef);
+	const tmp = await mkdtemp(join(tmpdir(), "pi-harness-subagent-"));
+	const promptFile = join(tmp, "system.md");
+	await writeFile(promptFile, systemPrompt, { encoding: "utf8", mode: 0o600 });
+
+	const model =
+		typeof context.request.metadata?.model === "string"
+			? context.request.metadata.model
+			: context.agent.model;
+
+	const piArgs = [
+		"--mode",
+		"json",
+		"--no-session",
+		...(model ? ["--model", model] : []),
+		"--append-system-prompt",
+		promptFile,
+		"-p",
+		context.request.prompt,
+	];
+
+	const invocation = resolvePiInvocation(piArgs);
+	const resolvedCmd = invocation.command;
+
+	const events: ReturnType<typeof parseNdjsonLine>[] = [];
+	let rawStdout = "";
+	let stderr = "";
+	let buffer = "";
+
+	context.emit({
+		type: "run.progress",
+		message: `starting subprocess for ${context.agent.name}`,
+	});
+
+	try {
+		const exitCode = await new Promise<number>((resolve, reject) => {
+			const proc = spawn(invocation.command, invocation.args, {
+				cwd:
+					typeof context.request.metadata?.cwd === "string"
+						? context.request.metadata.cwd
+						: process.cwd(),
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+
+			let wasAborted = false;
+			let closed = false;
+			let turn = 0;
+			let killTimer: ReturnType<typeof setTimeout> | undefined;
+
+			const killProc = () => {
+				wasAborted = true;
+				proc.kill("SIGTERM");
+				const graceMs = Number.parseInt(process.env.PI_GRACE_MS ?? "5000", 10);
+				killTimer = setTimeout(() => {
+					if (!closed) proc.kill("SIGKILL");
+				}, graceMs);
+			};
+
+			if (context.signal) {
+				if (context.signal.aborted) {
+					killProc();
+				} else {
+					context.signal.addEventListener("abort", killProc, { once: true });
+				}
+			}
+
+			const parseLine = (line: string) => {
+				if (!line.trim()) return;
+				rawStdout += `${line}\n`;
+
+				const event = parseNdjsonLine(line);
+				if (!event) return;
+
+				events.push(event);
+
+				if (event.type === "tool_execution_start" && event.toolName) {
+					context.emit({ type: "run.progress", message: `${TOOL_PROGRESS_PREFIX} ${event.toolName}` });
+				}
+
+				if (isMessageEnd(event) && event.message) {
+					const text = assistantTextOf(event.message);
+					if (text) {
+						turn += 1;
+						context.emit({ type: "run.output", chunk: text, role: "assistant", text, turn });
+					}
+				}
+			};
+
+			proc.stdout.on("data", (chunk) => {
+				buffer += chunk.toString();
+				const lines = buffer.split("\n");
+				buffer = lines.pop() ?? "";
+				for (const line of lines) parseLine(line);
+			});
+
+			proc.stderr.on("data", (chunk) => {
+				stderr += chunk.toString();
+			});
+
+			proc.on("error", (error) => {
+				const isEnoent = (error as NodeJS.ErrnoException).code === "ENOENT";
+				if (isEnoent) {
+					reject(
+						new Error(
+							`pi binary not found (resolved as '${resolvedCmd}'); ensure pi is on PATH or set PI_HARNESS_PI_BIN`,
+						),
+					);
+				} else {
+					stderr += error instanceof Error ? error.message : String(error);
+					resolve(1);
+				}
+			});
+
+			proc.on("close", (code) => {
+				closed = true;
+				if (killTimer !== undefined) clearTimeout(killTimer);
+				context.signal?.removeEventListener("abort", killProc);
+
+				if (buffer.trim()) parseLine(buffer);
+
+				if (wasAborted) {
+					reject(new Error("run aborted via signal"));
+					return;
+				}
+
+				resolve(code ?? 0);
+			});
+		});
+
+		const parsedEvents = events.filter((e): e is NonNullable<typeof e> => e !== undefined);
+		const text =
+			finalAssistantText(parsedEvents) ??
+			(stderr.trim() || rawStdout.trim() || "Subagent completed without output.");
+
+		if (exitCode !== 0) throw new Error(text);
+
+		return {
+			runId: context.runId,
+			summary: buildCompletedSummary(text, "subprocess", "provider:subprocess"),
+			rawOutput: rawStdout,
+		};
+	} finally {
+		await rm(tmp, { recursive: true, force: true });
+	}
+}

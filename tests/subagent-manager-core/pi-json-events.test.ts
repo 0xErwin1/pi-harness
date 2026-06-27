@@ -1,0 +1,155 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+	parseNdjsonLine,
+	isMessageEnd,
+	assistantTextOf,
+	finalAssistantText,
+	type PiJsonEvent,
+	type PiMessage,
+} from "../../packages/subagent-manager-core/providers/pi-json-events.ts";
+
+test("parseNdjsonLine returns parsed object for valid JSON", () => {
+	const result = parseNdjsonLine('{"type":"message_end","message":{"role":"assistant"}}');
+	assert.deepEqual(result, { type: "message_end", message: { role: "assistant" } });
+});
+
+test("parseNdjsonLine returns undefined for blank line", () => {
+	assert.equal(parseNdjsonLine(""), undefined);
+	assert.equal(parseNdjsonLine("   "), undefined);
+	assert.equal(parseNdjsonLine("\t"), undefined);
+});
+
+test("parseNdjsonLine returns undefined for non-JSON text", () => {
+	assert.equal(parseNdjsonLine("not json at all"), undefined);
+	assert.equal(parseNdjsonLine("partial {json"), undefined);
+});
+
+test("isMessageEnd returns true only for message_end events", () => {
+	const end: PiJsonEvent = { type: "message_end" };
+	const other: PiJsonEvent = { type: "tool_execution_start" };
+	const missing: PiJsonEvent = {};
+
+	assert.equal(isMessageEnd(end), true);
+	assert.equal(isMessageEnd(other), false);
+	assert.equal(isMessageEnd(missing), false);
+});
+
+test("assistantTextOf returns trimmed first text content for assistant messages", () => {
+	const message: PiMessage = {
+		role: "assistant",
+		content: [
+			{ type: "text", text: "  hello world  " },
+			{ type: "text", text: "second" },
+		],
+	};
+	assert.equal(assistantTextOf(message), "hello world");
+});
+
+test("assistantTextOf returns undefined for non-assistant messages", () => {
+	const message: PiMessage = {
+		role: "user",
+		content: [{ type: "text", text: "user text" }],
+	};
+	assert.equal(assistantTextOf(message), undefined);
+});
+
+test("assistantTextOf returns undefined when content has no text parts", () => {
+	const message: PiMessage = {
+		role: "assistant",
+		content: [{ type: "tool_use" }],
+	};
+	assert.equal(assistantTextOf(message), undefined);
+});
+
+test("finalAssistantText returns undefined for empty event list", () => {
+	assert.equal(finalAssistantText([]), undefined);
+});
+
+test("finalAssistantText returns the last assistant message_end text via reverse scan", () => {
+	const events: PiJsonEvent[] = [
+		{
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: "first" }] },
+		},
+		{
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: "second" }] },
+		},
+	];
+	assert.equal(finalAssistantText(events), "second");
+});
+
+test("finalAssistantText ignores non-assistant message_end events", () => {
+	const events: PiJsonEvent[] = [
+		{
+			type: "message_end",
+			message: { role: "user", content: [{ type: "text", text: "user text" }] },
+		},
+		{
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: "assistant text" }] },
+		},
+	];
+	assert.equal(finalAssistantText(events), "assistant text");
+});
+
+test("finalAssistantText ignores tool_result_end and tool_execution_start events", () => {
+	const events: PiJsonEvent[] = [
+		{ type: "tool_result_end", message: { role: "tool" } },
+		{ type: "tool_execution_start", toolName: "bash" },
+		{
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: "real answer" }] },
+		},
+	];
+	assert.equal(finalAssistantText(events), "real answer");
+});
+
+test("finalAssistantText ignores partial events without message_end type", () => {
+	const events: PiJsonEvent[] = [
+		{ type: "message_delta" },
+		{ type: "content_block_delta" },
+		{
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: "complete" }] },
+		},
+	];
+	assert.equal(finalAssistantText(events), "complete");
+});
+
+test("finalAssistantText returns undefined when no assistant message_end exists", () => {
+	const events: PiJsonEvent[] = [
+		{ type: "tool_execution_start", toolName: "read" },
+		{ type: "tool_result_end" },
+	];
+	assert.equal(finalAssistantText(events), undefined);
+});
+
+test("assistantTextOf: per-message streaming — returns text from a single intermediate message_end", () => {
+	const partialMessage: PiMessage = {
+		role: "assistant",
+		content: [{ type: "text", text: "Thinking about the problem…" }],
+	};
+	assert.equal(assistantTextOf(partialMessage), "Thinking about the problem…");
+});
+
+test("assistantTextOf: per-message streaming — distinct from finalAssistantText (single vs last-scan)", () => {
+	const firstMessage: PiMessage = {
+		role: "assistant",
+		content: [{ type: "text", text: "first turn" }],
+	};
+	const secondMessage: PiMessage = {
+		role: "assistant",
+		content: [{ type: "text", text: "second turn" }],
+	};
+
+	assert.equal(assistantTextOf(firstMessage), "first turn", "assistantTextOf reads the provided message directly");
+	assert.equal(assistantTextOf(secondMessage), "second turn", "assistantTextOf reads the provided message directly");
+
+	const events: PiJsonEvent[] = [
+		{ type: "message_end", message: firstMessage },
+		{ type: "message_end", message: secondMessage },
+	];
+	assert.equal(finalAssistantText(events), "second turn", "finalAssistantText returns the LAST assistant text");
+});
