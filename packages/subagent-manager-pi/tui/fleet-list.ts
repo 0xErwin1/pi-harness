@@ -7,7 +7,13 @@ import {
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
-import { buildFleetModel, fleetActivityFromEvent, type FleetRow } from "./fleet-model.ts";
+import {
+	buildFleetModel,
+	fleetActivityFromEvent,
+	isActiveFleetStatus,
+	selectFleetRoster,
+	type FleetRow,
+} from "./fleet-model.ts";
 import { isConversationViewerOpen, showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
 
 /** Live accessor surface the fleet widget needs from the manager runtime. */
@@ -18,7 +24,7 @@ export interface FleetRuntime {
 const WIDGET_KEY = "subagents";
 const MAX_ROWS = 5;
 
-export type FleetKey = "up" | "down" | "enter" | "escape";
+export type FleetKey = "up" | "down" | "left" | "enter" | "escape";
 
 export interface FleetNavResult {
 	selectedIndex: number;
@@ -28,9 +34,10 @@ export interface FleetNavResult {
 
 /**
  * Pure navigation reducer for the fleet list. `selectedIndex === -1` means the
- * list is inactive (arrow keys flow to the editor); a `down` activates it. Only
- * keys that actually act on the list report `consume`, so normal editor input —
- * including history navigation with `up` at an inactive prompt — is never swallowed.
+ * list is inactive (arrow keys flow to the editor); a `down` — or a `left` at the
+ * inactive prompt — activates it. Only keys that actually act on the list report
+ * `consume`, so normal editor input — including history navigation with `up` at an
+ * inactive prompt, and `left` once the list is already active — is never swallowed.
  */
 export function reduceFleetNav(
 	key: FleetKey,
@@ -43,6 +50,10 @@ export function reduceFleetNav(
 		case "down": {
 			const next = selectedIndex < 0 ? 0 : Math.min(rowCount - 1, selectedIndex + 1);
 			return { selectedIndex: next, consume: true, open: null };
+		}
+		case "left": {
+			if (selectedIndex < 0) return { selectedIndex: 0, consume: true, open: null };
+			return { selectedIndex, consume: false, open: null };
 		}
 		case "up": {
 			if (selectedIndex < 0) return { selectedIndex: -1, consume: false, open: null };
@@ -74,9 +85,19 @@ export function shouldFleetHandleKey(editorEmpty: boolean, overlayOpen: boolean)
 function classifyFleetKey(data: string): FleetKey | undefined {
 	if (matchesKey(data, "down")) return "down";
 	if (matchesKey(data, "up")) return "up";
+	if (matchesKey(data, "left")) return "left";
 	if (matchesKey(data, "return")) return "enter";
 	if (matchesKey(data, "escape")) return "escape";
 	return undefined;
+}
+
+/**
+ * Resolves the roster index to restore after a conversation viewer closes:
+ * the still-present row for the run that was being viewed, or `-1` (inactive)
+ * when that run has dropped off the roster.
+ */
+export function resolveRestoreIndex(rosterIds: string[], runId: string): number {
+	return rosterIds.indexOf(runId);
 }
 
 function formatElapsed(ms: number): string {
@@ -113,8 +134,21 @@ function spinnerFrame(status: RunStatus, elapsedMs: number): string {
 	return SPINNER_FRAMES[frame];
 }
 
-function isActiveStatus(status: RunStatus): boolean {
-	return status === "running" || status === "needs-attention";
+/**
+ * Plain-text marker shown in place of the spinner while a finished run lingers
+ * in the roster, so the user sees the outcome (no spinner, no pictograph).
+ */
+function terminalMarker(status: RunStatus): string {
+	switch (status) {
+		case "completed":
+			return "done";
+		case "failed":
+			return "failed";
+		case "interrupted":
+			return "interrupted";
+		default:
+			return "";
+	}
 }
 
 /**
@@ -132,18 +166,22 @@ export class FleetList implements Component {
 	private readonly activityById = new Map<string, string>();
 	private unsubscribe: (() => void) | undefined;
 	private renderTimer: ReturnType<typeof setInterval> | undefined;
+	private viewingRunId: string | undefined;
+	private lastRunningCount = -1;
 
 	constructor(
 		private readonly tui: TUI,
 		private readonly theme: Theme,
 		runtime: FleetRuntime,
-		private readonly openViewer: (runId: string) => void,
+		private readonly openViewer: (runId: string) => Promise<void>,
+		private readonly reportRunning: (running: number) => void,
 	) {
 		this.unsubscribe = runtime.subscribe((event, snapshot) => {
 			this.snapshots.set(snapshot.id, snapshot);
 			const activity = fleetActivityFromEvent(event);
 			if (activity) this.activityById.set(event.runId, activity);
 			this.syncTimer();
+			this.reportRunningCount();
 			this.tui.requestRender();
 		});
 	}
@@ -160,17 +198,47 @@ export class FleetList implements Component {
 		const key = classifyFleetKey(data);
 		if (!key) return undefined;
 
-		const rowCount = this.visibleCount();
+		const rowCount = this.roster().length;
 		const result = reduceFleetNav(key, this.selectedIndex, rowCount);
 		this.selectedIndex = result.selectedIndex;
 
 		if (result.open !== null) {
 			const runId = this.roster()[result.open]?.id;
-			if (runId) this.openViewer(runId);
+			if (runId) this.openSelectedViewer(runId);
 		}
 
 		if (result.consume) this.tui.requestRender();
 		return result.consume ? { consume: true } : undefined;
+	}
+
+	/**
+	 * Opens the conversation viewer for a run and, once it closes, restores the
+	 * selection to that run's row — so closing a viewer returns the cursor to the
+	 * agent that was being viewed, not to the inactive prompt. The selection drops
+	 * to inactive if the run has since left the roster.
+	 */
+	private openSelectedViewer(runId: string): void {
+		this.viewingRunId = runId;
+		void this.openViewer(runId).finally(() => this.restoreSelection(runId));
+	}
+
+	private restoreSelection(runId: string): void {
+		if (this.viewingRunId !== runId) return;
+		this.viewingRunId = undefined;
+		this.selectedIndex = resolveRestoreIndex(this.roster().map((snapshot) => snapshot.id), runId);
+		this.tui.requestRender();
+	}
+
+	/**
+	 * Pushes the running-agent count to the status bar whenever it changes,
+	 * clearing the status when no run is running. We have no queued count, so only
+	 * the running total is surfaced.
+	 */
+	private reportRunningCount(): void {
+		const running = [...this.snapshots.values()].filter((snapshot) => snapshot.status === "running").length;
+		if (running === this.lastRunningCount) return;
+		this.lastRunningCount = running;
+		this.reportRunning(running);
 	}
 
 	render(width: number): string[] {
@@ -184,15 +252,19 @@ export class FleetList implements Component {
 		const lines: string[] = [];
 		lines.push(truncateToWidth(th.fg("accent", header), width));
 
+		if (model.hiddenAbove > 0) {
+			lines.push(truncateToWidth(`  ${th.fg("dim", `^ ${model.hiddenAbove} more`)}`, width));
+		}
+
 		const lastRowIndex = model.rows.length - 1;
 		model.rows.forEach((row, index) => {
-			const lastBranch = index === lastRowIndex && model.overflow === 0;
+			const lastBranch = index === lastRowIndex && model.hiddenBelow === 0;
 			lines.push(this.renderRowMain(row, lastBranch, width));
 			lines.push(this.renderRowSub(row, lastBranch, width));
 		});
 
-		if (model.overflow > 0) {
-			lines.push(truncateToWidth(`  ${th.fg("dim", `└─ +${model.overflow} more`)}`, width));
+		if (model.hiddenBelow > 0) {
+			lines.push(truncateToWidth(`  ${th.fg("dim", `v ${model.hiddenBelow} more`)}`, width));
 		}
 
 		const hint = this.selectedIndex >= 0
@@ -212,38 +284,48 @@ export class FleetList implements Component {
 			clearInterval(this.renderTimer);
 			this.renderTimer = undefined;
 		}
+		this.reportRunning(0);
 	}
 
 	/**
-	 * Starts a 200ms render heartbeat while at least one run is active so the
-	 * spinner and elapsed counter advance between store events. Stops the interval
-	 * as soon as no active run remains, so the timer never runs when the widget
-	 * is idle.
+	 * Starts a 200ms render heartbeat while the roster is non-empty — including
+	 * while finished runs are still lingering — so the spinner and elapsed counter
+	 * advance between store events and lingering rows re-render and expire on time.
+	 * The heartbeat re-checks the roster on every tick and stops itself once no run
+	 * remains visible, so the timer never runs when the widget is idle.
 	 */
 	private syncTimer(): void {
-		const hasActive = this.roster().length > 0;
-		if (hasActive && this.renderTimer === undefined) {
-			this.renderTimer = setInterval(() => this.tui.requestRender(), 200);
-		} else if (!hasActive && this.renderTimer !== undefined) {
+		const hasRows = this.roster().length > 0;
+		if (hasRows && this.renderTimer === undefined) {
+			this.renderTimer = setInterval(() => {
+				this.tui.requestRender();
+				this.syncTimer();
+			}, 200);
+		} else if (!hasRows && this.renderTimer !== undefined) {
 			clearInterval(this.renderTimer);
 			this.renderTimer = undefined;
 		}
 	}
 
 	/**
-	 * The branch line for an agent: `<marker> <connector> <spin> <agent>  <task> · <elapsed>`.
-	 * The connector closes the tree (`└─`) on the last visible branch.
+	 * The branch line for an agent: `<marker> <connector> <indicator> <agent>  <task> · <elapsed>`.
+	 * The indicator is the live spinner while the run is active and a plain-text
+	 * terminal marker (`done` / `failed` / `interrupted`) while it lingers. The
+	 * connector closes the tree (`└─`) on the last visible branch.
 	 */
 	private renderRowMain(row: FleetRow, lastBranch: boolean, width: number): string {
 		const th = this.theme;
 		const marker = row.selected ? th.fg("accent", ">") : " ";
 		const connector = th.fg("dim", lastBranch ? "└─" : "├─");
-		const spin = th.fg(statusColor(row.status), spinnerFrame(row.status, row.elapsedMs));
+		const indicatorText = isActiveFleetStatus(row.status)
+			? spinnerFrame(row.status, row.elapsedMs)
+			: terminalMarker(row.status);
+		const indicator = th.fg(statusColor(row.status), indicatorText);
 		const agent = th.fg("accent", row.agent);
 		const task = row.task ? `  ${row.task}` : "";
 		const elapsed = th.fg("dim", `· ${formatElapsed(row.elapsedMs)}`);
 
-		return truncateToWidth(`${marker} ${connector} ${spin} ${agent}${task} ${elapsed}`, width);
+		return truncateToWidth(`${marker} ${connector} ${indicator} ${agent}${task} ${elapsed}`, width);
 	}
 
 	/**
@@ -259,13 +341,7 @@ export class FleetList implements Component {
 	}
 
 	private roster(): RunSnapshot[] {
-		return [...this.snapshots.values()]
-			.filter((snapshot) => isActiveStatus(snapshot.status))
-			.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
-	}
-
-	private visibleCount(): number {
-		return Math.min(this.roster().length, MAX_ROWS);
+		return selectFleetRoster([...this.snapshots.values()], Date.now());
 	}
 }
 
@@ -277,12 +353,20 @@ export class FleetList implements Component {
 export function registerFleetWidget(ctx: ExtensionContext, runtime: ViewerRuntime): void {
 	let fleet: FleetList | undefined;
 
+	const reportRunning = (running: number) => {
+		ctx.ui.setStatus(WIDGET_KEY, running > 0 ? `${running} running` : undefined);
+	};
+
 	ctx.ui.setWidget(
 		WIDGET_KEY,
 		(tui, theme) => {
-			fleet = new FleetList(tui, theme, runtime, (runId) => {
-				void showConversationViewer(ctx, runtime, runId);
-			});
+			fleet = new FleetList(
+				tui,
+				theme,
+				runtime,
+				(runId) => showConversationViewer(ctx, runtime, runId),
+				reportRunning,
+			);
 			return fleet;
 		},
 		{ placement: "aboveEditor" },

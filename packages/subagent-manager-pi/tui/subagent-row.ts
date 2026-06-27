@@ -3,6 +3,7 @@ import type { AgentToolResult, Theme, ToolRenderResultOptions } from "@mariozech
 import type { RunStatus } from "../../subagent-manager-core/events.ts";
 import {
 	buildExpandedBodyLines,
+	buildPerAgentRowModels,
 	buildSubagentRowModel,
 	type SubagentRowAccess,
 	type SubagentRowModel,
@@ -158,8 +159,35 @@ export function renderSubagentResult(getRuntime: RuntimeAccessor) {
 			return renderExpanded(access, runIds, model, theme);
 		}
 
+		if (runIds.length > 1) {
+			return renderCollapsedPerAgent(access, runIds, now, options.isPartial, theme);
+		}
+
 		return renderCollapsed(model, counts, options.isPartial, theme);
 	};
+}
+
+/**
+ * Renders a parallel tool call (more than one run) as one collapsed line per
+ * agent, each showing that run's own status, elapsed time, tokens, tool count,
+ * and current activity. Lets the user see each parallel agent's progress at a
+ * glance instead of a single aggregate line.
+ */
+function renderCollapsedPerAgent(
+	access: SubagentRowAccess,
+	runIds: string[],
+	now: number,
+	isPartial: boolean,
+	theme: Theme,
+): Component {
+	const container = new Container();
+
+	for (const model of buildPerAgentRowModels(access, runIds, now)) {
+		const counts = { turns: model.turns, tools: model.tools };
+		container.addChild(renderCollapsed(model, counts, isPartial, theme));
+	}
+
+	return container;
 }
 
 function renderCollapsed(

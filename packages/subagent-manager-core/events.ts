@@ -153,6 +153,12 @@ export interface RunSnapshot {
 	policyMode: string;
 	startedAt: string;
 	updatedAt: string;
+	/**
+	 * Timestamp of the first terminal transition (completed, failed, or
+	 * interrupted). Absent while the run is still active. Lets the fleet group
+	 * linger a finished run for a short window before dropping it.
+	 */
+	endedAt?: string;
 	summary?: RunSummary;
 	error?: string;
 	needsAttentionReason?: string;

@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reduceFleetNav, shouldFleetHandleKey } from "../../packages/subagent-manager-pi/tui/fleet-list.ts";
+import {
+	reduceFleetNav,
+	resolveRestoreIndex,
+	shouldFleetHandleKey,
+} from "../../packages/subagent-manager-pi/tui/fleet-list.ts";
 
 const ROWS = 3;
 
@@ -88,11 +92,35 @@ test("reduceFleetNav: escape clears an active selection, passes through when ina
 });
 
 test("reduceFleetNav: no rows means nothing is consumed", () => {
-	for (const key of ["up", "down", "enter", "escape"] as const) {
+	for (const key of ["up", "down", "left", "enter", "escape"] as const) {
 		assert.deepEqual(reduceFleetNav(key, -1, 0), {
 			selectedIndex: -1,
 			consume: false,
 			open: null,
 		});
 	}
+});
+
+test("reduceFleetNav: left activates the inactive fleet like down (P6)", () => {
+	assert.deepEqual(reduceFleetNav("left", -1, ROWS), {
+		selectedIndex: 0,
+		consume: true,
+		open: null,
+	});
+});
+
+test("reduceFleetNav: left is not consumed once the fleet is already active (P6)", () => {
+	assert.deepEqual(reduceFleetNav("left", 1, ROWS), {
+		selectedIndex: 1,
+		consume: false,
+		open: null,
+	});
+});
+
+test("resolveRestoreIndex: returns the row index when the viewed run is still in the roster (P3)", () => {
+	assert.equal(resolveRestoreIndex(["a", "b", "c"], "b"), 1);
+});
+
+test("resolveRestoreIndex: returns -1 (inactive) when the viewed run has left the roster (P3)", () => {
+	assert.equal(resolveRestoreIndex(["a", "c"], "b"), -1);
 });

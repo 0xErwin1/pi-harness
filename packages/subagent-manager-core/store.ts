@@ -1,5 +1,5 @@
 import { TOOL_PROGRESS_PREFIX } from "./events";
-import type { RunExecutionMode, RunEvent, RunSnapshot, RunSummary, RunStatus } from "./events";
+import type { RunExecutionMode, RunEvent, RunSnapshot, RunSummary } from "./events";
 
 export interface RunMessage {
 	role: "assistant";
@@ -119,19 +119,23 @@ export class InMemoryRunStore {
 				snapshot.status = "completed";
 				snapshot.summary = event.summary;
 				snapshot.resolvedExecutionMode = event.summary.executionMode;
+				snapshot.endedAt = snapshot.endedAt ?? event.at;
 				break;
 			case "run.failed":
 				snapshot.status = "failed";
 				snapshot.error = event.error;
+				snapshot.endedAt = snapshot.endedAt ?? event.at;
 				break;
 			case "run.interrupted":
-				this.finish(snapshot, "interrupted");
+				snapshot.status = "interrupted";
+				snapshot.endedAt = snapshot.endedAt ?? event.at;
 				break;
 			case "interrupt.requested":
 				snapshot.status = "needs-attention";
 				break;
 			case "interrupt.acknowledged":
 				snapshot.status = "interrupted";
+				snapshot.endedAt = snapshot.endedAt ?? event.at;
 				break;
 			case "provider.degraded":
 				snapshot.needsAttentionReason = `${event.provider}: ${event.reason}`;
@@ -139,9 +143,6 @@ export class InMemoryRunStore {
 		}
 	}
 
-	private finish(snapshot: RunSnapshot, status: RunStatus): void {
-		snapshot.status = status;
-	}
 }
 
 export function buildCompletedSummary(text: string, executionMode: RunSummary["executionMode"], routedBy: string): RunSummary {

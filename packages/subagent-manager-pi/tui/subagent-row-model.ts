@@ -91,6 +91,20 @@ export function buildSubagentRowModel(
 }
 
 /**
+ * Builds one row model per run id, each derived from only its own run, for the
+ * per-agent breakdown shown when a single tool call launched several agents in
+ * parallel. Order matches `runIds` so the rows line up with the launch order.
+ * Single-run callers keep using `buildSubagentRowModel` directly.
+ */
+export function buildPerAgentRowModels(
+	access: SubagentRowAccess,
+	runIds: string[],
+	now: number,
+): SubagentRowModel[] {
+	return runIds.map((id) => buildSubagentRowModel(access, [id], now));
+}
+
+/**
  * Builds the chronological transcript lines for the expanded (native Ctrl-O) tool
  * row. Mirrors the conversation overlay: each run's event stream is rendered via
  * the shared `eventsToBodyLines`, so tool-only turns surface their `[tool] <tool>`

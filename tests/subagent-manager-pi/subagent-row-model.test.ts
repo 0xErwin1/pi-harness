@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	buildExpandedBodyLines,
+	buildPerAgentRowModels,
 	buildSubagentRowModel,
 	type SubagentRowAccess,
 } from "../../packages/subagent-manager-pi/tui/subagent-row-model.ts";
@@ -77,6 +78,29 @@ test("buildSubagentRowModel: currentActivity is the first line of the latest mes
 	const model = buildSubagentRowModel(access, ["r1"], now);
 
 	assert.equal(model.currentActivity, "second message", "currentActivity should be the first line of the last message");
+});
+
+test("buildPerAgentRowModels: N runIds yield N independent row models in order (P2)", () => {
+	const snap1 = makeSnapshot("r1", { agent: "alpha", status: "running" });
+	const snap2 = makeSnapshot("r2", { agent: "beta", status: "completed" });
+	const snap3 = makeSnapshot("r3", { agent: "gamma", status: "failed" });
+	const access = makeAccess(
+		{ r1: snap1, r2: snap2, r3: snap3 },
+		{ r1: [makeMessage("alpha working", 1)] },
+	);
+
+	const models = buildPerAgentRowModels(access, ["r1", "r2", "r3"], now);
+
+	assert.equal(models.length, 3, "one model per run id");
+	assert.deepEqual(models.map((m) => m.agent), ["alpha", "beta", "gamma"]);
+	assert.deepEqual(models.map((m) => m.status), ["running", "completed", "failed"]);
+	assert.equal(models[0].turns, 1, "each model reflects only its own run's messages");
+	assert.equal(models[1].turns, 0);
+});
+
+test("buildPerAgentRowModels: an empty runIds list yields no rows (P2)", () => {
+	const access = makeAccess({});
+	assert.deepEqual(buildPerAgentRowModels(access, [], now), []);
 });
 
 test("buildSubagentRowModel: turns counts total messages across runIds", () => {

@@ -179,6 +179,65 @@ test("applyEvent: tool progress increments the snapshot tool count; non-tool pro
 	assert.equal(store.get("r1")?.toolCount, 2, "only 'tool:' progress events count");
 });
 
+test("applyEvent: run.completed stamps endedAt with the terminal event time (P4)", () => {
+	const store = makeStore();
+	const at = "2024-03-03T10:00:00.000Z";
+
+	store.append({
+		id: "e1",
+		runId: "r1",
+		type: "run.completed",
+		summary: { text: "ok", executionMode: "subprocess", routedBy: "test" },
+		at,
+	} as RunEvent);
+
+	const snapshot = store.get("r1");
+	assert.equal(snapshot?.status, "completed");
+	assert.equal(snapshot?.endedAt, at);
+});
+
+test("applyEvent: run.failed stamps endedAt (P4)", () => {
+	const store = makeStore();
+	const at = "2024-03-03T10:05:00.000Z";
+
+	store.append({ id: "e1", runId: "r1", type: "run.failed", error: "boom", at } as RunEvent);
+
+	assert.equal(store.get("r1")?.status, "failed");
+	assert.equal(store.get("r1")?.endedAt, at);
+});
+
+test("applyEvent: run.interrupted stamps endedAt (P4)", () => {
+	const store = makeStore();
+	const at = "2024-03-03T10:10:00.000Z";
+
+	store.append({ id: "e1", runId: "r1", type: "run.interrupted", at } as RunEvent);
+
+	assert.equal(store.get("r1")?.status, "interrupted");
+	assert.equal(store.get("r1")?.endedAt, at);
+});
+
+test("applyEvent: endedAt is fixed at the first terminal transition, not overwritten (P4)", () => {
+	const store = makeStore();
+	const completedAt = "2024-03-03T10:00:00.000Z";
+	const summaryAt = "2024-03-03T10:00:01.000Z";
+	const summary = { text: "ok", executionMode: "subprocess" as const, routedBy: "test" };
+
+	store.append({ id: "e1", runId: "r1", type: "run.completed", summary, at: completedAt } as RunEvent);
+	store.append({ id: "e2", runId: "r1", type: "run.summary_ready", summary, at: summaryAt } as RunEvent);
+
+	assert.equal(store.get("r1")?.endedAt, completedAt, "endedAt keeps the first terminal time");
+});
+
+test("applyEvent: an active run has no endedAt (P4)", () => {
+	const store = makeStore();
+
+	store.append(startedEvent());
+	store.append({ id: "e2", runId: "r1", type: "run.progress", message: "tool: Read", at: new Date().toISOString() } as RunEvent);
+
+	assert.equal(store.get("r1")?.status, "running");
+	assert.equal(store.get("r1")?.endedAt, undefined);
+});
+
 test("existing eventsFor behavior unchanged after subscribe wiring", () => {
 	const store = makeStore();
 	const ev = startedEvent();
