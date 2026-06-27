@@ -196,7 +196,7 @@ function renderCollapsed(
 	isPartial: boolean,
 	theme: Theme,
 ): Component {
-	const glyph = isPartial && model.status === "running"
+	const glyph = isPartial && (model.status === "running" || model.status === "starting")
 		? SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length]
 		: statusGlyph(model.status);
 

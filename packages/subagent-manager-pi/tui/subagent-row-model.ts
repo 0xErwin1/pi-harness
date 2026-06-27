@@ -41,9 +41,13 @@ export function buildSubagentRowModel(
 	now: number,
 ): SubagentRowModel {
 	const firstSnapshot = runIds.map((id) => access.snapshot(id)).find((s) => s !== undefined);
+	const resolved = firstSnapshot !== undefined;
 
 	const agent = firstSnapshot?.agent ?? "";
-	const status: RunStatus = firstSnapshot?.status ?? "queued";
+	// An unresolved row (no snapshot for its run ids yet) is in-flight, not stuck in
+	// the queue. Render it as a transient `starting` state so it never looks like a
+	// frozen `queued · 0ms` run.
+	const status: RunStatus = firstSnapshot?.status ?? "starting";
 	const startedAt = firstSnapshot ? Date.parse(firstSnapshot.startedAt) : now;
 	const elapsedMs = now - startedAt;
 
@@ -85,7 +89,7 @@ export function buildSubagentRowModel(
 
 	const activity = lastProgressMessage || status;
 	if (!currentActivity && lastMessageText) currentActivity = lastMessageText;
-	if (!currentActivity) currentActivity = status;
+	if (!currentActivity) currentActivity = resolved ? status : "starting…";
 
 	return { agent, status, activity, elapsedMs, turns, tools, tokens, currentActivity: conciseActivity(currentActivity) };
 }

@@ -63,6 +63,21 @@ test("buildCollapsedLine: omits an empty agent and current-activity segment but 
 	assert.equal(line, "running · 5s · 0 tok · 0 tools");
 });
 
+test("buildCollapsedLine: an unresolved row reads 'starting', never a frozen 'queued'", () => {
+	const model = makeModel({
+		agent: "",
+		status: "starting",
+		currentActivity: "starting…",
+		elapsedMs: 0,
+		tokens: 0,
+	});
+
+	const line = buildCollapsedLine(model, { turns: 0, tools: 0 });
+
+	assert.equal(line, "starting · 0ms · 0 tok · 0 tools · starting…");
+	assert.ok(!line.startsWith("queued"), "an in-flight row must not present as a frozen queued run");
+});
+
 test("buildCollapsedLine: formats sub-second and multi-minute elapsed", () => {
 	const subSecond = buildCollapsedLine(
 		makeModel({ agent: "", currentActivity: "", elapsedMs: 250 }),

@@ -93,6 +93,40 @@ test("run lifecycle: store transitions to completed with correct agent and summa
 	assert.equal(snapshot.agent, "test-agent");
 });
 
+test("createRunId: two same-agent runs in the same millisecond get distinct ids", async () => {
+	const frozenClock = new Date("2024-01-01T00:00:00.000Z");
+	const runtime = new ManagerRuntime({
+		registry: makeRegistry(),
+		providers: [makeInstantProvider()],
+		now: () => frozenClock,
+	});
+
+	const first = await runtime.run({ agent: "test-agent", prompt: "a" });
+	const second = await runtime.run({ agent: "test-agent", prompt: "b" });
+
+	assert.notEqual(first.runId, second.runId, "ids must be unique even within one millisecond");
+
+	const snapshots = await runtime.status();
+	assert.equal(snapshots.length, 2, "neither run's snapshot may clobber the other");
+});
+
+test("createRunId: many rapid same-agent runs under a frozen clock stay unique", async () => {
+	const frozenClock = new Date("2024-01-01T00:00:00.000Z");
+	const runtime = new ManagerRuntime({
+		registry: makeRegistry(),
+		providers: [makeInstantProvider()],
+		now: () => frozenClock,
+	});
+
+	const ids = new Set<string>();
+	for (let i = 0; i < 100; i++) {
+		const result = await runtime.run({ agent: "test-agent", prompt: `task ${i}` });
+		ids.add(result.runId);
+	}
+
+	assert.equal(ids.size, 100, "every run id must be unique within the same millisecond");
+});
+
 test("deriveRunTask: takes the first non-empty line of the prompt", () => {
 	assert.equal(deriveRunTask("Find TODO comments\nand list them"), "Find TODO comments");
 });

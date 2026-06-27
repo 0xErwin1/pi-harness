@@ -1,5 +1,9 @@
 export type RunStatus =
 	| "queued"
+	// Renderer-only transient: a row whose run snapshot has not been observed yet
+	// (in-flight before the store resolves it). The store never persists this; it
+	// keeps an unresolved row from masquerading as a frozen `queued` run.
+	| "starting"
 	| "running"
 	| "needs-attention"
 	| "completed"

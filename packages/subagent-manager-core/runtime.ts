@@ -112,6 +112,7 @@ export class ManagerRuntime implements ManagerFacade {
 	private readonly store: InMemoryRunStore;
 	private readonly now: () => Date;
 	private readonly controllers = new Map<string, AbortController>();
+	private runSeq = 0;
 
 	constructor(options: ManagerRuntimeOptions) {
 		this.registry = options.registry;
@@ -226,8 +227,17 @@ export class ManagerRuntime implements ManagerFacade {
 		}
 	}
 
+	/**
+	 * Builds a run id that is unique within this runtime even when several runs of
+	 * the same agent are created in the same millisecond (parallel same-agent
+	 * batches). The timestamp keeps ids sortable/readable; a per-runtime monotonic
+	 * counter guarantees uniqueness, so a second `store.create` can never collide
+	 * with and clobber an in-flight run's snapshot.
+	 */
 	private createRunId(agent: string): string {
-		return `${agent}-${this.now().getTime().toString(36)}`;
+		const ms = this.now().getTime().toString(36);
+		const seq = (this.runSeq++).toString(36);
+		return `${agent}-${ms}-${seq}`;
 	}
 
 	private complete(runId: string, summary: RunSummary): void {

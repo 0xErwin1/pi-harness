@@ -57,6 +57,33 @@ test("buildSubagentRowModel: basic single run with one message", () => {
 	assert.ok(model.currentActivity.includes("Hello"), "currentActivity should surface the latest message");
 });
 
+test("buildSubagentRowModel: a missing snapshot renders a transient 'starting' state, not a frozen queued row", () => {
+	const access = makeAccess({});
+
+	const model = buildSubagentRowModel(access, ["ghost"], now);
+
+	assert.equal(model.status, "starting", "an unresolved run must not present as a stuck 'queued' run");
+	assert.equal(model.agent, "");
+	assert.equal(model.currentActivity, "starting…", "the row must read as in-flight, not frozen");
+});
+
+test("buildSubagentRowModel: empty runIds render the transient 'starting' state", () => {
+	const access = makeAccess({});
+
+	const model = buildSubagentRowModel(access, [], now);
+
+	assert.equal(model.status, "starting");
+	assert.equal(model.currentActivity, "starting…");
+});
+
+test("buildSubagentRowModel: a resolved snapshot still drives the status (regression guard for the starting default)", () => {
+	const access = makeAccess({ r1: makeSnapshot("r1", { status: "running" }) });
+
+	const model = buildSubagentRowModel(access, ["r1"], now);
+
+	assert.equal(model.status, "running", "a resolvable run keeps its real status");
+});
+
 test("buildSubagentRowModel: currentActivity is hard-truncated to a single short line", () => {
 	const longText = "A".repeat(100);
 	const msgs = [makeMessage(longText, 1)];
