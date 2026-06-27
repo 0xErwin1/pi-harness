@@ -83,6 +83,8 @@ Default balanced pattern for bounded implementation:
 parent clarifies and checks git → scout/context-builder when context-heavy → one worker writes → fresh reviewer audits diff → parent validates and reports
 ```
 
+For tasks requiring web research, library evaluation, or external docs: add `researcher` before `worker`.
+
 Do not make every task SDD. Do make non-trivial tasks multi-agent at the narrowest useful point.
 
 ### 3. SDD

@@ -100,6 +100,7 @@ interface AgentEntry {
 	name: string;
 	source: AgentSource;
 	filePath?: string;
+	description?: string;
 }
 
 const KEEP_CURRENT = "Keep current";
@@ -264,6 +265,17 @@ function parseAgentName(filePath: string): string | undefined {
 	return packageName ? `${packageName}.${name}` : name;
 }
 
+export function parseAgentDescription(filePath: string): string | undefined {
+	let content: string;
+	try {
+		content = readFileSync(filePath, "utf8");
+	} catch {
+		return undefined;
+	}
+
+	return content.match(/^description:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1]?.trim();
+}
+
 function listAgentFilesRecursive(dir: string): string[] {
 	if (!existsSync(dir)) return [];
 
@@ -287,7 +299,9 @@ function listAgentsFromDir(dir: string, source: AgentSource): AgentEntry[] {
 	return listAgentFilesRecursive(dir)
 		.map((filePath): AgentEntry | undefined => {
 			const name = parseAgentName(filePath);
-			return name ? { name, source, filePath } : undefined;
+			if (!name) return undefined;
+			const description = parseAgentDescription(filePath);
+			return { name, source, filePath, description };
 		})
 		.filter((entry): entry is AgentEntry => entry !== undefined);
 }
@@ -821,6 +835,43 @@ async function showModelPanel(
  * custom-model input requests by re-opening the panel with the updated draft,
  * and on save persists the config and applies it to all agents.
  */
+export interface AgentMenuEntry {
+	name: string;
+	description?: string;
+}
+
+const PIPELINE_AGENT_PREFIXES = ["sdd-", "review-", "jd-"] as const;
+
+function isPipelineAgent(name: string): boolean {
+	return PIPELINE_AGENT_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
+/**
+ * Builds the "Available subagent types:" routing menu embedded in the subagent
+ * tool description. Builtin generics come first; pipeline-only agents (sdd-*,
+ * review-*, jd-*) are excluded because they are invoked by their pipelines,
+ * not ad-hoc. A short routing hint closes the menu.
+ */
+export function buildAgentMenu(
+	builtinGenerics: AgentMenuEntry[],
+	discoveredAgents: AgentMenuEntry[],
+): string {
+	const genericLines = builtinGenerics.map(
+		({ name, description }) => `  ${name} — ${description ?? name}`,
+	);
+
+	const discoveredLines = discoveredAgents
+		.filter((agent) => !isPipelineAgent(agent.name))
+		.map(({ name, description }) => `  ${name} — ${description ?? name}`);
+
+	return [
+		"Available subagent types:",
+		...genericLines,
+		...discoveredLines,
+		"Pick the most specific agent for the task; default to general-purpose only when none fits.",
+	].join("\n");
+}
+
 function readDefaultModelId(): string | undefined {
 	try {
 		const settings = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "settings.json"), "utf8")) as { defaultProvider?: string; defaultModel?: string };
@@ -868,7 +919,7 @@ function createManagerRegistry(cwd: string): AgentSpec[] {
 
 	const discoveredAgents: AgentSpec[] = listDiscoverableAgents(cwd).map((agent): AgentSpec => ({
 		name: agent.name,
-		description: `${agent.source} agent ${agent.name}`,
+		description: agent.description ?? `${agent.source} agent ${agent.name}`,
 		promptRef: agent.filePath ?? agent.name,
 		policyMode: agent.name.startsWith("review-") || agent.name === "sdd-verify" ? "reviewer" : "writer",
 		model: defaultModel,
@@ -1025,10 +1076,19 @@ const SubagentToolParameters = Type.Object(
 );
 
 export default function harness(pi: ExtensionAPI): void {
+	const agentMenu = buildAgentMenu(
+		[
+			{ name: "general-purpose", description: "Generic subagent controlled by the parent prompt" },
+			{ name: "Explore", description: "Read-only exploration subagent" },
+			{ name: "Plan", description: "Read-only planning subagent" },
+		],
+		listDiscoverableAgents(process.cwd()),
+	);
+
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
-		description: "Launch a harness-owned subagent manager run. Supports agent+task, subagent_type+prompt, and generic prompt-only delegation.",
+		description: `Launch a harness-owned subagent manager run. Supports agent+task, subagent_type+prompt, and generic prompt-only delegation.\n\n${agentMenu}`,
 		parameters: SubagentToolParameters,
 		renderCall: renderSubagentCall,
 		renderResult: renderSubagentResult((cwd) => getManagerRuntime(cwd)),
