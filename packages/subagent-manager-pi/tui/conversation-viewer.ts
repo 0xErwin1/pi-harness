@@ -110,6 +110,8 @@ export class ConversationViewer implements Component {
 		private readonly runtime: ViewerRuntime,
 		private readonly runId: string,
 		private readonly done: (result: void) => void,
+		private readonly transcriptPath?: string,
+		private readonly onShowPath?: () => void,
 	) {
 		this.unsubscribe = this.runtime.subscribe((event) => {
 			if (this.closed || event.runId !== this.runId) return;
@@ -121,6 +123,11 @@ export class ConversationViewer implements Component {
 		if (matchesKey(data, "escape") || matchesKey(data, "q")) {
 			this.closed = true;
 			this.done(undefined);
+			return;
+		}
+
+		if (matchesKey(data, "o")) {
+			this.onShowPath?.();
 			return;
 		}
 
@@ -214,10 +221,24 @@ export class ConversationViewer implements Component {
 		return this.theme.fg(transcriptLineColor(line), line);
 	}
 
+	/**
+	 * Renders the footer. When a transcript path is known it is shown after the
+	 * scroll stats (left-aligned, truncated to leave room for the hint) and the
+	 * hint advertises `o` to surface the full path for copy/open; the full path is
+	 * always available via `o` even when the line truncates. Without a path the
+	 * legacy scroll hint is shown.
+	 */
 	private renderFooter(footerLine: string, innerW: number): string {
 		const th = this.theme;
-		const left = th.fg("dim", footerLine);
-		const hint = th.fg("dim", "up/down/jk · PgUp/PgDn · End/G follow · Esc close");
+		const hintText = this.transcriptPath
+			? "o copy path · End/G follow · Esc close"
+			: "up/down/jk · PgUp/PgDn · End/G follow · Esc close";
+		const hint = th.fg("dim", hintText);
+
+		const leftText = this.transcriptPath ? `${footerLine} · ${this.transcriptPath}` : footerLine;
+		const leftWidth = Math.max(0, innerW - visibleWidth(hint) - 1);
+		const left = th.fg("dim", truncateToWidth(leftText, leftWidth));
+
 		const gap = Math.max(1, innerW - visibleWidth(left) - visibleWidth(hint));
 		return left + " ".repeat(gap) + hint;
 	}
@@ -237,11 +258,13 @@ export function showConversationViewer(
 	ctx: ExtensionContext,
 	runtime: ViewerRuntime,
 	runId: string,
+	transcriptPath?: string,
 ): Promise<void> {
 	openViewerCount += 1;
+	const showPath = transcriptPath ? () => ctx.ui.notify(transcriptPath, "info") : undefined;
 	const closed = ctx.ui.custom<void>(
 		(tui, theme, _keybindings, done) =>
-			new ConversationViewer(tui, theme, runtime, runId, done),
+			new ConversationViewer(tui, theme, runtime, runId, done, transcriptPath, showPath),
 		{
 			overlay: true,
 			overlayOptions: {

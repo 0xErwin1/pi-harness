@@ -46,9 +46,11 @@ import {
 	ManagerRuntime,
 	TOOL_PROGRESS_PREFIX,
 	InMemoryRunStore,
+	agentIdFor,
 	attachFileSink,
 	createSubprocessProvider,
 	currentDepth,
+	jsonlPath,
 	maxDepth,
 	sessionRoot,
 	type AgentSpec,
@@ -1301,7 +1303,27 @@ export default function harness(pi: ExtensionAPI): void {
 				ctx.ui.notify("No subagent runs found.", "info");
 				return;
 			}
-			await showConversationViewer(ctx, runtime, runId);
+			const path = jsonlPath(sessionRoot(), agentIdFor(runId));
+			await showConversationViewer(ctx, runtime, runId, path);
+		},
+	});
+
+	pi.registerCommand("subagent:file", {
+		description: "Print the transcript file path for a subagent run. Optionally pass an agent ID; defaults to the most recent run.",
+		handler: async (args, ctx) => {
+			const arg = args.trim();
+			if (arg) {
+				ctx.ui.notify(jsonlPath(sessionRoot(), arg), "info");
+				return;
+			}
+
+			const runtime = getManagerRuntime(ctx.cwd);
+			const runId = selectMostRecentRunId(await runtime.status());
+			if (!runId) {
+				ctx.ui.notify("No subagent runs found.", "info");
+				return;
+			}
+			ctx.ui.notify(jsonlPath(sessionRoot(), agentIdFor(runId)), "info");
 		},
 	});
 }

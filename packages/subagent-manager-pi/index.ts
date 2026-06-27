@@ -5,5 +5,6 @@ export * from "./tui/subagent-row-model.ts";
 export * from "./tui/subagent-row.ts";
 export * from "./tui/conversation-viewer-model.ts";
 export * from "./tui/conversation-viewer.ts";
+export * from "./tui/file-backed-viewer.ts";
 export * from "./tui/fleet-model.ts";
 export * from "./tui/fleet-list.ts";

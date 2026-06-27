@@ -10,6 +10,7 @@ import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
 import {
 	agentIdFor,
 	currentDepth,
+	jsonlPath,
 	processToken,
 	scanTree,
 	sessionRoot,
@@ -27,6 +28,7 @@ import {
 	type FleetRow,
 } from "./fleet-model.ts";
 import { isConversationViewerOpen, showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
+import { createFileBackedViewerRuntime } from "./file-backed-viewer.ts";
 
 /** Live accessor surface the fleet widget needs from the manager runtime. */
 export interface FleetRuntime {
@@ -438,6 +440,29 @@ function rowIndicator(row: FleetRow): string {
 }
 
 /**
+ * Opens the conversation viewer for a navigated fleet node. A LOCAL node keeps
+ * the live in-memory runtime keyed by its `runId`; a NESTED (file-backed) node
+ * runs in another process, so it is opened through a file-backed runtime keyed
+ * by its `agentId`, reading the shared session-root transcript. Both pass the
+ * node's `.jsonl` path so the viewer footer and the `o` key can surface it.
+ */
+function openFleetTarget(
+	ctx: ExtensionContext,
+	runtime: ViewerRuntime,
+	target: FleetOpenTarget,
+): Promise<void> {
+	const root = sessionRoot();
+
+	if (target.local && target.runId) {
+		const path = jsonlPath(root, agentIdFor(target.runId));
+		return showConversationViewer(ctx, runtime, target.runId, path);
+	}
+
+	const path = jsonlPath(root, target.agentId);
+	return showConversationViewer(ctx, createFileBackedViewerRuntime(root, target.agentId), target.agentId, path);
+}
+
+/**
  * Registers the Agents group above the prompt and wires arrow-key navigation
  * through `onTerminalInput`, gated on an empty editor so typing is never consumed.
  * Should be registered once per cwd on `session_start` so it captures every run.
@@ -456,10 +481,7 @@ export function registerFleetWidget(ctx: ExtensionContext, runtime: ViewerRuntim
 				tui,
 				theme,
 				runtime,
-				(target) =>
-					target.local && target.runId
-						? showConversationViewer(ctx, runtime, target.runId)
-						: Promise.resolve(),
+				(target) => openFleetTarget(ctx, runtime, target),
 				reportRunning,
 			);
 			return fleet;
