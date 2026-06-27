@@ -106,6 +106,22 @@ test("buildFleetModel: status is reflected in each row", () => {
 	assert.equal(model.rows[1].status, "failed");
 });
 
+test("buildFleetModel: maps the snapshot's running tool count and token total onto the row", () => {
+	const snapshots = [makeSnapshot("r1", { toolCount: 7, tokens: 4200 })];
+
+	const model = buildFleetModel(snapshots, -1, BASE_NOW, 10);
+
+	assert.equal(model.rows[0].tools, 7);
+	assert.equal(model.rows[0].tokens, 4200);
+});
+
+test("buildFleetModel: tools and tokens default to 0 when the snapshot has no counters", () => {
+	const model = buildFleetModel([makeSnapshot("r1")], -1, BASE_NOW, 10);
+
+	assert.equal(model.rows[0].tools, 0);
+	assert.equal(model.rows[0].tokens, 0);
+});
+
 test("buildFleetModel: selectedIndex out of range does not crash and selects nothing", () => {
 	const snapshots = [makeSnapshot("r1")];
 

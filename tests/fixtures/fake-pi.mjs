@@ -13,6 +13,8 @@
  *                        before a final message_end (for tool-target extraction tests)
  *   PI_THINKING        — when set, emits a message_end whose assistant content carries
  *                        a thinking block before the final text (for thinking-stream tests)
+ *   PI_TOKENS          — when set, emits two assistant message_end events each carrying a
+ *                        `usage` payload (for token-accounting tests)
  */
 
 import { writeFileSync } from "node:fs";
@@ -48,6 +50,28 @@ if (process.env.PI_IGNORE_SIGTERM) {
 				message: {
 					role: "assistant",
 					content: [{ type: "text", text: "done" }],
+				},
+			}) + "\n",
+		);
+		process.exit(0);
+	} else if (process.env.PI_TOKENS) {
+		process.stdout.write(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "first" }],
+					usage: { input: 100, output: 50 },
+				},
+			}) + "\n",
+		);
+		process.stdout.write(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "second" }],
+					usage: { input_tokens: 200, output_tokens: 25 },
 				},
 			}) + "\n",
 		);

@@ -6,6 +6,7 @@ import {
 	assistantTextOf,
 	assistantThinkingOf,
 	finalAssistantText,
+	tokensOf,
 	type PiJsonEvent,
 	type PiMessage,
 } from "../../packages/subagent-manager-core/providers/pi-json-events.ts";
@@ -194,6 +195,46 @@ test("thinking is a separate stream: assistantTextOf and finalAssistantText retu
 		"public answer",
 		"run result text must exclude thinking",
 	);
+});
+
+test("tokensOf: sums input and output from the canonical fields", () => {
+	assert.deepEqual(tokensOf({ role: "assistant", usage: { input: 100, output: 50 } }), {
+		input: 100,
+		output: 50,
+		total: 150,
+	});
+});
+
+test("tokensOf: reads the Anthropic-style and camelCase field aliases", () => {
+	assert.deepEqual(tokensOf({ role: "assistant", usage: { input_tokens: 200, output_tokens: 25 } }), {
+		input: 200,
+		output: 25,
+		total: 225,
+	});
+	assert.deepEqual(tokensOf({ role: "assistant", usage: { inputTokens: 10, outputTokens: 5 } }), {
+		input: 10,
+		output: 5,
+		total: 15,
+	});
+});
+
+test("tokensOf: falls back to an explicit total when input/output are absent", () => {
+	assert.deepEqual(tokensOf({ role: "assistant", usage: { total_tokens: 900 } }), {
+		input: 0,
+		output: 0,
+		total: 900,
+	});
+});
+
+test("tokensOf: returns undefined when usage is missing or empty (never a phantom zero)", () => {
+	assert.equal(tokensOf({ role: "assistant" }), undefined);
+	assert.equal(tokensOf({ role: "assistant", usage: {} }), undefined);
+	assert.equal(tokensOf({ role: "assistant", usage: null }), undefined);
+	assert.equal(tokensOf({ role: "assistant", usage: "nope" }), undefined);
+});
+
+test("tokensOf: ignores non-numeric field values", () => {
+	assert.equal(tokensOf({ role: "assistant", usage: { input: "100", output: "50" } }), undefined);
 });
 
 test("assistantTextOf: per-message streaming — distinct from finalAssistantText (single vs last-scan)", () => {

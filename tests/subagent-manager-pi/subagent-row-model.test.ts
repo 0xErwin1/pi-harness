@@ -52,21 +52,22 @@ test("buildSubagentRowModel: basic single run with one message", () => {
 	assert.equal(model.status, "running");
 	assert.equal(model.turns, 1);
 	assert.equal(model.elapsedMs, 5000);
-	assert.ok(model.lastLine.length > 0, "lastLine must be non-empty");
-	assert.ok(model.lastLine.includes("Hello"), "lastLine should contain message start");
+	assert.ok(model.currentActivity.length > 0, "currentActivity must be non-empty");
+	assert.ok(model.currentActivity.includes("Hello"), "currentActivity should surface the latest message");
 });
 
-test("buildSubagentRowModel: lastLine is first line truncated at ~60 chars", () => {
+test("buildSubagentRowModel: currentActivity is hard-truncated to a single short line", () => {
 	const longText = "A".repeat(100);
 	const msgs = [makeMessage(longText, 1)];
 	const access = makeAccess({ r1: makeSnapshot("r1") }, { r1: msgs });
 
 	const model = buildSubagentRowModel(access, ["r1"], now);
 
-	assert.ok(model.lastLine.length <= 63, `lastLine must be ≤63 chars, got ${model.lastLine.length}`);
+	assert.ok(model.currentActivity.length <= 50, `currentActivity must be ≤50 chars, got ${model.currentActivity.length}`);
+	assert.ok(model.currentActivity.endsWith("…"), "an over-long activity must be truncated with an ellipsis");
 });
 
-test("buildSubagentRowModel: lastLine is first line of last message", () => {
+test("buildSubagentRowModel: currentActivity is the first line of the latest message", () => {
 	const msgs = [
 		makeMessage("first message", 1),
 		makeMessage("second message\ncontinued on next line", 2),
@@ -75,7 +76,7 @@ test("buildSubagentRowModel: lastLine is first line of last message", () => {
 
 	const model = buildSubagentRowModel(access, ["r1"], now);
 
-	assert.equal(model.lastLine, "second message", "lastLine should be first line of the last message");
+	assert.equal(model.currentActivity, "second message", "currentActivity should be the first line of the last message");
 });
 
 test("buildSubagentRowModel: turns counts total messages across runIds", () => {
@@ -168,46 +169,47 @@ test("buildSubagentRowModel: agent name from first snapshot", () => {
 	assert.equal(model.agent, "my-specialist");
 });
 
-test("buildSubagentRowModel: empty messages → lastLine is empty string", () => {
-	const access = makeAccess({ r1: makeSnapshot("r1") });
+test("buildSubagentRowModel: no messages and no events → currentActivity falls back to status", () => {
+	const access = makeAccess({ r1: makeSnapshot("r1", { status: "running" }) });
 
 	const model = buildSubagentRowModel(access, ["r1"], now);
 
-	assert.equal(model.lastLine, "");
+	assert.equal(model.currentActivity, "running");
 	assert.equal(model.turns, 0);
 });
 
-test("buildSubagentRowModel: lastLine falls back to the latest tool activity when there is no assistant text", () => {
+test("buildSubagentRowModel: currentActivity is the latest tool with its target while a tool runs", () => {
 	const events: RunEvent[] = [
 		{ id: "e1", runId: "r1", type: "run.progress", message: "starting subprocess", at: new Date().toISOString() },
-		{ id: "e2", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() },
+		{ id: "e2", runId: "r1", type: "run.progress", message: "tool: Bash", target: "pnpm test", at: new Date().toISOString() },
 	];
 	const access = makeAccess({ r1: makeSnapshot("r1") }, {}, { r1: events });
 
 	const model = buildSubagentRowModel(access, ["r1"], now);
 
 	assert.equal(model.turns, 0, "no assistant messages were accumulated");
-	assert.ok(model.lastLine.includes("Bash"), "lastLine must surface the running tool when there is no assistant text");
-	assert.ok(!model.lastLine.startsWith("tool:"), "the raw 'tool:' marker must be humanized");
+	assert.equal(model.currentActivity, "Bash pnpm test", "currentActivity must be the running tool and its target");
+	assert.ok(!model.currentActivity.startsWith("tool:"), "the raw 'tool:' marker must not leak into the row");
 });
 
-test("buildSubagentRowModel: lastLine surfaces the latest thinking when there is no assistant text", () => {
+test("buildSubagentRowModel: currentActivity collapses thinking to a state word, never the reasoning prose", () => {
 	const events: RunEvent[] = [
 		{ id: "e1", runId: "r1", type: "run.progress", message: "tool: Read", at: new Date().toISOString() },
-		{ id: "e2", runId: "r1", type: "run.output", chunk: "weighing options", kind: "thinking", text: "weighing options", turn: 1, at: new Date().toISOString() },
+		{ id: "e2", runId: "r1", type: "run.output", chunk: "weighing options", kind: "thinking", text: "weighing options carefully", turn: 1, at: new Date().toISOString() },
 	];
 	const access = makeAccess({ r1: makeSnapshot("r1") }, {}, { r1: events });
 
 	const model = buildSubagentRowModel(access, ["r1"], now);
 
 	assert.equal(model.turns, 0, "thinking output must not count as an assistant turn");
-	assert.ok(model.lastLine.includes("weighing options"), "lastLine must surface the latest thinking");
-	assert.ok(model.lastLine.startsWith("thinking"), "thinking lastLine must carry the plain-text label");
+	assert.equal(model.currentActivity, "thinking", "thinking shows as a state word only");
+	assert.ok(!model.currentActivity.includes("weighing"), "reasoning prose must never be dumped into the row");
 });
 
-test("buildSubagentRowModel: assistant text takes precedence over tool activity for lastLine", () => {
+test("buildSubagentRowModel: the latest event wins — a tool after assistant text shows the tool", () => {
 	const events: RunEvent[] = [
-		{ id: "e1", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() },
+		{ id: "e1", runId: "r1", type: "run.output", chunk: "", role: "assistant", text: "the actual answer", turn: 1, at: new Date().toISOString() },
+		{ id: "e2", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() },
 	];
 	const access = makeAccess(
 		{ r1: makeSnapshot("r1") },
@@ -217,7 +219,42 @@ test("buildSubagentRowModel: assistant text takes precedence over tool activity 
 
 	const model = buildSubagentRowModel(access, ["r1"], now);
 
-	assert.equal(model.lastLine, "the actual answer");
+	assert.equal(model.currentActivity, "Bash", "the most recent activity is the running tool");
+});
+
+test("buildSubagentRowModel: the latest assistant text is shown when it is the most recent event", () => {
+	const events: RunEvent[] = [
+		{ id: "e1", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() },
+		{ id: "e2", runId: "r1", type: "run.output", chunk: "", role: "assistant", text: "the actual answer", turn: 1, at: new Date().toISOString() },
+	];
+	const access = makeAccess(
+		{ r1: makeSnapshot("r1") },
+		{ r1: [makeMessage("the actual answer", 1)] },
+		{ r1: events },
+	);
+
+	const model = buildSubagentRowModel(access, ["r1"], now);
+
+	assert.equal(model.currentActivity, "the actual answer");
+});
+
+test("buildSubagentRowModel: tokens sum the snapshot running totals across runIds", () => {
+	const access = makeAccess({
+		r1: makeSnapshot("r1", { tokens: 1200 }),
+		r2: makeSnapshot("r2", { tokens: 3400 }),
+	});
+
+	const model = buildSubagentRowModel(access, ["r1", "r2"], now);
+
+	assert.equal(model.tokens, 4600, "tokens must sum the per-run snapshot totals");
+});
+
+test("buildSubagentRowModel: tokens default to 0 when no usage was reported", () => {
+	const access = makeAccess({ r1: makeSnapshot("r1") });
+
+	const model = buildSubagentRowModel(access, ["r1"], now);
+
+	assert.equal(model.tokens, 0);
 });
 
 test("buildExpandedBodyLines: tool-only run yields the tool activity, not an empty transcript", () => {

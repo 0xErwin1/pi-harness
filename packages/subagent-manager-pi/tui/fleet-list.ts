@@ -9,6 +9,7 @@ import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
 import { buildFleetModel, type FleetRow } from "./fleet-model.ts";
+import { formatTokens } from "./conversation-viewer-model.ts";
 import { isConversationViewerOpen, showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
 
 /** Live accessor surface the fleet widget needs from the manager runtime. */
@@ -191,10 +192,19 @@ export class FleetList implements Component {
 
 	private renderRow(row: FleetRow, width: number): string {
 		const th = this.theme;
-		const bullet = row.selected ? th.fg("accent", ">") : th.fg("dim", "-");
-		const left = `  ${bullet} ${th.fg(statusColor(row.status), row.agent)}  ${th.fg("muted", row.status)}`;
-		const right = th.fg("dim", formatElapsed(row.elapsedMs));
-		return rightAlign(left, right, width);
+		const marker = row.selected ? th.fg("accent", ">") : " ";
+		const sep = th.fg("dim", " · ");
+
+		const segments = [
+			th.fg(statusColor(row.status), row.agent),
+			th.fg("muted", row.status),
+			th.fg("dim", formatElapsed(row.elapsedMs)),
+			th.fg("dim", `${row.tools} tools`),
+		];
+		const left = `  ${marker} ${segments.join(sep)}`;
+		const right = row.tokens > 0 ? th.fg("dim", `${formatTokens(row.tokens)} tok`) : "";
+
+		return right === "" ? truncateToWidth(left, width) : rightAlign(left, right, width);
 	}
 
 	private roster(): RunSnapshot[] {

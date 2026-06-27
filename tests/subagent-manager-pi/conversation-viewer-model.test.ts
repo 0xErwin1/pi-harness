@@ -273,7 +273,7 @@ test("eventsToBodyLines: a long tool target is truncated to width", () => {
 	assert.ok(toolLine.endsWith("…"), "truncated line must end with an ellipsis");
 });
 
-test("buildViewerModel: header includes turn and tool counts", () => {
+test("buildViewerModel: header shows tokens and tool count, never the old Nt/M shape", () => {
 	const events = [
 		assistant("first", 1),
 		tool("read"),
@@ -282,7 +282,7 @@ test("buildViewerModel: header includes turn and tool counts", () => {
 	];
 
 	const model = buildViewerModel({
-		snapshot: makeSnapshot(),
+		snapshot: makeSnapshot({ tokens: 5300 }),
 		events,
 		scrollOffset: 0,
 		width: 80,
@@ -290,7 +290,22 @@ test("buildViewerModel: header includes turn and tool counts", () => {
 		now: BASE_NOW,
 	});
 
-	assert.ok(model.headerLines[0].includes("2t/2 tools"), `header must show counts, got: ${model.headerLines[0]}`);
+	assert.ok(model.headerLines[0].includes("5.3k tok"), `header must show tokens, got: ${model.headerLines[0]}`);
+	assert.ok(model.headerLines[0].includes("2 tools"), `header must show the tool count, got: ${model.headerLines[0]}`);
+	assert.ok(!model.headerLines[0].includes("2t/"), `header must not use the old turns/tools shape, got: ${model.headerLines[0]}`);
+});
+
+test("buildViewerModel: header tokens default to 0 tok when usage is absent", () => {
+	const model = buildViewerModel({
+		snapshot: makeSnapshot(),
+		events: [tool("read")],
+		scrollOffset: 0,
+		width: 80,
+		height: 100,
+		now: BASE_NOW,
+	});
+
+	assert.ok(model.headerLines[0].includes("0 tok"), `header must show 0 tok with no usage, got: ${model.headerLines[0]}`);
 });
 
 test("buildViewerModel: footer shows 'following' when pinned to the bottom", () => {
@@ -376,28 +391,57 @@ test("transcriptLineColor: distinct semantic colours per line kind (plain-text m
 	assert.equal(transcriptLineColor("[degraded] provider: down"), "warning");
 	assert.equal(transcriptLineColor("[interrupted]"), "warning");
 	assert.equal(transcriptLineColor("[started]"), "dim");
-	assert.equal(transcriptLineColor("[thinking] weighing the options"), "dim");
+	assert.equal(transcriptLineColor("Thinking"), "dim");
+	assert.equal(transcriptLineColor("Thinking: weighing the options"), "dim");
+	assert.equal(transcriptLineColor("│ a reasoning body line"), "dim");
 	assert.equal(transcriptLineColor("· starting subprocess"), "dim");
 	assert.equal(transcriptLineColor("plain assistant body text"), "text");
 });
 
-test("eventsToBodyLines: a thinking output renders dim-classified [thinking] lines, distinct from assistant text", () => {
+test("eventsToBodyLines: thinking renders as a grouped dim block (header + body), never a per-line [thinking] tag", () => {
 	const lines = eventsToBodyLines([thinking("I should read the spec before editing"), assistant("the answer", 1)], 80);
 
-	const thinkingLines = lines.filter((l) => l.startsWith("[thinking]"));
-	assert.ok(thinkingLines.length > 0, "thinking output must surface as [thinking] lines");
-	assert.ok(thinkingLines.every((l) => transcriptLineColor(l) === "dim"), "every thinking line must classify dim");
-	assert.ok(thinkingLines.some((l) => l.includes("read the spec")), "thinking text must be present");
+	assert.ok(!lines.some((l) => l.includes("[thinking]")), "the old per-line [thinking] tag must be gone");
+
+	const headerIdx = lines.findIndex((l) => l === "Thinking");
+	assert.ok(headerIdx >= 0, "a grouped block must start with a plain 'Thinking' header");
+	assert.equal(transcriptLineColor(lines[headerIdx]), "dim", "the header must classify dim");
+
+	const bodyLines = lines.filter((l) => l.startsWith("│ "));
+	assert.ok(bodyLines.length > 0, "the reasoning body must render under the dim gutter");
+	assert.ok(bodyLines.every((l) => transcriptLineColor(l) === "dim"), "every body line must classify dim");
+	assert.ok(bodyLines.some((l) => l.includes("read the spec")), "the reasoning text must be present");
 
 	assert.ok(lines.includes("[Assistant]"), "final assistant text keeps its own [Assistant] header");
-	assert.ok(!lines.some((l) => l.startsWith("[thinking]") && l.includes("the answer")), "final text must not be tagged thinking");
+	assert.ok(!lines.some((l) => l.startsWith("│ ") && l.includes("the answer")), "final text must not be folded into the thinking block");
 });
 
-test("eventsToBodyLines: thinking text wraps to width under the [thinking] marker", () => {
+test("eventsToBodyLines: consecutive thinking events group under ONE header", () => {
+	const lines = eventsToBodyLines([thinking("first thought"), thinking("second thought"), tool("Read")], 80);
+
+	const headers = lines.filter((l) => l === "Thinking" || l.startsWith("Thinking: "));
+	assert.equal(headers.length, 1, "consecutive thinking events must produce a single grouped header");
+	assert.ok(lines.some((l) => l.startsWith("│ ") && l.includes("first thought")), "first thought must be in the body");
+	assert.ok(lines.some((l) => l.startsWith("│ ") && l.includes("second thought")), "second thought must be in the same body");
+});
+
+test("eventsToBodyLines: a model-supplied title becomes the header without doubling 'Thinking:'", () => {
+	const titled = eventsToBodyLines([thinking("Thinking: weighing the options\nnow I will read the file")], 80);
+	assert.ok(titled.some((l) => l === "Thinking: weighing the options"), "the title line must be lifted into the header");
+	assert.ok(!titled.some((l) => l.includes("Thinking: Thinking:")), "the header must never double the 'Thinking:' label");
+	assert.ok(titled.some((l) => l.startsWith("│ ") && l.includes("read the file")), "the remaining text is the body");
+
+	const bold = eventsToBodyLines([thinking("**Weighing options**\nthe body follows")], 80);
+	assert.ok(bold.some((l) => l === "Thinking: Weighing options"), "a bold markdown title must become the header");
+	assert.ok(!bold.some((l) => l.includes("**")), "the bold markers must be stripped from the header");
+});
+
+test("eventsToBodyLines: thinking body wraps to width under the dim gutter, no [thinking] tag", () => {
 	const longThought = "reasoning ".repeat(30).trim();
 	const lines = eventsToBodyLines([thinking(longThought)], 40);
-	const thinkingLines = lines.filter((l) => l.startsWith("[thinking]"));
+	const bodyLines = lines.filter((l) => l.startsWith("│ "));
 
-	assert.ok(thinkingLines.length > 1, "a long thought must wrap into multiple lines");
-	assert.ok(thinkingLines.every((l) => l.length <= 40), "wrapped thinking lines must fit the width");
+	assert.ok(!lines.some((l) => l.includes("[thinking]")), "no per-line [thinking] tag");
+	assert.ok(bodyLines.length > 1, "a long thought must wrap into multiple body lines");
+	assert.ok(bodyLines.every((l) => l.length <= 40), "wrapped body lines must fit the width");
 });

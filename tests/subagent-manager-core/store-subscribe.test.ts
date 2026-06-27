@@ -151,6 +151,34 @@ test("messagesFor: returns empty array for unknown runId", () => {
 	assert.deepEqual(store.messagesFor("no-such-run"), []);
 });
 
+test("applyEvent: run.output tokens accumulate additively onto the snapshot", () => {
+	const store = makeStore();
+
+	store.append({ id: "e1", runId: "r1", type: "run.output", chunk: "a", tokens: 150, at: new Date().toISOString() } as RunEvent);
+	store.append({ id: "e2", runId: "r1", type: "run.output", chunk: "b", tokens: 225, at: new Date().toISOString() } as RunEvent);
+
+	assert.equal(store.get("r1")?.tokens, 375, "token totals must accumulate across outputs");
+});
+
+test("applyEvent: a run.output without tokens leaves the running total untouched", () => {
+	const store = makeStore();
+
+	store.append({ id: "e1", runId: "r1", type: "run.output", chunk: "a", tokens: 100, at: new Date().toISOString() } as RunEvent);
+	store.append(outputEvent("r1", { role: "assistant", text: "no usage here", turn: 1 }));
+
+	assert.equal(store.get("r1")?.tokens, 100);
+});
+
+test("applyEvent: tool progress increments the snapshot tool count; non-tool progress does not", () => {
+	const store = makeStore();
+
+	store.append({ id: "e1", runId: "r1", type: "run.progress", message: "tool: Read", at: new Date().toISOString() } as RunEvent);
+	store.append({ id: "e2", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() } as RunEvent);
+	store.append({ id: "e3", runId: "r1", type: "run.progress", message: "starting subprocess", at: new Date().toISOString() } as RunEvent);
+
+	assert.equal(store.get("r1")?.toolCount, 2, "only 'tool:' progress events count");
+});
+
 test("existing eventsFor behavior unchanged after subscribe wiring", () => {
 	const store = makeStore();
 	const ev = startedEvent();

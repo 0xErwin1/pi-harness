@@ -10,11 +10,12 @@ function makeModel(overrides: Partial<SubagentRowModel> = {}): SubagentRowModel 
 	return {
 		agent: "Explore",
 		status: "running",
-		activity: "thinking",
+		activity: "tool: bash",
 		elapsedMs: 5000,
 		turns: 2,
 		tools: 3,
-		lastLine: "looking at the store",
+		tokens: 0,
+		currentActivity: "looking at the store",
 		...overrides,
 	};
 }
@@ -37,27 +38,41 @@ test("resolveRowCounts: a zero count in details is honored over the model", () =
 	assert.deepEqual(counts, { turns: 0, tools: 0 });
 });
 
-test("buildCollapsedLine: composes agent, activity, elapsed, counts, lastLine", () => {
-	const line = buildCollapsedLine(makeModel(), { turns: 2, tools: 3 });
-	assert.equal(line, "Explore · thinking · 5s · 2t/3 tools · looking at the store");
+test("buildCollapsedLine: composes agent, status, elapsed, tokens, tools, current activity", () => {
+	const line = buildCollapsedLine(makeModel({ tokens: 1234 }), { turns: 2, tools: 3 });
+	assert.equal(line, "Explore · running · 5s · 1.2k tok · 3 tools · looking at the store");
 });
 
-test("buildCollapsedLine: omits empty agent, activity, and lastLine segments", () => {
-	const model = makeModel({ agent: "", activity: "", lastLine: "" });
+test("buildCollapsedLine: drops turns and never shows the old Nt/M counts", () => {
+	const line = buildCollapsedLine(makeModel(), { turns: 9, tools: 3 });
+	assert.ok(!line.includes("9t"), `turns count must not appear, got: ${line}`);
+	assert.ok(!/\dt\//.test(line), `the old Nt/M shape must be gone, got: ${line}`);
+});
+
+test("buildCollapsedLine: shows tokens compactly and a bare count under 1k", () => {
+	const small = buildCollapsedLine(makeModel({ tokens: 850 }), { turns: 0, tools: 0 });
+	assert.ok(small.includes("850 tok"), small);
+
+	const large = buildCollapsedLine(makeModel({ tokens: 42_000 }), { turns: 0, tools: 0 });
+	assert.ok(large.includes("42.0k tok"), large);
+});
+
+test("buildCollapsedLine: omits an empty agent and current-activity segment but keeps status", () => {
+	const model = makeModel({ agent: "", currentActivity: "" });
 	const line = buildCollapsedLine(model, { turns: 0, tools: 0 });
-	assert.equal(line, "5s · 0t/0 tools");
+	assert.equal(line, "running · 5s · 0 tok · 0 tools");
 });
 
 test("buildCollapsedLine: formats sub-second and multi-minute elapsed", () => {
 	const subSecond = buildCollapsedLine(
-		makeModel({ agent: "", activity: "", lastLine: "", elapsedMs: 250 }),
+		makeModel({ agent: "", currentActivity: "", elapsedMs: 250 }),
 		{ turns: 0, tools: 0 },
 	);
-	assert.ok(subSecond.startsWith("250ms · "), subSecond);
+	assert.ok(subSecond.includes("250ms · "), subSecond);
 
 	const multiMinute = buildCollapsedLine(
-		makeModel({ agent: "", activity: "", lastLine: "", elapsedMs: 125000 }),
+		makeModel({ agent: "", currentActivity: "", elapsedMs: 125000 }),
 		{ turns: 0, tools: 0 },
 	);
-	assert.ok(multiMinute.startsWith("2m5s · "), multiMinute);
+	assert.ok(multiMinute.includes("2m5s · "), multiMinute);
 });

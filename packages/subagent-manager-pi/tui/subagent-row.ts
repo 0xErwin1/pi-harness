@@ -7,7 +7,7 @@ import {
 	type SubagentRowAccess,
 	type SubagentRowModel,
 } from "./subagent-row-model.ts";
-import { transcriptLineColor } from "./conversation-viewer-model.ts";
+import { formatTokens, transcriptLineColor } from "./conversation-viewer-model.ts";
 
 /**
  * Live state threaded through the tool result `details` by the harness `execute`
@@ -95,8 +95,11 @@ export function resolveRowCounts(
 
 /**
  * Composes the collapsed single-line row text (no ANSI) from the row model and
- * resolved counts. The status glyph and colouring are applied by the component;
- * this stays pure so it is headlessly assertable.
+ * resolved counts. Shape: `<agent> · <status> · <elapsed> · <tokens> tok · <N>
+ * tools · <current activity>`. Turns are intentionally dropped (they read ~0
+ * during tool use and confuse); tokens and a concise current-activity phrase
+ * replace the old turns count and thinking dump. The status glyph and colouring
+ * are applied by the component; this stays pure so it is headlessly assertable.
  */
 export function buildCollapsedLine(
 	model: SubagentRowModel,
@@ -105,10 +108,11 @@ export function buildCollapsedLine(
 	const parts: string[] = [];
 
 	if (model.agent) parts.push(model.agent);
-	if (model.activity) parts.push(model.activity);
+	parts.push(model.status);
 	parts.push(formatElapsed(model.elapsedMs));
-	parts.push(`${counts.turns}t/${counts.tools} tools`);
-	if (model.lastLine) parts.push(model.lastLine);
+	parts.push(`${formatTokens(model.tokens)} tok`);
+	parts.push(`${counts.tools} tools`);
+	if (model.currentActivity) parts.push(model.currentActivity);
 
 	return parts.join(" · ");
 }

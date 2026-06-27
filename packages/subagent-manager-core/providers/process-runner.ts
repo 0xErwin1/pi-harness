@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
+import { TOOL_PROGRESS_PREFIX } from "../events.ts";
 import type { ProviderRunContext, RunResult } from "../runtime.ts";
 import { buildCompletedSummary } from "../store.ts";
 import {
@@ -11,10 +13,36 @@ import {
 	finalAssistantText,
 	isMessageEnd,
 	parseNdjsonLine,
+	tokensOf,
 } from "./pi-json-events.ts";
 
-/** Prefix for run.progress messages that represent a tool invocation. */
-export const TOOL_PROGRESS_PREFIX = "tool:";
+/**
+ * Buffers a child process's stdout into complete lines while decoding bytes with
+ * a `StringDecoder`. The child streams NDJSON in arbitrary chunks, and a single
+ * multi-byte UTF-8 character can be split across two chunks; decoding each chunk
+ * independently with `Buffer.toString()` would corrupt that character into the
+ * replacement character (`�`). The decoder holds the partial trailing bytes
+ * until the continuation arrives, so code points are always reassembled intact.
+ */
+export class StdoutLineBuffer {
+	private readonly decoder = new StringDecoder("utf8");
+	private pending = "";
+
+	/** Decodes a chunk and returns any complete lines it produced (without the newline). */
+	push(chunk: Buffer | string): string[] {
+		this.pending += typeof chunk === "string" ? chunk : this.decoder.write(chunk);
+		const lines = this.pending.split("\n");
+		this.pending = lines.pop() ?? "";
+		return lines;
+	}
+
+	/** Flushes the trailing partial line (plus any decoder remainder) at stream close. */
+	flush(): string | undefined {
+		const tail = this.pending + this.decoder.end();
+		this.pending = "";
+		return tail.length > 0 ? tail : undefined;
+	}
+}
 
 /**
  * Distills a tool invocation's arguments into a single short, human-readable
@@ -117,7 +145,7 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 	const events: ReturnType<typeof parseNdjsonLine>[] = [];
 	let rawStdout = "";
 	let stderr = "";
-	let buffer = "";
+	const lineBuffer = new StdoutLineBuffer();
 
 	context.emit({
 		type: "run.progress",
@@ -175,6 +203,15 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 				}
 
 				if (isMessageEnd(event) && event.message) {
+					const usage = tokensOf(event.message);
+					let pendingTokens = usage?.total;
+					const takeTokens = (): { tokens?: number } => {
+						if (pendingTokens === undefined) return {};
+						const carried = { tokens: pendingTokens };
+						pendingTokens = undefined;
+						return carried;
+					};
+
 					const thinking = assistantThinkingOf(event.message);
 					if (thinking) {
 						context.emit({
@@ -183,22 +220,24 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 							kind: "thinking",
 							text: thinking,
 							turn: turn + 1,
+							...takeTokens(),
 						});
 					}
 
 					const text = assistantTextOf(event.message);
 					if (text) {
 						turn += 1;
-						context.emit({ type: "run.output", chunk: text, role: "assistant", text, turn });
+						context.emit({ type: "run.output", chunk: text, role: "assistant", text, turn, ...takeTokens() });
+					}
+
+					if (pendingTokens !== undefined) {
+						context.emit({ type: "run.output", chunk: "", tokens: pendingTokens });
 					}
 				}
 			};
 
 			proc.stdout.on("data", (chunk) => {
-				buffer += chunk.toString();
-				const lines = buffer.split("\n");
-				buffer = lines.pop() ?? "";
-				for (const line of lines) parseLine(line);
+				for (const line of lineBuffer.push(chunk)) parseLine(line);
 			});
 
 			proc.stderr.on("data", (chunk) => {
@@ -224,7 +263,8 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 				if (killTimer !== undefined) clearTimeout(killTimer);
 				context.signal?.removeEventListener("abort", killProc);
 
-				if (buffer.trim()) parseLine(buffer);
+				const tail = lineBuffer.flush();
+				if (tail && tail.trim()) parseLine(tail);
 
 				if (wasAborted) {
 					reject(new Error("run aborted via signal"));

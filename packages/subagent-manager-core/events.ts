@@ -8,6 +8,9 @@ export type RunStatus =
 
 export type RunExecutionMode = "in-process" | "subprocess" | "fork";
 
+/** Prefix marking a run.progress message that represents a tool invocation. */
+export const TOOL_PROGRESS_PREFIX = "tool:";
+
 export type RunEventType =
 	| "run.started"
 	| "run.progress"
@@ -63,6 +66,12 @@ export interface RunOutputEvent extends RunEventBase {
 	kind?: "assistant" | "thinking";
 	text?: string;
 	turn?: number;
+	/**
+	 * Total tokens (input + output) attributed to the message_end that produced
+	 * this output, when the provider reported usage. Accumulated additively into
+	 * the run snapshot; absent when usage was not present.
+	 */
+	tokens?: number;
 }
 
 export interface RunNeedsAttentionEvent extends RunEventBase {
@@ -142,4 +151,8 @@ export interface RunSnapshot {
 	summary?: RunSummary;
 	error?: string;
 	needsAttentionReason?: string;
+	/** Running total of tokens (input + output) reported across the run's messages. */
+	tokens?: number;
+	/** Running count of tool invocations observed for the run. */
+	toolCount?: number;
 }

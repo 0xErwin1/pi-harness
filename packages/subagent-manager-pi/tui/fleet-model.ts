@@ -5,6 +5,8 @@ export interface FleetRow {
 	agent: string;
 	status: RunStatus;
 	elapsedMs: number;
+	tools: number;
+	tokens: number;
 	selected: boolean;
 }
 
@@ -27,6 +29,8 @@ export function buildFleetModel(
 		agent: snap.agent,
 		status: snap.status,
 		elapsedMs: now - Date.parse(snap.startedAt),
+		tools: snap.toolCount ?? 0,
+		tokens: snap.tokens ?? 0,
 		selected: index === selectedIndex,
 	}));
 

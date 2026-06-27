@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	runPiProcessProvider,
+	StdoutLineBuffer,
 	summarizeToolArgs,
 } from "../../packages/subagent-manager-core/providers/process-runner.ts";
 import { InMemoryRunStore } from "../../packages/subagent-manager-core/store.ts";
@@ -110,6 +111,75 @@ test("process-runner: final summary text comes from the last message_end (finalA
 	}
 
 	assert.equal(result!.summary.text, "message 2", "summary should come from the LAST assistant message_end");
+});
+
+test("process-runner: token usage accumulates a running total on the run snapshot", async () => {
+	const store = new InMemoryRunStore();
+	const ctx = makeContext(store);
+
+	const previousBin = process.env.PI_HARNESS_PI_BIN;
+	process.env.PI_HARNESS_PI_BIN = fakePiBin;
+	process.env.PI_TOKENS = "1";
+
+	try {
+		await runPiProcessProvider(ctx);
+	} finally {
+		process.env.PI_HARNESS_PI_BIN = previousBin;
+		delete process.env.PI_TOKENS;
+	}
+
+	const snapshot = store.get("r1");
+	assert.equal(snapshot?.tokens, 375, "running token total must sum both messages' input+output (150 + 225)");
+
+	const outputs = store.eventsFor("r1").filter((e): e is RunOutputEvent => e.type === "run.output");
+	const withTokens = outputs.filter((e) => typeof e.tokens === "number");
+	assert.equal(withTokens.length, 2, "each message_end with usage must carry its token total once");
+	assert.equal(withTokens[0].tokens, 150);
+	assert.equal(withTokens[1].tokens, 225);
+});
+
+test("process-runner: a run with no usage reports no token total (never crashes)", async () => {
+	const store = new InMemoryRunStore();
+	const ctx = makeContext(store);
+
+	const previousBin = process.env.PI_HARNESS_PI_BIN;
+	process.env.PI_HARNESS_PI_BIN = fakePiBin;
+
+	try {
+		await runPiProcessProvider(ctx);
+	} finally {
+		process.env.PI_HARNESS_PI_BIN = previousBin;
+	}
+
+	const snapshot = store.get("r1");
+	assert.equal(snapshot?.tokens, undefined, "absent usage must leave the token total unset, not 0-from-a-phantom-emit");
+});
+
+test("StdoutLineBuffer: a multi-byte UTF-8 character split across two chunks is never corrupted", () => {
+	const payload = '{"type":"message_end","text":"café 日本語 — résumé"}\n';
+	const bytes = Buffer.from(payload, "utf8");
+
+	for (let split = 1; split < bytes.length; split++) {
+		const buffer = new StdoutLineBuffer();
+		const lines = [
+			...buffer.push(bytes.subarray(0, split)),
+			...buffer.push(bytes.subarray(split)),
+		];
+		const flushed = buffer.flush();
+		if (flushed) lines.push(flushed);
+
+		const joined = lines.join("");
+		assert.ok(!joined.includes("�"), `split at byte ${split} corrupted a code point into the replacement char`);
+		assert.equal(joined, payload.replace(/\n$/, ""), `split at byte ${split} did not reconstruct the original line`);
+	}
+});
+
+test("StdoutLineBuffer: line buffering yields whole lines and holds the trailing partial", () => {
+	const buffer = new StdoutLineBuffer();
+
+	assert.deepEqual(buffer.push(Buffer.from("alpha\nbra", "utf8")), ["alpha"], "complete lines emit; the partial is held");
+	assert.deepEqual(buffer.push(Buffer.from("vo\ncharlie", "utf8")), ["bravo"], "the held partial completes on the next chunk");
+	assert.equal(buffer.flush(), "charlie", "flush returns the trailing partial line at close");
 });
 
 test("summarizeToolArgs: picks the path for file tools", () => {

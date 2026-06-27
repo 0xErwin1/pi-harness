@@ -1,6 +1,6 @@
 import type { RunEvent, RunOutputEvent, RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunMessage } from "../../subagent-manager-core/store.ts";
-import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/providers/process-runner.ts";
+import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/events.ts";
 import { eventsToBodyLines } from "./conversation-viewer-model.ts";
 
 export interface SubagentRowAccess {
@@ -16,24 +16,23 @@ export interface SubagentRowModel {
 	elapsedMs: number;
 	turns: number;
 	tools: number;
-	lastLine: string;
+	/** Running total of tokens (input + output) across the row's runs. */
+	tokens: number;
+	/**
+	 * A short human phrase of what the run is doing right now — the latest tool as
+	 * `<tool> <target>`, the latest assistant text, the word `thinking` while it
+	 * reasons, or the status when nothing else applies. Never dumps reasoning prose.
+	 */
+	currentActivity: string;
 }
 
-const MAX_LAST_LINE = 60;
+const MAX_ACTIVITY = 50;
 
-function truncateFirstLine(text: string): string {
-	const firstLine = text.split("\n")[0] ?? "";
-	if (firstLine.length <= MAX_LAST_LINE) return firstLine;
-	return `${firstLine.slice(0, MAX_LAST_LINE)}…`;
-}
-
-/** Renders a progress message for the collapsed row, surfacing the tool name. */
-function humanizeActivity(message: string): string {
-	if (!message) return "";
-	if (message.startsWith(TOOL_PROGRESS_PREFIX)) {
-		return `[tool] ${message.slice(TOOL_PROGRESS_PREFIX.length).trim()}`;
-	}
-	return message;
+/** Collapses a value to a single, hard-truncated line for the one-line collapsed row. */
+function conciseActivity(text: string): string {
+	const firstLine = text.split("\n")[0]?.trim() ?? "";
+	if (firstLine.length <= MAX_ACTIVITY) return firstLine;
+	return `${firstLine.slice(0, MAX_ACTIVITY - 1)}…`;
 }
 
 export function buildSubagentRowModel(
@@ -50,39 +49,45 @@ export function buildSubagentRowModel(
 
 	let turns = 0;
 	let tools = 0;
+	let tokens = 0;
 	let lastProgressMessage = "";
 	let lastMessageText = "";
-	let lastThinkingText = "";
+	let currentActivity = "";
 
 	for (const id of runIds) {
+		tokens += access.snapshot(id)?.tokens ?? 0;
+
 		const msgs = access.messages(id);
 		turns += msgs.length;
-
-		if (msgs.length > 0) {
-			lastMessageText = msgs[msgs.length - 1].text;
-		}
+		if (msgs.length > 0) lastMessageText = msgs[msgs.length - 1].text;
 
 		const evts = access.events?.(id) ?? [];
 		for (const ev of evts) {
 			if (ev.type === "run.progress") {
 				const msg = (ev as { message?: string }).message ?? "";
-				if (msg.startsWith(TOOL_PROGRESS_PREFIX)) tools += 1;
 				lastProgressMessage = msg;
+				if (msg.startsWith(TOOL_PROGRESS_PREFIX)) {
+					tools += 1;
+					const name = msg.slice(TOOL_PROGRESS_PREFIX.length).trim();
+					const target = (ev as { target?: string }).target;
+					currentActivity = target ? `${name} ${target}` : name;
+				}
 			} else if (ev.type === "run.output") {
 				const out = ev as RunOutputEvent;
-				if (out.kind === "thinking" && out.text) lastThinkingText = out.text;
+				if (out.kind === "thinking" && out.text) {
+					currentActivity = "thinking";
+				} else if (out.role === "assistant" && out.text) {
+					currentActivity = out.text;
+				}
 			}
 		}
 	}
 
 	const activity = lastProgressMessage || status;
-	const lastLine = lastMessageText
-		? truncateFirstLine(lastMessageText)
-		: lastThinkingText
-			? truncateFirstLine(`thinking ${lastThinkingText}`)
-			: truncateFirstLine(humanizeActivity(lastProgressMessage));
+	if (!currentActivity && lastMessageText) currentActivity = lastMessageText;
+	if (!currentActivity) currentActivity = status;
 
-	return { agent, status, activity, elapsedMs, turns, tools, lastLine };
+	return { agent, status, activity, elapsedMs, turns, tools, tokens, currentActivity: conciseActivity(currentActivity) };
 }
 
 /**

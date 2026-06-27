@@ -1,5 +1,5 @@
 import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
-import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/providers/process-runner.ts";
+import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/events.ts";
 
 export interface ViewerModel {
 	headerLines: string[];
@@ -54,7 +54,77 @@ function truncateByLength(text: string, max: number): string {
 }
 
 const TOOL_LINE_PREFIX = "[tool] ";
-const THINKING_LINE_PREFIX = "[thinking] ";
+
+/**
+ * Markers for a grouped thinking block. Pi's native thread renders reasoning as a
+ * dim header followed by a wrapped paragraph, NOT a per-line tag; these reproduce
+ * that. The body gutter uses the box-drawing vertical (kept under the de-emoji
+ * scheme) so a continuation line reads like a quoted sidebar and is classifiable
+ * as dim without a visible `[thinking]` tag. Markers and `transcriptLineColor`
+ * must stay in sync.
+ */
+const THINKING_HEADER = "Thinking";
+const THINKING_BODY_PREFIX = "│ ";
+
+/**
+ * Formats a token total compactly: a bare count under 1k, then `k`/`M` with one
+ * decimal so the collapsed row and overlay header stay short.
+ */
+export function formatTokens(tokens: number): string {
+	if (tokens < 1000) return String(tokens);
+	if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(1)}k`;
+	return `${(tokens / 1_000_000).toFixed(1)}M`;
+}
+
+/**
+ * Splits a thinking text into an optional title and the remaining body. The model
+ * sometimes leads its reasoning with its own title — either a markdown bold
+ * (`**Weighing options**`) or a `Thinking:` prefix. When present that title is
+ * lifted into the block header (so the rendered header never doubles up as
+ * `Thinking: Thinking:`); otherwise the whole text is the body and a plain
+ * `Thinking` header is used.
+ */
+function splitThinkingTitle(text: string): { title?: string; body: string } {
+	const trimmed = text.trim();
+
+	const bold = trimmed.match(/^\*\*(.+?)\*\*\s*/);
+	if (bold) {
+		return { title: bold[1].trim() || undefined, body: trimmed.slice(bold[0].length).trim() };
+	}
+
+	if (/^Thinking:/i.test(trimmed)) {
+		const afterLabel = trimmed.replace(/^Thinking:\s*/i, "");
+		const newlineAt = afterLabel.indexOf("\n");
+		if (newlineAt >= 0) {
+			return { title: afterLabel.slice(0, newlineAt).trim() || undefined, body: afterLabel.slice(newlineAt + 1).trim() };
+		}
+		return { title: afterLabel.trim() || undefined, body: "" };
+	}
+
+	return { body: trimmed };
+}
+
+/**
+ * Renders one or more consecutive thinking texts as a single grouped block: a dim
+ * `Thinking`/`Thinking: <title>` header followed by the reasoning body wrapped to
+ * width under a dim gutter. Empty bodies (title-only thinking) yield just the
+ * header.
+ */
+function renderThinkingBlock(texts: string[], width: number): string[] {
+	const combined = texts.join("\n").trim();
+	if (combined.length === 0) return [];
+
+	const { title, body } = splitThinkingTitle(combined);
+	const lines = [title ? `${THINKING_HEADER}: ${title}` : THINKING_HEADER];
+
+	const bodyWidth = width > 0 ? width - THINKING_BODY_PREFIX.length : width;
+	for (const line of wrapText(body, bodyWidth)) {
+		if (line.length === 0) continue;
+		lines.push(`${THINKING_BODY_PREFIX}${line}`);
+	}
+
+	return lines;
+}
 
 /**
  * Collapses consecutive identical tool lines into a single `… ×N` line so a long
@@ -116,7 +186,8 @@ export function transcriptLineColor(line: string): TranscriptColor {
 	if (line.startsWith("[degraded]")) return "warning";
 	if (line.startsWith("[interrupted]")) return "warning";
 	if (line.startsWith("[started]")) return "dim";
-	if (line.startsWith(THINKING_LINE_PREFIX)) return "dim";
+	if (line === THINKING_HEADER || line.startsWith(`${THINKING_HEADER}: `)) return "dim";
+	if (line.startsWith(THINKING_BODY_PREFIX)) return "dim";
 	if (line.startsWith("·")) return "dim";
 	return "text";
 }
@@ -143,8 +214,22 @@ export function resolveViewportOffset(scrollOffset: number, maxScroll: number, f
  */
 export function eventsToBodyLines(events: RunEvent[], width: number): string[] {
 	const lines: string[] = [];
+	let thinkingRun: string[] = [];
+
+	const flushThinking = () => {
+		if (thinkingRun.length === 0) return;
+		lines.push(...renderThinkingBlock(thinkingRun, width));
+		thinkingRun = [];
+	};
 
 	for (const event of events) {
+		if (event.type === "run.output" && event.kind === "thinking" && event.text) {
+			thinkingRun.push(event.text);
+			continue;
+		}
+
+		flushThinking();
+
 		switch (event.type) {
 			case "run.started":
 				lines.push("[started]");
@@ -159,10 +244,7 @@ export function eventsToBodyLines(events: RunEvent[], width: number): string[] {
 				break;
 			}
 			case "run.output":
-				if (event.kind === "thinking" && event.text) {
-					const wrapWidth = width > 0 ? width - THINKING_LINE_PREFIX.length : width;
-					for (const line of wrapText(event.text, wrapWidth)) lines.push(`${THINKING_LINE_PREFIX}${line}`);
-				} else if (event.role === "assistant" && event.text) {
+				if (event.role === "assistant" && event.text) {
 					lines.push("[Assistant]");
 					for (const line of wrapText(event.text, width)) lines.push(line);
 				}
@@ -185,6 +267,8 @@ export function eventsToBodyLines(events: RunEvent[], width: number): string[] {
 		}
 	}
 
+	flushThinking();
+
 	return collapseToolRuns(lines, width);
 }
 
@@ -204,15 +288,15 @@ export function buildViewerModel(input: {
 	const elapsedMs = snapshot ? now - Date.parse(snapshot.startedAt) : undefined;
 	const elapsed = elapsedMs !== undefined ? formatElapsedMs(elapsedMs) : "";
 
-	let turns = 0;
 	let tools = 0;
 	for (const event of events) {
-		if (event.type === "run.output" && event.role === "assistant" && event.text) turns += 1;
 		if (event.type === "run.progress" && toolNameFromProgress(event.message) !== undefined) tools += 1;
 	}
-	const counts = `${turns}t/${tools} tools`;
+	const tokens = snapshot?.tokens ?? 0;
 
-	const headerParts = [agent, status, elapsed, counts].filter((p) => p.length > 0);
+	const headerParts = [agent, status, elapsed, `${formatTokens(tokens)} tok`, `${tools} tools`].filter(
+		(p) => p.length > 0,
+	);
 	const headerLines = [headerParts.join(" · ")];
 
 	const allBodyLines = eventsToBodyLines(events, width);

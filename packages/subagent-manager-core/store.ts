@@ -1,3 +1,4 @@
+import { TOOL_PROGRESS_PREFIX } from "./events";
 import type { RunExecutionMode, RunEvent, RunSnapshot, RunSummary, RunStatus } from "./events";
 
 export interface RunMessage {
@@ -87,11 +88,19 @@ export class InMemoryRunStore {
 	private applyEvent(snapshot: RunSnapshot, event: RunEvent): void {
 		switch (event.type) {
 			case "run.started":
+				snapshot.status = "running";
+				break;
 			case "run.progress":
 				snapshot.status = "running";
+				if (event.message.startsWith(TOOL_PROGRESS_PREFIX)) {
+					snapshot.toolCount = (snapshot.toolCount ?? 0) + 1;
+				}
 				break;
 			case "run.output":
 				snapshot.status = "running";
+				if (typeof event.tokens === "number") {
+					snapshot.tokens = (snapshot.tokens ?? 0) + event.tokens;
+				}
 				if (event.role === "assistant" && event.text) {
 					const log = this.messages.get(event.runId);
 					if (log) {
