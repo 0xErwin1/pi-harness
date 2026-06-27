@@ -1,6 +1,7 @@
 import type { RunEvent, RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunMessage } from "../../subagent-manager-core/store.ts";
 import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/providers/process-runner.ts";
+import { eventsToBodyLines } from "./conversation-viewer-model.ts";
 
 export interface SubagentRowAccess {
 	snapshot(id: string): RunSnapshot | undefined;
@@ -24,6 +25,15 @@ function truncateFirstLine(text: string): string {
 	const firstLine = text.split("\n")[0] ?? "";
 	if (firstLine.length <= MAX_LAST_LINE) return firstLine;
 	return `${firstLine.slice(0, MAX_LAST_LINE)}…`;
+}
+
+/** Renders a progress message for the collapsed row, surfacing the tool name. */
+function humanizeActivity(message: string): string {
+	if (!message) return "";
+	if (message.startsWith(TOOL_PROGRESS_PREFIX)) {
+		return `🔧 ${message.slice(TOOL_PROGRESS_PREFIX.length).trim()}`;
+	}
+	return message;
 }
 
 export function buildSubagentRowModel(
@@ -62,7 +72,43 @@ export function buildSubagentRowModel(
 	}
 
 	const activity = lastProgressMessage || status;
-	const lastLine = truncateFirstLine(lastMessageText);
+	const lastLine = lastMessageText
+		? truncateFirstLine(lastMessageText)
+		: truncateFirstLine(humanizeActivity(lastProgressMessage));
 
 	return { agent, status, activity, elapsedMs, turns, tools, lastLine };
+}
+
+/**
+ * Builds the chronological transcript lines for the expanded (native Ctrl-O) tool
+ * row. Mirrors the conversation overlay: each run's event stream is rendered via
+ * the shared `eventsToBodyLines`, so tool-only turns surface their `🔧 <tool>`
+ * activity instead of an empty transcript. A `width` of 0 leaves assistant text
+ * unwrapped so the caller's text component can wrap it to the terminal.
+ *
+ * Runs whose event stream is unavailable (no `events` accessor) fall back to their
+ * accumulated assistant messages, preserving the prior assistant-only behavior.
+ */
+export function buildExpandedBodyLines(
+	access: SubagentRowAccess,
+	runIds: string[],
+	width: number,
+): string[] {
+	const lines: string[] = [];
+
+	for (const id of runIds) {
+		const events = access.events?.(id) ?? [];
+
+		if (events.length > 0) {
+			lines.push(...eventsToBodyLines(events, width));
+			continue;
+		}
+
+		for (const message of access.messages(id)) {
+			lines.push(`[Assistant · turn ${message.turn}]`);
+			lines.push(message.text);
+		}
+	}
+
+	return lines;
 }

@@ -6,15 +6,29 @@ import {
 	visibleWidth,
 } from "@mariozechner/pi-tui";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import type { RunSnapshot } from "../../subagent-manager-core/events.ts";
-import type { RunMessage, RunStoreListener } from "../../subagent-manager-core/store.ts";
+import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
+import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
 import { buildViewerModel } from "./conversation-viewer-model.ts";
 
 /** Live accessor surface the viewer needs from the manager runtime. */
 export interface ViewerRuntime {
 	subscribe(listener: RunStoreListener): () => void;
-	messages(id: string): RunMessage[];
+	events(id: string): RunEvent[];
 	snapshot(id: string): RunSnapshot | undefined;
+}
+
+/**
+ * Tracks how many conversation overlays are currently open. The fleet widget's
+ * global `onTerminalInput` listener runs BEFORE the focused overlay receives a
+ * key, so it must stay inert while a viewer is open; otherwise it would consume
+ * keys (e.g. Esc deselecting a row) before the overlay can act on them. Opening
+ * the viewer from either the fleet or the `subagent:view` command flows through
+ * `showConversationViewer`, so this counter covers both entry points.
+ */
+let openViewerCount = 0;
+
+export function isConversationViewerOpen(): boolean {
+	return openViewerCount > 0;
 }
 
 /** Lines consumed by the bordered chrome: top, header, header separator, footer separator, footer, bottom. */
@@ -135,7 +149,7 @@ export class ConversationViewer implements Component {
 		const snapshot = this.runtime.snapshot(this.runId);
 		const model = buildViewerModel({
 			snapshot,
-			messages: this.runtime.messages(this.runId),
+			events: this.runtime.events(this.runId),
 			scrollOffset: this.scrollOffset,
 			width: innerW,
 			height: viewportHeight,
@@ -214,7 +228,8 @@ export function showConversationViewer(
 	runtime: ViewerRuntime,
 	runId: string,
 ): Promise<void> {
-	return ctx.ui.custom<void>(
+	openViewerCount += 1;
+	const closed = ctx.ui.custom<void>(
 		(tui, theme, _keybindings, done) =>
 			new ConversationViewer(tui, theme, runtime, runId, done),
 		{
@@ -226,4 +241,7 @@ export function showConversationViewer(
 			},
 		},
 	);
+	return closed.finally(() => {
+		openViewerCount = Math.max(0, openViewerCount - 1);
+	});
 }

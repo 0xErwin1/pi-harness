@@ -9,7 +9,7 @@ import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
 import { buildFleetModel, type FleetRow } from "./fleet-model.ts";
-import { showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
+import { isConversationViewerOpen, showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
 
 /** Live accessor surface the fleet widget needs from the manager runtime. */
 export interface FleetRuntime {
@@ -59,6 +59,17 @@ export function reduceFleetNav(
 			return { selectedIndex: -1, consume: true, open: null };
 		}
 	}
+}
+
+/**
+ * Decides whether the fleet's global terminal-input listener should act on a key.
+ * It must stay inert while a conversation overlay is open — the overlay is the
+ * focused component and should receive keys (Esc to close, arrows to scroll)
+ * without the listener consuming them first — and only ever act at an empty
+ * prompt so normal typing is never swallowed.
+ */
+export function shouldFleetHandleKey(editorEmpty: boolean, overlayOpen: boolean): boolean {
+	return editorEmpty && !overlayOpen;
 }
 
 function classifyFleetKey(data: string): FleetKey | undefined {
@@ -123,10 +134,11 @@ export class FleetList implements Component {
 	/**
 	 * Handles a raw terminal key for fleet navigation. Returns `{ consume: true }`
 	 * only when it actually acted on a navigation key at an empty prompt; otherwise
-	 * `undefined` so the key flows to the editor.
+	 * `undefined` so the key flows to the editor (or, while a viewer overlay is
+	 * open, to the focused overlay).
 	 */
-	handleKey(data: string, editorEmpty: boolean): { consume?: boolean } | undefined {
-		if (!editorEmpty) return undefined;
+	handleKey(data: string, editorEmpty: boolean, overlayOpen = false): { consume?: boolean } | undefined {
+		if (!shouldFleetHandleKey(editorEmpty, overlayOpen)) return undefined;
 
 		const key = classifyFleetKey(data);
 		if (!key) return undefined;
@@ -217,6 +229,6 @@ export function registerFleetWidget(ctx: ExtensionContext, runtime: ViewerRuntim
 
 	ctx.ui.onTerminalInput((data) => {
 		if (!fleet) return undefined;
-		return fleet.handleKey(data, ctx.ui.getEditorText() === "");
+		return fleet.handleKey(data, ctx.ui.getEditorText() === "", isConversationViewerOpen());
 	});
 }

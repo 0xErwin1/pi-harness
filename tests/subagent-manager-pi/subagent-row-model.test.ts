@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+	buildExpandedBodyLines,
 	buildSubagentRowModel,
 	type SubagentRowAccess,
 } from "../../packages/subagent-manager-pi/tui/subagent-row-model.ts";
@@ -174,4 +175,83 @@ test("buildSubagentRowModel: empty messages → lastLine is empty string", () =>
 
 	assert.equal(model.lastLine, "");
 	assert.equal(model.turns, 0);
+});
+
+test("buildSubagentRowModel: lastLine falls back to the latest tool activity when there is no assistant text", () => {
+	const events: RunEvent[] = [
+		{ id: "e1", runId: "r1", type: "run.progress", message: "starting subprocess", at: new Date().toISOString() },
+		{ id: "e2", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() },
+	];
+	const access = makeAccess({ r1: makeSnapshot("r1") }, {}, { r1: events });
+
+	const model = buildSubagentRowModel(access, ["r1"], now);
+
+	assert.equal(model.turns, 0, "no assistant messages were accumulated");
+	assert.ok(model.lastLine.includes("Bash"), "lastLine must surface the running tool when there is no assistant text");
+	assert.ok(!model.lastLine.startsWith("tool:"), "the raw 'tool:' marker must be humanized");
+});
+
+test("buildSubagentRowModel: assistant text takes precedence over tool activity for lastLine", () => {
+	const events: RunEvent[] = [
+		{ id: "e1", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() },
+	];
+	const access = makeAccess(
+		{ r1: makeSnapshot("r1") },
+		{ r1: [makeMessage("the actual answer", 1)] },
+		{ r1: events },
+	);
+
+	const model = buildSubagentRowModel(access, ["r1"], now);
+
+	assert.equal(model.lastLine, "the actual answer");
+});
+
+test("buildExpandedBodyLines: tool-only run yields the tool activity, not an empty transcript", () => {
+	const events: RunEvent[] = [
+		{ id: "e1", runId: "r1", type: "run.started", agent: "test-agent", at: new Date().toISOString() },
+		{ id: "e2", runId: "r1", type: "run.progress", message: "tool: Read", at: new Date().toISOString() },
+		{ id: "e3", runId: "r1", type: "run.progress", message: "tool: Bash", at: new Date().toISOString() },
+	];
+	const access = makeAccess({ r1: makeSnapshot("r1") }, {}, { r1: events });
+
+	const lines = buildExpandedBodyLines(access, ["r1"], 0);
+
+	assert.ok(lines.length > 0, "expanded body must not be empty during a tool-only run");
+	assert.ok(lines.some((l) => l.includes("🔧") && l.includes("Read")), "must surface the Read tool line");
+	assert.ok(lines.some((l) => l.includes("🔧") && l.includes("Bash")), "must surface the Bash tool line");
+});
+
+test("buildExpandedBodyLines: merges tool activity and assistant text chronologically", () => {
+	const events: RunEvent[] = [
+		{ id: "e1", runId: "r1", type: "run.progress", message: "tool: Read", at: new Date().toISOString() },
+		{ id: "e2", runId: "r1", type: "run.output", chunk: "", role: "assistant", text: "here is the answer", turn: 1, at: new Date().toISOString() },
+	];
+	const access = makeAccess({ r1: makeSnapshot("r1") }, {}, { r1: events });
+
+	const lines = buildExpandedBodyLines(access, ["r1"], 0);
+
+	const toolIndex = lines.findIndex((l) => l.includes("🔧") && l.includes("Read"));
+	const textIndex = lines.findIndex((l) => l.includes("here is the answer"));
+
+	assert.ok(toolIndex >= 0, "tool line must be present");
+	assert.ok(textIndex >= 0, "assistant text must still be present");
+	assert.ok(toolIndex < textIndex, "tool activity must precede the later assistant text (chronological order)");
+});
+
+test("buildExpandedBodyLines: falls back to accumulated messages when no event stream exists", () => {
+	const access: SubagentRowAccess = {
+		snapshot: (id) => (id === "r1" ? makeSnapshot("r1") : undefined),
+		messages: (id) => (id === "r1" ? [makeMessage("message body", 2)] : []),
+	};
+
+	const lines = buildExpandedBodyLines(access, ["r1"], 0);
+
+	assert.ok(lines.some((l) => l.includes("[Assistant · turn 2]")), "must keep the turn-labelled assistant header");
+	assert.ok(lines.some((l) => l.includes("message body")), "must render the assistant message body");
+});
+
+test("buildExpandedBodyLines: empty run yields no lines", () => {
+	const access = makeAccess({ r1: makeSnapshot("r1") });
+
+	assert.deepEqual(buildExpandedBodyLines(access, ["r1"], 0), []);
 });

@@ -100,6 +100,28 @@ test("runtime.snapshot: returns undefined for unknown runId", () => {
 	assert.equal(runtime.snapshot("no-such-run"), undefined);
 });
 
+test("runtime.events: returns the full event stream for a run in order", async () => {
+	const runtime = new ManagerRuntime({ registry: makeRegistry(), providers: [makeInstantProvider()] });
+	let capturedRunId = "";
+
+	runtime.subscribe((event) => {
+		if (event.type === "run.started") capturedRunId = event.runId;
+	});
+
+	await runtime.run({ agent: "test-agent", prompt: "hello" });
+
+	const events = runtime.events(capturedRunId);
+	const types = events.map((e) => e.type);
+	assert.ok(types.includes("run.started"), "event stream must include run.started");
+	assert.ok(types.includes("run.output"), "event stream must include run.output");
+	assert.ok(types.indexOf("run.started") < types.indexOf("run.output"), "events must be chronological");
+});
+
+test("runtime.events: returns empty array for unknown runId", () => {
+	const runtime = new ManagerRuntime({ registry: makeRegistry(), providers: [makeInstantProvider()] });
+	assert.deepEqual(runtime.events("no-such-run"), []);
+});
+
 test("runtime.run: onStart option is called with the runId before run completes", async () => {
 	const runtime = new ManagerRuntime({ registry: makeRegistry(), providers: [makeInstantProvider()] });
 	const startedIds: string[] = [];

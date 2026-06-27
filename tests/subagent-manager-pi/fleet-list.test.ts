@@ -1,8 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reduceFleetNav } from "../../packages/subagent-manager-pi/tui/fleet-list.ts";
+import { reduceFleetNav, shouldFleetHandleKey } from "../../packages/subagent-manager-pi/tui/fleet-list.ts";
 
 const ROWS = 3;
+
+test("shouldFleetHandleKey: acts only at an empty prompt with no overlay open", () => {
+	assert.equal(shouldFleetHandleKey(true, false), true, "empty prompt, no overlay → act");
+});
+
+test("shouldFleetHandleKey: stays inert while a conversation overlay is open", () => {
+	assert.equal(shouldFleetHandleKey(true, true), false, "overlay open → must not consume keys (Esc must reach the overlay)");
+});
+
+test("shouldFleetHandleKey: never acts when the editor has text", () => {
+	assert.equal(shouldFleetHandleKey(false, false), false, "typing must never be swallowed");
+	assert.equal(shouldFleetHandleKey(false, true), false);
+});
 
 test("reduceFleetNav: down from inactive selects the first row and consumes", () => {
 	assert.deepEqual(reduceFleetNav("down", -1, ROWS), {

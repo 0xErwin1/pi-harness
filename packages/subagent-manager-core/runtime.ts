@@ -116,6 +116,10 @@ export class ManagerRuntime implements ManagerFacade {
 		return this.store.messagesFor(id);
 	}
 
+	events(id: string): RunEvent[] {
+		return this.store.eventsFor(id);
+	}
+
 	snapshot(id: string): RunSnapshot | undefined {
 		return this.store.get(id);
 	}

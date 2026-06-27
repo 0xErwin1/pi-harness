@@ -2,11 +2,44 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	applyScroll,
+	ConversationViewer,
 	type ScrollState,
+	type ViewerRuntime,
 } from "../../packages/subagent-manager-pi/tui/conversation-viewer.ts";
+import type { TUI } from "@mariozechner/pi-tui";
+import type { Theme } from "@mariozechner/pi-coding-agent";
 
 const VIEWPORT = 10;
 const MAX_SCROLL = 40;
+
+function fakeRuntime(): ViewerRuntime {
+	return {
+		subscribe: () => () => {},
+		events: () => [],
+		snapshot: () => undefined,
+	};
+}
+
+function fakeTui(): TUI {
+	return { requestRender: () => {} } as unknown as TUI;
+}
+
+test("ConversationViewer: a single Esc press closes the overlay (done called once)", () => {
+	let closedCount = 0;
+	const viewer = new ConversationViewer(
+		fakeTui(),
+		{} as Theme,
+		fakeRuntime(),
+		"r1",
+		() => {
+			closedCount += 1;
+		},
+	);
+
+	viewer.handleInput("\x1b");
+
+	assert.equal(closedCount, 1, "Esc must close the viewer on the first press");
+});
 
 function state(scrollOffset: number, autoScroll: boolean): ScrollState {
 	return { scrollOffset, autoScroll };

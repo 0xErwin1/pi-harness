@@ -1,5 +1,5 @@
-import type { RunSnapshot } from "../../subagent-manager-core/events.ts";
-import type { RunMessage } from "../../subagent-manager-core/store.ts";
+import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
+import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/providers/process-runner.ts";
 
 export interface ViewerModel {
 	headerLines: string[];
@@ -41,27 +41,70 @@ function wrapText(text: string, width: number): string[] {
 	return lines;
 }
 
-function buildBody(messages: RunMessage[], width: number): string[] {
+function toolNameFromProgress(message: string): string | undefined {
+	if (!message.startsWith(TOOL_PROGRESS_PREFIX)) return undefined;
+	return message.slice(TOOL_PROGRESS_PREFIX.length).trim();
+}
+
+/**
+ * Renders the run's chronological event stream into displayable body lines,
+ * merging assistant text turns with live tool activity and status transitions.
+ *
+ * This is the core of the live viewer: tool-use turns carry no assistant text,
+ * so a transcript built only from accumulated assistant messages stays empty
+ * while the subagent is actually working. Reading the event stream surfaces the
+ * tool calls (and progress/status changes) as they happen, mirroring Ctrl-O.
+ */
+export function eventsToBodyLines(events: RunEvent[], width: number): string[] {
 	const lines: string[] = [];
-	for (const msg of messages) {
-		lines.push("[Assistant]");
-		for (const line of wrapText(msg.text, width)) {
-			lines.push(line);
+
+	for (const event of events) {
+		switch (event.type) {
+			case "run.started":
+				lines.push("▶ started");
+				break;
+			case "run.progress": {
+				const tool = toolNameFromProgress(event.message);
+				lines.push(tool ? `🔧 ${tool}` : `· ${event.message}`);
+				break;
+			}
+			case "run.output":
+				if (event.role === "assistant" && event.text) {
+					lines.push("[Assistant]");
+					for (const line of wrapText(event.text, width)) lines.push(line);
+				}
+				break;
+			case "run.needs_attention":
+				lines.push(`⚠ ${event.reason}`);
+				break;
+			case "run.completed":
+				lines.push("✓ completed");
+				break;
+			case "run.failed":
+				lines.push(`✗ failed: ${event.error}`);
+				break;
+			case "run.interrupted":
+				lines.push("■ interrupted");
+				break;
+			case "provider.degraded":
+				lines.push(`⚠ ${event.provider}: ${event.reason}`);
+				break;
 		}
 	}
+
 	return lines;
 }
 
 export function buildViewerModel(input: {
 	snapshot?: RunSnapshot;
-	messages: RunMessage[];
+	events: RunEvent[];
 	scrollOffset: number;
 	width: number;
 	height: number;
 	now: number;
 	autoScroll?: boolean;
 }): ViewerModel {
-	const { snapshot, messages, width, height, now, autoScroll } = input;
+	const { snapshot, events, width, height, now, autoScroll } = input;
 
 	const agent = snapshot?.agent ?? "";
 	const status = snapshot?.status ?? "unknown";
@@ -71,7 +114,7 @@ export function buildViewerModel(input: {
 	const headerParts = [agent, status, elapsed].filter((p) => p.length > 0);
 	const headerLines = [headerParts.join(" · ")];
 
-	const allBodyLines = buildBody(messages, width);
+	const allBodyLines = eventsToBodyLines(events, width);
 	const maxScroll = Math.max(0, allBodyLines.length - height);
 
 	const effectiveOffset = autoScroll ? maxScroll : Math.max(0, Math.min(input.scrollOffset, maxScroll));

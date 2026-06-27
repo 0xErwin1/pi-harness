@@ -2,6 +2,7 @@ import { type Component, Container, Text, TruncatedText } from "@mariozechner/pi
 import type { AgentToolResult, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
 import type { RunStatus } from "../../subagent-manager-core/events.ts";
 import {
+	buildExpandedBodyLines,
 	buildSubagentRowModel,
 	type SubagentRowAccess,
 	type SubagentRowModel,
@@ -184,20 +185,39 @@ function renderExpanded(
 	const header = `${icon} ${theme.bold(model.agent || "subagent")} ${theme.fg("dim", "·")} ${theme.fg("dim", `${model.status} · ${formatElapsed(model.elapsedMs)}`)}`;
 	container.addChild(new TruncatedText(header));
 
-	let rendered = 0;
-	for (const id of runIds) {
-		for (const message of access.messages(id)) {
-			container.addChild(new Text(""));
-			container.addChild(new TruncatedText(theme.fg("accent", `[Assistant · turn ${message.turn}]`)));
-			container.addChild(new Text(message.text));
-			rendered += 1;
-		}
+	const bodyLines = buildExpandedBodyLines(access, runIds, 0);
+
+	if (bodyLines.length === 0) {
+		container.addChild(new Text(""));
+		container.addChild(new TruncatedText(theme.fg("dim", "(no activity yet)")));
+		return container;
 	}
 
-	if (rendered === 0) {
-		container.addChild(new Text(""));
-		container.addChild(new TruncatedText(theme.fg("dim", "(no assistant output yet)")));
+	container.addChild(new Text(""));
+	for (const line of bodyLines) {
+		container.addChild(renderExpandedLine(line, theme));
 	}
 
 	return container;
+}
+
+const EXPANDED_MARKER_GLYPHS = ["🔧", "▶", "·", "✓", "✗", "■", "⚠"];
+
+/**
+ * Maps one transcript line to a component: assistant markers are accented, tool
+ * and status markers are dimmed, and free-flowing text wraps naturally. Marker
+ * detection mirrors the glyphs emitted by `eventsToBodyLines`.
+ */
+function renderExpandedLine(line: string, theme: Theme): Component {
+	if (line.length === 0) return new Text("");
+
+	if (line.startsWith("[Assistant")) {
+		return new TruncatedText(theme.fg("accent", line));
+	}
+
+	if (EXPANDED_MARKER_GLYPHS.some((glyph) => line.startsWith(glyph))) {
+		return new TruncatedText(theme.fg("dim", line));
+	}
+
+	return new Text(line);
 }
