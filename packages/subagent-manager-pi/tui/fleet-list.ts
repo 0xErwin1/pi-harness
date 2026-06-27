@@ -131,6 +131,7 @@ export class FleetList implements Component {
 	private readonly snapshots = new Map<string, RunSnapshot>();
 	private readonly activityById = new Map<string, string>();
 	private unsubscribe: (() => void) | undefined;
+	private renderTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(
 		private readonly tui: TUI,
@@ -142,6 +143,7 @@ export class FleetList implements Component {
 			this.snapshots.set(snapshot.id, snapshot);
 			const activity = fleetActivityFromEvent(event);
 			if (activity) this.activityById.set(event.runId, activity);
+			this.syncTimer();
 			this.tui.requestRender();
 		});
 	}
@@ -206,6 +208,26 @@ export class FleetList implements Component {
 	dispose(): void {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
+		if (this.renderTimer !== undefined) {
+			clearInterval(this.renderTimer);
+			this.renderTimer = undefined;
+		}
+	}
+
+	/**
+	 * Starts a 200ms render heartbeat while at least one run is active so the
+	 * spinner and elapsed counter advance between store events. Stops the interval
+	 * as soon as no active run remains, so the timer never runs when the widget
+	 * is idle.
+	 */
+	private syncTimer(): void {
+		const hasActive = this.roster().length > 0;
+		if (hasActive && this.renderTimer === undefined) {
+			this.renderTimer = setInterval(() => this.tui.requestRender(), 200);
+		} else if (!hasActive && this.renderTimer !== undefined) {
+			clearInterval(this.renderTimer);
+			this.renderTimer = undefined;
+		}
 	}
 
 	/**
