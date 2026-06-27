@@ -50,9 +50,12 @@ import {
 	attachFileSink,
 	createSubprocessProvider,
 	currentDepth,
+	isTopLevelProcess,
 	jsonlPath,
 	maxDepth,
+	removeSessionRoot,
 	sessionRoot,
+	sweepStaleSessions,
 	type AgentSpec,
 	type RunResult,
 } from "../packages/subagent-manager-core/index.ts";
@@ -956,6 +959,56 @@ const runtimes = new Map<string, ManagerRuntime>();
 
 const registeredCwds = new Set<string>();
 
+let sessionCleanupInstalled = false;
+
+/**
+ * Installs top-level cleanup for the file-backed subagent tree, idempotent per
+ * process and a no-op for nested processes (subagent depth > 0).
+ *
+ * Top-level responsibilities:
+ *   - A one-time crash-recovery TTL sweep of stale session roots for this cwd.
+ *   - Removal of THIS session's own root on shutdown.
+ *
+ * Shutdown removal is wired through every available path because none is
+ * guaranteed alone: Pi's `session_shutdown` hook (best-effort — wrapped so an
+ * older Pi without that event is a no-op), the synchronous `process` `exit`
+ * event (the guaranteed path on any `process.exit`-driven termination), and
+ * `SIGINT`/`SIGTERM` handlers. The signal handlers use `once` so that, by the
+ * time they run, their own listener is already removed: they clean up, then
+ * re-exit only when no OTHER handler remains for that signal. This preserves
+ * the default terminate behavior on a bare signal without forcing an exit that
+ * would truncate Pi's own graceful shutdown when Pi handles the signal too.
+ *
+ * Nested processes never register cleanup: the top-level process owns the tree
+ * and may still be reading their files.
+ */
+function installSessionCleanup(pi: ExtensionAPI): void {
+	if (sessionCleanupInstalled) return;
+	if (!isTopLevelProcess()) return;
+	sessionCleanupInstalled = true;
+
+	sweepStaleSessions();
+
+	const root = sessionRoot();
+
+	try {
+		pi.on("session_shutdown", () => removeSessionRoot(root));
+	} catch {
+		// session_shutdown may be absent on older pi versions; exit/signal handlers cover it.
+	}
+
+	process.once("exit", () => removeSessionRoot(root));
+
+	const handleSignal = (signal: NodeJS.Signals, exitCode: number): void => {
+		removeSessionRoot(root);
+		if (process.listenerCount(signal) === 0) {
+			process.exit(exitCode);
+		}
+	};
+	process.once("SIGINT", () => handleSignal("SIGINT", 130));
+	process.once("SIGTERM", () => handleSignal("SIGTERM", 143));
+}
+
 function getManagerRuntime(cwd: string): ManagerRuntime {
 	const existing = runtimes.get(cwd);
 	if (existing) return existing;
@@ -1223,6 +1276,7 @@ export default function harness(pi: ExtensionAPI): void {
 
 	// Register the fleet widget once per cwd so it captures every run from session start.
 	pi.on("session_start", (_event, ctx) => {
+		installSessionCleanup(pi);
 		if (registeredCwds.has(ctx.cwd)) return;
 		registeredCwds.add(ctx.cwd);
 		registerFleetWidget(ctx, getManagerRuntime(ctx.cwd));

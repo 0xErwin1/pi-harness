@@ -11,3 +11,4 @@ export * from "./file-tree/meta.ts";
 export * from "./file-tree/jsonl.ts";
 export * from "./file-tree/sink.ts";
 export * from "./file-tree/reader.ts";
+export * from "./file-tree/cleanup.ts";
