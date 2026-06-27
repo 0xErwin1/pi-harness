@@ -234,6 +234,35 @@ test("process-runner: a tool_execution_start with args emits a progress event ca
 	assert.ok(toolProgress !== undefined, "a tool progress event must be emitted");
 	assert.equal(toolProgress.message, "tool: read");
 	assert.equal(toolProgress.target, "src/foo.ts", "the progress event must carry the extracted target");
+	assert.equal(toolProgress.toolCall, "read src/foo.ts", "the progress event must carry the richer tool call");
+});
+
+test("process-runner: an MCP tool_execution_start emits a progress event with the richer toolCall", async () => {
+	const store = new InMemoryRunStore();
+	const ctx = makeContext(store);
+
+	const previousBin = process.env.PI_HARNESS_PI_BIN;
+	process.env.PI_HARNESS_PI_BIN = fakePiBin;
+	process.env.PI_TOOL_MCP = "1";
+
+	try {
+		await runPiProcessProvider(ctx);
+	} finally {
+		process.env.PI_HARNESS_PI_BIN = previousBin;
+		delete process.env.PI_TOOL_MCP;
+	}
+
+	const toolProgress = store.eventsFor("r1")
+		.filter((e): e is RunProgressEvent => e.type === "run.progress")
+		.find((e) => e.message.startsWith("tool:"));
+
+	assert.ok(toolProgress !== undefined, "a tool progress event must be emitted");
+	assert.equal(toolProgress.message, "tool: engram_mem_save");
+	assert.equal(
+		toolProgress.toolCall,
+		'engram_mem_save (query: "auth bug root cause", project: "pi-harness")',
+		"the MCP tool call must show its key args with the prefixed name preserved",
+	);
 });
 
 test("process-runner: a thinking block emits a separate kind:'thinking' run.output, excluded from result and turns", async () => {

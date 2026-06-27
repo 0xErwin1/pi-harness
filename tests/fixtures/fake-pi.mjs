@@ -11,6 +11,9 @@
  *   PI_IGNORE_SIGTERM  — when set, traps SIGTERM without exiting (to test SIGKILL fallback)
  *   PI_TOOL_WITH_ARGS  — when set, emits a tool_execution_start carrying {toolName, args}
  *                        before a final message_end (for tool-target extraction tests)
+ *   PI_TOOL_MCP        — when set, emits a tool_execution_start for an MCP-style tool with
+ *                        multi-field args before a final message_end (for rich tool-call
+ *                        formatting tests)
  *   PI_THINKING        — when set, emits a message_end whose assistant content carries
  *                        a thinking block before the final text (for thinking-stream tests)
  *   PI_TOKENS          — when set, emits two assistant message_end events each carrying a
@@ -42,6 +45,24 @@ if (process.env.PI_IGNORE_SIGTERM) {
 				type: "tool_execution_start",
 				toolName: "read",
 				args: { path: "src/foo.ts" },
+			}) + "\n",
+		);
+		process.stdout.write(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "done" }],
+				},
+			}) + "\n",
+		);
+		process.exit(0);
+	} else if (process.env.PI_TOOL_MCP) {
+		process.stdout.write(
+			JSON.stringify({
+				type: "tool_execution_start",
+				toolName: "engram_mem_save",
+				args: { query: "auth bug root cause", project: "pi-harness" },
 			}) + "\n",
 		);
 		process.stdout.write(

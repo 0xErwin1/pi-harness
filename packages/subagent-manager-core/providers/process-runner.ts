@@ -11,6 +11,7 @@ import {
 	assistantTextOf,
 	assistantThinkingOf,
 	finalAssistantText,
+	formatToolCall,
 	isMessageEnd,
 	parseNdjsonLine,
 	tokensOf,
@@ -195,10 +196,12 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 
 				if (event.type === "tool_execution_start" && event.toolName) {
 					const target = summarizeToolArgs(event.toolName, event.args);
+					const toolCall = formatToolCall(event.toolName, event.args);
 					context.emit({
 						type: "run.progress",
 						message: `${TOOL_PROGRESS_PREFIX} ${event.toolName}`,
 						...(target ? { target } : {}),
+						toolCall,
 					});
 				}
 

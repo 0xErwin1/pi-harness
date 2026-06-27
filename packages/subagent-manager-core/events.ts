@@ -55,6 +55,15 @@ export interface RunProgressEvent extends RunEventBase {
 	 * "read src/foo.ts" instead of a bare tool name. Absent for non-tool progress.
 	 */
 	target?: string;
+	/**
+	 * Optional richer, fully formatted tool call — the tool name plus its key
+	 * arguments compacted into one line (e.g. `read .gitignore`, `bash pnpm test`,
+	 * `engram_mem_save (query: "…", project: "…")`). Built-in tools mirror Pi's
+	 * native title style; MCP/plugin tools keep their prefixed name and show their
+	 * key args as `(key: "value", …)`. Preferred over `target` by the viewers when
+	 * present; absent for non-tool progress.
+	 */
+	toolCall?: string;
 }
 
 export interface RunOutputEvent extends RunEventBase {

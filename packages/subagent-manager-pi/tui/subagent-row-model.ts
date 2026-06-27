@@ -1,4 +1,4 @@
-import type { RunEvent, RunOutputEvent, RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
+import type { RunEvent, RunOutputEvent, RunProgressEvent, RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunMessage } from "../../subagent-manager-core/store.ts";
 import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/events.ts";
 import { eventsToBodyLines } from "./conversation-viewer-model.ts";
@@ -68,13 +68,13 @@ export function buildSubagentRowModel(
 		const evts = access.events?.(id) ?? [];
 		for (const ev of evts) {
 			if (ev.type === "run.progress") {
-				const msg = (ev as { message?: string }).message ?? "";
+				const progress = ev as RunProgressEvent;
+				const msg = progress.message ?? "";
 				lastProgressMessage = msg;
 				if (msg.startsWith(TOOL_PROGRESS_PREFIX)) {
 					tools += 1;
 					const name = msg.slice(TOOL_PROGRESS_PREFIX.length).trim();
-					const target = (ev as { target?: string }).target;
-					currentActivity = target ? `${name} ${target}` : name;
+					currentActivity = progress.toolCall ?? (progress.target ? `${name} ${progress.target}` : name);
 				}
 			} else if (ev.type === "run.output") {
 				const out = ev as RunOutputEvent;

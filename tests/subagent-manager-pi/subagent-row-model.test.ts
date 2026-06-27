@@ -243,6 +243,26 @@ test("buildSubagentRowModel: currentActivity is the latest tool with its target 
 	assert.ok(!model.currentActivity.startsWith("tool:"), "the raw 'tool:' marker must not leak into the row");
 });
 
+test("buildSubagentRowModel: currentActivity prefers the richer toolCall when present", () => {
+	const events: RunEvent[] = [
+		{
+			id: "e1",
+			runId: "r1",
+			type: "run.progress",
+			message: "tool: read",
+			target: ".gitignore",
+			toolCall: "read .gitignore",
+			at: new Date().toISOString(),
+		},
+	];
+	const access = makeAccess({ r1: makeSnapshot("r1") }, {}, { r1: events });
+
+	const model = buildSubagentRowModel(access, ["r1"], now);
+
+	assert.equal(model.currentActivity, "read .gitignore", "the rich toolCall must drive the collapsed-row activity");
+	assert.ok(!model.currentActivity.startsWith("tool:"), "the raw 'tool:' marker must not leak into the row");
+});
+
 test("buildSubagentRowModel: currentActivity collapses thinking to a state word, never the reasoning prose", () => {
 	const events: RunEvent[] = [
 		{ id: "e1", runId: "r1", type: "run.progress", message: "tool: Read", at: new Date().toISOString() },

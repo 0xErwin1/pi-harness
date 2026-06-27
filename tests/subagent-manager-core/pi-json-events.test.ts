@@ -6,7 +6,9 @@ import {
 	assistantTextOf,
 	assistantThinkingOf,
 	finalAssistantText,
+	formatToolCall,
 	tokensOf,
+	TOOL_CALL_VALUE_MAX,
 	type PiJsonEvent,
 	type PiMessage,
 } from "../../packages/subagent-manager-core/providers/pi-json-events.ts";
@@ -255,4 +257,77 @@ test("assistantTextOf: per-message streaming — distinct from finalAssistantTex
 		{ type: "message_end", message: secondMessage },
 	];
 	assert.equal(finalAssistantText(events), "second turn", "finalAssistantText returns the LAST assistant text");
+});
+
+test("formatToolCall: built-in file tools mirror Pi's native `<name> <path>` title", () => {
+	assert.equal(formatToolCall("read", { path: ".gitignore" }), "read .gitignore");
+	assert.equal(formatToolCall("read", { file_path: "src/foo.ts" }), "read src/foo.ts");
+	assert.equal(formatToolCall("edit", { path: "packages/a.ts", edits: [] }), "edit packages/a.ts");
+	assert.equal(formatToolCall("write", { path: "out.txt", content: "x" }), "write out.txt");
+	assert.equal(formatToolCall("ls", { path: "src" }), "ls src");
+});
+
+test("formatToolCall: read carries the line range when offset/limit are present", () => {
+	assert.equal(formatToolCall("read", { path: "a.ts", offset: 1, limit: 60 }), "read a.ts:1-60");
+	assert.equal(formatToolCall("read", { path: "a.ts", limit: 60 }), "read a.ts:1-60");
+	assert.equal(formatToolCall("read", { path: "a.ts", offset: 40 }), "read a.ts:40");
+});
+
+test("formatToolCall: bash shows the command, search tools show the pattern", () => {
+	assert.equal(formatToolCall("bash", { command: "pnpm run test" }), "bash pnpm run test");
+	assert.equal(formatToolCall("find", { pattern: "*.test.ts" }), "find *.test.ts");
+	assert.equal(formatToolCall("grep", { pattern: "TODO", glob: "*.ts" }), "grep /TODO/");
+});
+
+test("formatToolCall: an array primary arg renders as a brace list", () => {
+	assert.equal(
+		formatToolCall("find", { pattern: ["README.md", "package.json"] }),
+		"find {README.md,package.json}",
+	);
+});
+
+test("formatToolCall: tool name matching is case-insensitive", () => {
+	assert.equal(formatToolCall("Read", { path: "src/foo.ts" }), "Read src/foo.ts");
+	assert.equal(formatToolCall("BASH", { command: "ls" }), "BASH ls");
+});
+
+test("formatToolCall: generic/MCP tools show key args as (key: \"value\", …)", () => {
+	assert.equal(
+		formatToolCall("engram_mem_save", { query: "auth bug", project: "pi-harness" }),
+		'engram_mem_save (query: "auth bug", project: "pi-harness")',
+	);
+	assert.equal(formatToolCall("some_tool", { count: 3, enabled: true }), "some_tool (count: 3, enabled: true)");
+});
+
+test("formatToolCall: the MCP/plugin prefix in the tool name is preserved verbatim", () => {
+	assert.equal(
+		formatToolCall("mcp__engram__mem_search", { query: "q" }),
+		'mcp__engram__mem_search (query: "q")',
+	);
+	assert.equal(
+		formatToolCall("plugin:engram:engram - Search Memory", { query: "q" }),
+		'plugin:engram:engram - Search Memory (query: "q")',
+	);
+});
+
+test("formatToolCall: a long value is truncated PER VALUE, not the whole line", () => {
+	const longPath = "a".repeat(100);
+	const result = formatToolCall("read", { path: longPath });
+	const value = result.slice("read ".length);
+
+	assert.equal(value.length, TOOL_CALL_VALUE_MAX, "the value alone is capped at the per-value max");
+	assert.ok(value.endsWith("…"), "an over-long value ends with an ellipsis");
+	assert.ok(result.startsWith("read "), "the tool name and structure stay visible");
+});
+
+test("formatToolCall: a generic tool caps its key count with a trailing ellipsis", () => {
+	const result = formatToolCall("big_tool", { a: "1", b: "2", c: "3", d: "4", e: "5", f: "6" });
+	assert.ok(result.includes(", …)"), `over-cap key lists end with an ellipsis, got: ${result}`);
+	assert.ok(!result.includes("e:"), "keys beyond the cap are not shown");
+});
+
+test("formatToolCall: always returns at least the tool name", () => {
+	assert.equal(formatToolCall("read", {}), "read");
+	assert.equal(formatToolCall("read", undefined), "read");
+	assert.equal(formatToolCall("mystery", { nested: { deep: 1 } }), "mystery");
 });

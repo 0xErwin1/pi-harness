@@ -45,6 +45,17 @@ function toolWithTarget(name: string, target: string): RunEvent {
 	};
 }
 
+function toolWithCall(name: string, toolCall: string): RunEvent {
+	return {
+		id: `e${eventSeq++}`,
+		runId: "r1",
+		type: "run.progress",
+		message: `tool: ${name}`,
+		toolCall,
+		at: new Date().toISOString(),
+	};
+}
+
 function assistant(text: string, turn: number): RunEvent {
 	return { id: `e${eventSeq++}`, runId: "r1", type: "run.output", chunk: text, role: "assistant", text, turn, at: new Date().toISOString() };
 }
@@ -233,6 +244,32 @@ test("eventsToBodyLines: a tool with no target falls back to the bare name", () 
 	const lines = eventsToBodyLines([tool("bash")], 80);
 
 	assert.ok(lines.some((l) => l === "[tool] bash"), "no target → bare tool line");
+});
+
+test("eventsToBodyLines: a tool line prefers the richer toolCall over the bare name+target", () => {
+	const lines = eventsToBodyLines(
+		[toolWithCall("engram_mem_save", 'engram_mem_save (query: "auth bug", project: "pi-harness")')],
+		120,
+	);
+
+	assert.ok(
+		lines.some((l) => l === '[tool] engram_mem_save (query: "auth bug", project: "pi-harness")'),
+		"the rich toolCall must be rendered verbatim after the [tool] marker",
+	);
+});
+
+test("eventsToBodyLines: identical toolCall lines still collapse with a ×N count", () => {
+	const events = [
+		toolWithCall("read", "read a.ts"),
+		toolWithCall("read", "read a.ts"),
+		toolWithCall("read", "read a.ts"),
+	];
+
+	const lines = eventsToBodyLines(events, 80);
+	const toolLines = lines.filter((l) => l.startsWith("[tool]"));
+
+	assert.equal(toolLines.length, 1, "three identical rich tool calls must collapse to one line");
+	assert.ok(toolLines[0].includes("×3"), `collapsed line must carry the count, got: ${toolLines[0]}`);
 });
 
 test("eventsToBodyLines: consecutive identical tool lines collapse with a ×N count", () => {

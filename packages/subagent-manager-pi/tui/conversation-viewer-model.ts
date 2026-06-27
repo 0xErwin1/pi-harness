@@ -245,7 +245,8 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 			case "run.progress": {
 				const tool = toolNameFromProgress(event.message);
 				if (tool) {
-					lines.push(event.target ? `${TOOL_LINE_PREFIX}${tool} ${event.target}` : `${TOOL_LINE_PREFIX}${tool}`);
+					const display = event.toolCall ?? (event.target ? `${tool} ${event.target}` : tool);
+					lines.push(`${TOOL_LINE_PREFIX}${display}`);
 				} else {
 					lines.push(`· ${event.message}`);
 				}

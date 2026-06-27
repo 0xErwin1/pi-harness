@@ -107,6 +107,130 @@ export function tokensOf(message: PiMessage): TokenUsage | undefined {
 	return { input, output, total: input + output };
 }
 
+/**
+ * Per-value cap for a tool argument. A single huge value (a pasted blob, a long
+ * command) is truncated to this many characters so it cannot blow out the line,
+ * while the structure — tool name and which arguments — stays visible. The cap is
+ * applied PER VALUE, never to the whole formatted line.
+ */
+export const TOOL_CALL_VALUE_MAX = 40;
+
+/** How many key/value pairs a generic (e.g. MCP) tool shows before a trailing `…`. */
+const TOOL_CALL_MAX_KEYS = 4;
+
+/** Collapses internal whitespace and truncates a single value to the per-value cap. */
+function compactValue(value: string, max = TOOL_CALL_VALUE_MAX): string {
+	const collapsed = value.trim().replace(/\s+/g, " ");
+	if (collapsed.length <= max) return collapsed;
+	if (max <= 1) return "…";
+	return `${collapsed.slice(0, max - 1)}…`;
+}
+
+/** Picks the first present primary argument (path / command / pattern) as a bare value. */
+function primaryValue(fields: Record<string, unknown>, keys: string[]): string | undefined {
+	for (const key of keys) {
+		const value = fields[key];
+		if (typeof value === "string" && value.trim().length > 0) return compactValue(value);
+		if (Array.isArray(value) && value.length > 0) {
+			const items = value.filter((x) => typeof x === "string" || typeof x === "number").map(String);
+			if (items.length > 0) return `{${compactValue(items.join(","))}}`;
+		}
+	}
+	return undefined;
+}
+
+/** Mirrors Pi's native `read` title suffix: `:start-end` when offset/limit are set. */
+function lineRange(fields: Record<string, unknown>): string {
+	const offset = fields.offset;
+	const limit = fields.limit;
+	const hasOffset = typeof offset === "number" && Number.isFinite(offset);
+	const hasLimit = typeof limit === "number" && Number.isFinite(limit);
+	if (!hasOffset && !hasLimit) return "";
+
+	const start = hasOffset ? (offset as number) : 1;
+	const end = hasLimit ? start + (limit as number) - 1 : undefined;
+	return `:${start}${end !== undefined ? `-${end}` : ""}`;
+}
+
+/** Renders one scalar argument value for the generic `(key: value)` form (strings quoted). */
+function renderScalar(value: unknown): string | undefined {
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (trimmed.length === 0) return undefined;
+		return `"${compactValue(trimmed)}"`;
+	}
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	if (Array.isArray(value)) {
+		const items = value.filter((x) => typeof x === "string" || typeof x === "number").map(String);
+		if (items.length === 0) return undefined;
+		return `{${compactValue(items.join(","))}}`;
+	}
+	return undefined;
+}
+
+/** Formats a generic/MCP tool as `<name> (key: "value", …)`, capped at a few keys. */
+function formatGenericCall(name: string, fields: Record<string, unknown>): string {
+	const shown: string[] = [];
+	let total = 0;
+
+	for (const [key, value] of Object.entries(fields)) {
+		const rendered = renderScalar(value);
+		if (rendered === undefined) continue;
+		total += 1;
+		if (shown.length < TOOL_CALL_MAX_KEYS) shown.push(`${key}: ${rendered}`);
+	}
+
+	if (shown.length === 0) return name;
+
+	const more = total > shown.length ? ", …" : "";
+	return `${name} (${shown.join(", ")}${more})`;
+}
+
+/**
+ * Formats a tool invocation into one richer, human-readable line that mirrors
+ * Pi's native thread: the tool name plus its key arguments compacted together.
+ *
+ * Built-in tools follow Pi's native title style — `read <path>` (with a
+ * `:start-end` suffix when offset/limit are present), `bash <command>`,
+ * `edit|write|ls <path>`, `find <pattern>`, `grep /<pattern>/`. Any other tool
+ * (including MCP/plugin tools) keeps its name VERBATIM — the MCP/plugin prefix is
+ * preserved — and shows its key arguments as `(key: "value", …)`.
+ *
+ * Long values are truncated PER VALUE (not the whole line) so the call's shape
+ * stays legible. Always returns at least the tool name, even with no usable args.
+ */
+export function formatToolCall(toolName: string, args: unknown): string {
+	const name = toolName.trim();
+	const fields = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+
+	switch (name.toLowerCase()) {
+		case "read": {
+			const path = primaryValue(fields, ["file_path", "path"]);
+			return path ? `${name} ${path}${lineRange(fields)}` : name;
+		}
+		case "edit":
+		case "write":
+		case "ls": {
+			const path = primaryValue(fields, ["file_path", "path"]);
+			return path ? `${name} ${path}` : name;
+		}
+		case "bash": {
+			const command = primaryValue(fields, ["command", "cmd"]);
+			return command ? `${name} ${command}` : name;
+		}
+		case "find": {
+			const pattern = primaryValue(fields, ["pattern", "glob", "query"]);
+			return pattern ? `${name} ${pattern}` : name;
+		}
+		case "grep": {
+			const pattern = primaryValue(fields, ["pattern", "query"]);
+			return pattern ? `${name} /${pattern}/` : name;
+		}
+		default:
+			return formatGenericCall(name, fields);
+	}
+}
+
 export function finalAssistantText(events: PiJsonEvent[]): string | undefined {
 	for (let i = events.length - 1; i >= 0; i--) {
 		const event = events[i];
