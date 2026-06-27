@@ -21,15 +21,15 @@ test("shouldFleetHandleKey: never acts when the editor has text", () => {
 	assert.equal(shouldFleetHandleKey(false, true), false);
 });
 
-test("reduceFleetNav: down from inactive selects the first row and consumes", () => {
+test("reduceFleetNav: down at the inactive prompt no longer activates and passes through", () => {
 	assert.deepEqual(reduceFleetNav("down", -1, ROWS), {
-		selectedIndex: 0,
-		consume: true,
+		selectedIndex: -1,
+		consume: false,
 		open: null,
 	});
 });
 
-test("reduceFleetNav: down advances and clamps at the last row", () => {
+test("reduceFleetNav: down still advances and clamps the selection once the fleet is active", () => {
 	assert.deepEqual(reduceFleetNav("down", 0, ROWS).selectedIndex, 1);
 	assert.deepEqual(reduceFleetNav("down", ROWS - 1, ROWS), {
 		selectedIndex: ROWS - 1,
@@ -101,7 +101,7 @@ test("reduceFleetNav: no rows means nothing is consumed", () => {
 	}
 });
 
-test("reduceFleetNav: left activates the inactive fleet like down (P6)", () => {
+test("reduceFleetNav: left activates the inactive fleet (P6, now the sole activator)", () => {
 	assert.deepEqual(reduceFleetNav("left", -1, ROWS), {
 		selectedIndex: 0,
 		consume: true,

@@ -34,10 +34,12 @@ export interface FleetNavResult {
 
 /**
  * Pure navigation reducer for the fleet list. `selectedIndex === -1` means the
- * list is inactive (arrow keys flow to the editor); a `down` — or a `left` at the
- * inactive prompt — activates it. Only keys that actually act on the list report
- * `consume`, so normal editor input — including history navigation with `up` at an
- * inactive prompt, and `left` once the list is already active — is never swallowed.
+ * list is inactive (arrow keys flow to the editor); a `left` at the inactive
+ * prompt activates it — the group sits above the prompt, so `left` reads more
+ * naturally than `down` for reaching it. Only keys that actually act on the list
+ * report `consume`, so normal editor input — including history navigation with
+ * `up`/`down` at an inactive prompt, and `left` once the list is already active —
+ * is never swallowed.
  */
 export function reduceFleetNav(
 	key: FleetKey,
@@ -48,8 +50,8 @@ export function reduceFleetNav(
 
 	switch (key) {
 		case "down": {
-			const next = selectedIndex < 0 ? 0 : Math.min(rowCount - 1, selectedIndex + 1);
-			return { selectedIndex: next, consume: true, open: null };
+			if (selectedIndex < 0) return { selectedIndex: -1, consume: false, open: null };
+			return { selectedIndex: Math.min(rowCount - 1, selectedIndex + 1), consume: true, open: null };
 		}
 		case "left": {
 			if (selectedIndex < 0) return { selectedIndex: 0, consume: true, open: null };
@@ -269,7 +271,7 @@ export class FleetList implements Component {
 
 		const hint = this.selectedIndex >= 0
 			? "up/down select · enter view · esc back"
-			: "down to manage subagents";
+			: "← to manage agents";
 		lines.push(truncateToWidth("  " + th.fg("dim", hint), width));
 
 		return lines;

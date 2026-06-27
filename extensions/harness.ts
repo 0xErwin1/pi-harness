@@ -953,6 +953,13 @@ function getManagerRuntime(cwd: string): ManagerRuntime {
 
 const MAX_CONCURRENCY = 4;
 
+/**
+ * Cadence at which an in-flight subagent run re-emits its current state so the
+ * inline transcript row re-renders and its time-derived spinner/elapsed advance
+ * between tool-call events.
+ */
+const SUBAGENT_HEARTBEAT_MS = 800;
+
 export async function mapWithConcurrencyLimit<T, R>(
 	items: T[],
 	limit: number,
@@ -1108,6 +1115,15 @@ export default function harness(pi: ExtensionAPI): void {
 			const runIdSet = new Set<string>();
 			let turns = 0;
 			let tools = 0;
+			let lastText = "";
+
+			const emitUpdate = (text: string) => {
+				lastText = text;
+				onUpdate?.({
+					content: [{ type: "text", text }],
+					details: { runIds, turns, tools },
+				});
+			};
 
 			const unsubscribe = runtime.subscribe((event, snapshot) => {
 				if (!runIdSet.has(event.runId)) return;
@@ -1122,11 +1138,23 @@ export default function harness(pi: ExtensionAPI): void {
 					? event.message
 					: `${snapshot.agent} · ${snapshot.status}`;
 
-				onUpdate?.({
-					content: [{ type: "text", text }],
-					details: { runIds, turns, tools },
-				});
+				emitUpdate(text);
 			});
+
+			// The inline transcript row's spinner and elapsed counter are time-derived,
+			// so they only advance when the row re-renders. Events alone leave gaps
+			// between tool calls; re-emitting the current state on a fixed cadence keeps
+			// the row animating in flight. Cleared on settle and abort so no interval leaks.
+			let heartbeat: ReturnType<typeof setInterval> | undefined = setInterval(
+				() => emitUpdate(lastText),
+				SUBAGENT_HEARTBEAT_MS,
+			);
+			const stopHeartbeat = () => {
+				if (heartbeat === undefined) return;
+				clearInterval(heartbeat);
+				heartbeat = undefined;
+			};
+			signal?.addEventListener("abort", stopHeartbeat);
 
 			try {
 				if (translation.mode === "parallel") {
@@ -1154,6 +1182,8 @@ export default function harness(pi: ExtensionAPI): void {
 					details: { runIds, turns, tools },
 				};
 			} finally {
+				stopHeartbeat();
+				signal?.removeEventListener("abort", stopHeartbeat);
 				unsubscribe();
 			}
 		},
