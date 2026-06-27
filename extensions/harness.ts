@@ -45,7 +45,12 @@ import {
 import {
 	ManagerRuntime,
 	TOOL_PROGRESS_PREFIX,
+	InMemoryRunStore,
+	attachFileSink,
 	createSubprocessProvider,
+	currentDepth,
+	maxDepth,
+	sessionRoot,
 	type AgentSpec,
 	type RunResult,
 } from "../packages/subagent-manager-core/index.ts";
@@ -872,6 +877,10 @@ export function buildAgentMenu(
 	].join("\n");
 }
 
+export function isDepthExceeded(): boolean {
+	return currentDepth() >= maxDepth();
+}
+
 function readDefaultModelId(): string | undefined {
 	try {
 		const settings = JSON.parse(readFileSync(join(homedir(), ".pi", "agent", "settings.json"), "utf8")) as { defaultProvider?: string; defaultModel?: string };
@@ -932,9 +941,12 @@ function createManagerRegistry(cwd: string): AgentSpec[] {
 }
 
 function createHarnessManagerRuntime(cwd: string): ManagerRuntime {
+	const store = new InMemoryRunStore();
+	attachFileSink(store, { root: sessionRoot() });
 	return new ManagerRuntime({
 		registry: { builtin: createManagerRegistry(cwd) },
 		providers: [createSubprocessProvider()],
+		store,
 	});
 }
 
@@ -1100,6 +1112,13 @@ export default function harness(pi: ExtensionAPI): void {
 		renderCall: renderSubagentCall,
 		renderResult: renderSubagentResult((cwd) => getManagerRuntime(cwd)),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			if (isDepthExceeded()) {
+				return {
+					content: [{ type: "text", text: `Subagent depth limit reached (depth ${currentDepth()} >= max ${maxDepth()}). Nested subagent refused to prevent unbounded recursion.` }],
+					details: {} as SubagentResultDetails,
+				};
+			}
+
 			const payload = normalizeSubagentPayload(params, ctx);
 			const translation = translateSubagentPayload(payload);
 			if (translation.unsupported) {

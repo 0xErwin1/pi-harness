@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	runPiProcessProvider,
+	buildChildEnv,
 	StdoutLineBuffer,
 	summarizeToolArgs,
 } from "../../packages/subagent-manager-core/providers/process-runner.ts";
+import { agentIdFor } from "../../packages/subagent-manager-core/file-tree/paths.ts";
 import { InMemoryRunStore } from "../../packages/subagent-manager-core/store.ts";
 import type { ProviderRunContext } from "../../packages/subagent-manager-core/runtime.ts";
 import type { RunEvent, RunOutputEvent, RunProgressEvent } from "../../packages/subagent-manager-core/events.ts";
@@ -318,4 +320,67 @@ test("process-runner: single-message run.output (default fake-pi, no PI_MULTI_ME
 	assert.equal(assistantOutputs.length, 1, "single message_end → single assistant run.output");
 	assert.equal(assistantOutputs[0].text, "fake-pi response");
 	assert.equal(assistantOutputs[0].turn, 1);
+});
+
+// ---------------------------------------------------------------------------
+// buildChildEnv
+// ---------------------------------------------------------------------------
+
+test("buildChildEnv: PI_HARNESS_RUN_ROOT is set to the session root", () => {
+	const savedRoot = process.env.PI_HARNESS_RUN_ROOT;
+	try {
+		process.env.PI_HARNESS_RUN_ROOT = "/tmp/test-session-root";
+		const env = buildChildEnv("run-abc");
+		assert.equal(env.PI_HARNESS_RUN_ROOT, "/tmp/test-session-root");
+	} finally {
+		if (savedRoot === undefined) delete process.env.PI_HARNESS_RUN_ROOT;
+		else process.env.PI_HARNESS_RUN_ROOT = savedRoot;
+	}
+});
+
+test("buildChildEnv: PI_HARNESS_SUBAGENT_DEPTH is parent depth + 1", () => {
+	const savedRoot = process.env.PI_HARNESS_RUN_ROOT;
+	const savedDepth = process.env.PI_HARNESS_SUBAGENT_DEPTH;
+	try {
+		process.env.PI_HARNESS_RUN_ROOT = "/tmp/test-session-root";
+		process.env.PI_HARNESS_SUBAGENT_DEPTH = "2";
+
+		const env = buildChildEnv("run-xyz");
+		assert.equal(env.PI_HARNESS_SUBAGENT_DEPTH, "3");
+	} finally {
+		if (savedRoot === undefined) delete process.env.PI_HARNESS_RUN_ROOT;
+		else process.env.PI_HARNESS_RUN_ROOT = savedRoot;
+		if (savedDepth === undefined) delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
+		else process.env.PI_HARNESS_SUBAGENT_DEPTH = savedDepth;
+	}
+});
+
+test("buildChildEnv: PI_HARNESS_SUBAGENT_DEPTH defaults to 1 (parent at depth 0)", () => {
+	const savedRoot = process.env.PI_HARNESS_RUN_ROOT;
+	const savedDepth = process.env.PI_HARNESS_SUBAGENT_DEPTH;
+	try {
+		process.env.PI_HARNESS_RUN_ROOT = "/tmp/test-session-root";
+		delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
+
+		const env = buildChildEnv("run-default");
+		assert.equal(env.PI_HARNESS_SUBAGENT_DEPTH, "1");
+	} finally {
+		if (savedRoot === undefined) delete process.env.PI_HARNESS_RUN_ROOT;
+		else process.env.PI_HARNESS_RUN_ROOT = savedRoot;
+		if (savedDepth === undefined) delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
+		else process.env.PI_HARNESS_SUBAGENT_DEPTH = savedDepth;
+	}
+});
+
+test("buildChildEnv: PI_HARNESS_PARENT_AGENT_ID matches agentIdFor(runId)", () => {
+	const savedRoot = process.env.PI_HARNESS_RUN_ROOT;
+	try {
+		process.env.PI_HARNESS_RUN_ROOT = "/tmp/test-session-root";
+		const runId = "specific-run-id";
+		const env = buildChildEnv(runId);
+		assert.equal(env.PI_HARNESS_PARENT_AGENT_ID, agentIdFor(runId));
+	} finally {
+		if (savedRoot === undefined) delete process.env.PI_HARNESS_RUN_ROOT;
+		else process.env.PI_HARNESS_RUN_ROOT = savedRoot;
+	}
 });

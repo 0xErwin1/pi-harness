@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isDepthExceeded } from "../../extensions/harness.ts";
 import {
 	parseAgentDescription,
 	buildAgentMenu,
@@ -157,4 +158,56 @@ test("buildAgentMenu: falls back to agent name when description is absent", () =
 	const menu = buildAgentMenu(BUILTIN_GENERICS, discovered);
 
 	assert.ok(menu.includes("custom-agent — custom-agent"));
+});
+
+// ── isDepthExceeded (depth-cap guard) ────────────────────────────────────────
+
+function withDepthEnv(depth: string | undefined, max: string | undefined, fn: () => void): void {
+	const savedDepth = process.env.PI_HARNESS_SUBAGENT_DEPTH;
+	const savedMax = process.env.PI_HARNESS_MAX_SUBAGENT_DEPTH;
+	try {
+		if (depth === undefined) delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
+		else process.env.PI_HARNESS_SUBAGENT_DEPTH = depth;
+		if (max === undefined) delete process.env.PI_HARNESS_MAX_SUBAGENT_DEPTH;
+		else process.env.PI_HARNESS_MAX_SUBAGENT_DEPTH = max;
+		fn();
+	} finally {
+		if (savedDepth === undefined) delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
+		else process.env.PI_HARNESS_SUBAGENT_DEPTH = savedDepth;
+		if (savedMax === undefined) delete process.env.PI_HARNESS_MAX_SUBAGENT_DEPTH;
+		else process.env.PI_HARNESS_MAX_SUBAGENT_DEPTH = savedMax;
+	}
+}
+
+test("isDepthExceeded: returns false at depth 0 (default max 5)", () => {
+	withDepthEnv("0", undefined, () => {
+		assert.equal(isDepthExceeded(), false);
+	});
+});
+
+test("isDepthExceeded: returns false at depth 4 with max 5", () => {
+	withDepthEnv("4", "5", () => {
+		assert.equal(isDepthExceeded(), false);
+	});
+});
+
+test("isDepthExceeded: returns true at depth equal to max (5 >= 5)", () => {
+	withDepthEnv("5", "5", () => {
+		assert.equal(isDepthExceeded(), true);
+	});
+});
+
+test("isDepthExceeded: returns true at depth above max (6 >= 5)", () => {
+	withDepthEnv("6", "5", () => {
+		assert.equal(isDepthExceeded(), true);
+	});
+});
+
+test("isDepthExceeded: respects PI_HARNESS_MAX_SUBAGENT_DEPTH override", () => {
+	withDepthEnv("3", "3", () => {
+		assert.equal(isDepthExceeded(), true, "depth 3 >= max 3 must be exceeded");
+	});
+	withDepthEnv("2", "3", () => {
+		assert.equal(isDepthExceeded(), false, "depth 2 < max 3 must not be exceeded");
+	});
 });

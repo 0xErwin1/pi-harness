@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { TOOL_PROGRESS_PREFIX } from "../events.ts";
+import { agentIdFor, currentDepth, sessionRoot } from "../file-tree/paths.ts";
 import type { ProviderRunContext, RunResult } from "../runtime.ts";
 import { buildCompletedSummary } from "../store.ts";
 import {
@@ -16,6 +17,21 @@ import {
 	parseNdjsonLine,
 	tokensOf,
 } from "./pi-json-events.ts";
+
+/**
+ * Builds the env overlay injected into every spawned pi child process.
+ *
+ * Three vars propagate the session root (shared across all nested pids),
+ * the child's depth (parent depth + 1), and the parent's agentId so the file
+ * sink can link child meta back to its parent in the tree.
+ */
+export function buildChildEnv(runId: string): Record<string, string> {
+	return {
+		PI_HARNESS_RUN_ROOT: sessionRoot(),
+		PI_HARNESS_SUBAGENT_DEPTH: String(currentDepth() + 1),
+		PI_HARNESS_PARENT_AGENT_ID: agentIdFor(runId),
+	};
+}
 
 /**
  * Buffers a child process's stdout into complete lines while decoding bytes with
@@ -161,6 +177,7 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 						? context.request.metadata.cwd
 						: process.cwd(),
 				stdio: ["ignore", "pipe", "pipe"],
+				env: { ...process.env, ...buildChildEnv(context.runId) },
 			});
 
 			let wasAborted = false;
