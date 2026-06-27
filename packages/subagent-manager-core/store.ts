@@ -14,6 +14,7 @@ export interface CreateRunInput {
 	id: string;
 	agent: string;
 	task?: string;
+	prompt?: string;
 	policyMode: string;
 	requestedExecutionMode: RunExecutionMode | "auto";
 	resolvedExecutionMode?: RunExecutionMode;
@@ -32,6 +33,7 @@ export class InMemoryRunStore {
 			id: input.id,
 			agent: input.agent,
 			task: input.task,
+			prompt: input.prompt,
 			status: "queued",
 			policyMode: input.policyMode,
 			requestedExecutionMode: input.requestedExecutionMode,

@@ -445,3 +445,97 @@ test("eventsToBodyLines: thinking body wraps to width under the dim gutter, no [
 	assert.ok(bodyLines.length > 1, "a long thought must wrap into multiple body lines");
 	assert.ok(bodyLines.every((l) => l.length <= 40), "wrapped body lines must fit the width");
 });
+
+test("eventsToBodyLines: prompt block prepended before event stream when prompt is present", () => {
+	const lines = eventsToBodyLines([started(), tool("Read")], 80, "Do the task now");
+
+	const promptIdx = lines.findIndex((l) => l === "[prompt]");
+	const startedIdx = lines.findIndex((l) => l === "[started]");
+	const toolIdx = lines.findIndex((l) => l.includes("Read"));
+
+	assert.ok(promptIdx >= 0, "[prompt] header must be present");
+	assert.ok(promptIdx < startedIdx, "[prompt] header must come before [started]");
+	assert.ok(promptIdx < toolIdx, "[prompt] header must come before tool lines");
+	assert.ok(lines[promptIdx + 1] === "Do the task now", "prompt text must follow the [prompt] header");
+});
+
+test("eventsToBodyLines: prompt text is untruncated (full, not the 80-char task label)", () => {
+	const longPrompt = "word ".repeat(40).trim();
+	const lines = eventsToBodyLines([], 40, longPrompt);
+
+	const promptIdx = lines.findIndex((l) => l === "[prompt]");
+	assert.ok(promptIdx >= 0, "[prompt] header must be present");
+
+	const bodyLines = lines.slice(promptIdx + 1);
+	const combined = bodyLines.join(" ");
+	assert.ok(combined.includes("word"), "full prompt text must be present");
+	assert.ok(bodyLines.length > 1, "long prompt must wrap into multiple lines");
+});
+
+test("eventsToBodyLines: no prompt block when prompt is absent", () => {
+	const lines = eventsToBodyLines([started()], 80);
+
+	assert.ok(!lines.some((l) => l === "[prompt]"), "no [prompt] header without a prompt");
+	assert.equal(lines[0], "[started]", "first line must be [started] with no prompt");
+});
+
+test("eventsToBodyLines: no prompt block when prompt is empty string", () => {
+	const lines = eventsToBodyLines([started()], 80, "");
+
+	assert.ok(!lines.some((l) => l === "[prompt]"), "empty prompt must not emit a [prompt] block");
+});
+
+test("eventsToBodyLines: prompt wraps to width", () => {
+	const longPrompt = "word ".repeat(20).trim();
+	const lines = eventsToBodyLines([], 40, longPrompt);
+
+	const promptIdx = lines.findIndex((l) => l === "[prompt]");
+	const bodyLines = lines.slice(promptIdx + 1);
+
+	assert.ok(bodyLines.every((l) => l.length <= 40), "prompt body lines must fit the width");
+	assert.ok(bodyLines.length > 1, "long prompt must wrap into multiple lines");
+});
+
+test("transcriptLineColor: [prompt] label classifies as dim", () => {
+	assert.equal(transcriptLineColor("[prompt]"), "dim");
+});
+
+test("buildViewerModel: prompt block is first in body when snapshot has a prompt", () => {
+	const model = buildViewerModel({
+		snapshot: makeSnapshot({ prompt: "Analyze the codebase" }),
+		events: [started()],
+		scrollOffset: 0,
+		width: 80,
+		height: 100,
+		now: BASE_NOW,
+	});
+
+	assert.ok(model.bodyLines.length > 0, "body must not be empty");
+	assert.equal(model.bodyLines[0], "[prompt]", "first body line must be [prompt]");
+	assert.ok(model.bodyLines.some((l) => l.includes("Analyze the codebase")), "prompt text must appear in body");
+});
+
+test("buildViewerModel: no prompt block when snapshot has no prompt", () => {
+	const model = buildViewerModel({
+		snapshot: makeSnapshot(),
+		events: [started()],
+		scrollOffset: 0,
+		width: 80,
+		height: 100,
+		now: BASE_NOW,
+	});
+
+	assert.ok(!model.bodyLines.some((l) => l === "[prompt]"), "no [prompt] block when snapshot lacks a prompt");
+});
+
+test("buildViewerModel: no crash when snapshot is absent (no prompt available)", () => {
+	assert.doesNotThrow(() =>
+		buildViewerModel({
+			events: [started()],
+			scrollOffset: 0,
+			width: 80,
+			height: 100,
+			now: BASE_NOW,
+		}),
+	);
+});

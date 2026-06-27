@@ -178,6 +178,7 @@ export type TranscriptColor = "accent" | "success" | "error" | "warning" | "dim"
  * stay in sync.
  */
 export function transcriptLineColor(line: string): TranscriptColor {
+	if (line.startsWith("[prompt]")) return "dim";
 	if (line.startsWith("[Assistant")) return "accent";
 	if (line.startsWith(TOOL_LINE_PREFIX)) return "success";
 	if (line.startsWith("[done]")) return "success";
@@ -206,15 +207,22 @@ export function resolveViewportOffset(scrollOffset: number, maxScroll: number, f
 /**
  * Renders the run's chronological event stream into displayable body lines,
  * merging assistant text turns with live tool activity and status transitions.
+ * When `prompt` is provided it is prepended as a `[prompt]` block before the
+ * event stream, so the viewer shows what the subagent was asked to do first.
  *
  * This is the core of the live viewer: tool-use turns carry no assistant text,
  * so a transcript built only from accumulated assistant messages stays empty
  * while the subagent is actually working. Reading the event stream surfaces the
  * tool calls (and progress/status changes) as they happen, mirroring Ctrl-O.
  */
-export function eventsToBodyLines(events: RunEvent[], width: number): string[] {
+export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: string): string[] {
 	const lines: string[] = [];
 	let thinkingRun: string[] = [];
+
+	if (prompt) {
+		lines.push("[prompt]");
+		for (const line of wrapText(prompt, width)) lines.push(line);
+	}
 
 	const flushThinking = () => {
 		if (thinkingRun.length === 0) return;
@@ -299,7 +307,7 @@ export function buildViewerModel(input: {
 	);
 	const headerLines = [headerParts.join(" · ")];
 
-	const allBodyLines = eventsToBodyLines(events, width);
+	const allBodyLines = eventsToBodyLines(events, width, snapshot?.prompt);
 	const maxScroll = Math.max(0, allBodyLines.length - height);
 
 	const effectiveOffset = resolveViewportOffset(input.scrollOffset, maxScroll, autoScroll ?? false);

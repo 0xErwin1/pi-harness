@@ -159,6 +159,8 @@ export interface RunSnapshot {
 	 * linger a finished run for a short window before dropping it.
 	 */
 	endedAt?: string;
+	/** Full launch prompt, stored for display in the conversation viewer. */
+	prompt?: string;
 	summary?: RunSummary;
 	error?: string;
 	needsAttentionReason?: string;

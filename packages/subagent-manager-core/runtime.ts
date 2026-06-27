@@ -176,6 +176,7 @@ export class ManagerRuntime implements ManagerFacade {
 			id: runId,
 			agent: agent.name,
 			task: deriveRunTask(request.prompt),
+			prompt: request.prompt,
 			policyMode: policy.effectiveMode,
 			requestedExecutionMode: request.execution ?? agent.execution ?? "auto",
 			resolvedExecutionMode: route.mode,

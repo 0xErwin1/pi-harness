@@ -125,6 +125,19 @@ test("run lifecycle: the run snapshot records the task derived from the prompt",
 	assert.equal(snapshot.task, "Summarize the README");
 });
 
+test("run lifecycle: the run snapshot stores the full prompt (untruncated)", async () => {
+	const runtime = new ManagerRuntime({
+		registry: makeRegistry(),
+		providers: [makeInstantProvider()],
+	});
+
+	const fullPrompt = "Summarize the README\nwith bullet points\nand include file counts";
+	const result = await runtime.run({ agent: "test-agent", prompt: fullPrompt });
+
+	const [snapshot] = await runtime.status(result.runId);
+	assert.equal(snapshot.prompt, fullPrompt, "snapshot.prompt must equal the full request prompt");
+});
+
 test("interrupt(runId) aborts the per-run controller and emits run.interrupted", async () => {
 	const runtime = new ManagerRuntime({
 		registry: makeRegistry(),
