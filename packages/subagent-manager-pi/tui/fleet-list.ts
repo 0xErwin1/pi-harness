@@ -3,13 +3,11 @@ import {
 	matchesKey,
 	type TUI,
 	truncateToWidth,
-	visibleWidth,
 } from "@mariozechner/pi-tui";
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
-import { buildFleetModel, type FleetRow } from "./fleet-model.ts";
-import { formatTokens } from "./conversation-viewer-model.ts";
+import { buildFleetModel, fleetActivityFromEvent, type FleetRow } from "./fleet-model.ts";
 import { isConversationViewerOpen, showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
 
 /** Live accessor surface the fleet widget needs from the manager runtime. */
@@ -101,23 +99,37 @@ function statusColor(status: RunStatus): Parameters<Theme["fg"]>[0] {
 	}
 }
 
-function rightAlign(left: string, right: string, width: number): string {
-	const rightW = visibleWidth(right);
-	const maxLeft = Math.max(0, width - rightW - 1);
-	const leftClamped = truncateToWidth(left, maxLeft);
-	const gap = Math.max(1, width - visibleWidth(leftClamped) - rightW);
-	return truncateToWidth(leftClamped + " ".repeat(gap) + right, width);
+const SPINNER_FRAMES = ["-", "\\", "|", "/"];
+const SPINNER_INTERVAL_MS = 120;
+
+/**
+ * ASCII running indicator. Cycles through `-\|/` by a frame derived from elapsed
+ * time for running agents and shows a static `!` for runs awaiting attention. No
+ * braille or pictographs (hard project constraint).
+ */
+function spinnerFrame(status: RunStatus, elapsedMs: number): string {
+	if (status === "needs-attention") return "!";
+	const frame = Math.floor(Math.max(0, elapsedMs) / SPINNER_INTERVAL_MS) % SPINNER_FRAMES.length;
+	return SPINNER_FRAMES[frame];
+}
+
+function isActiveStatus(status: RunStatus): boolean {
+	return status === "running" || status === "needs-attention";
 }
 
 /**
- * Below-editor widget listing active and recent subagent runs. Renders from the
- * shared runtime (live, via subscribe) and exposes `handleKey` for the
- * `onTerminalInput` navigation path. Selection moves with the arrow keys, Enter
- * opens the selected run's conversation viewer, Esc clears the selection.
+ * Above-prompt "Agents" group rendering the live set of active subagent runs as
+ * a tree: a header with the running count, then one branch per agent showing the
+ * spinner, agent type, task, and elapsed time, with a sub-line for the agent's
+ * current activity. Renders from the shared runtime (live, via subscribe) and
+ * exposes `handleKey` for the `onTerminalInput` navigation path. Selection moves
+ * with the arrow keys, Enter opens the selected run's conversation viewer, Esc
+ * clears the selection. Self-hides when no run is active.
  */
 export class FleetList implements Component {
 	private selectedIndex = -1;
 	private readonly snapshots = new Map<string, RunSnapshot>();
+	private readonly activityById = new Map<string, string>();
 	private unsubscribe: (() => void) | undefined;
 
 	constructor(
@@ -126,8 +138,10 @@ export class FleetList implements Component {
 		runtime: FleetRuntime,
 		private readonly openViewer: (runId: string) => void,
 	) {
-		this.unsubscribe = runtime.subscribe((_event, snapshot) => {
+		this.unsubscribe = runtime.subscribe((event, snapshot) => {
 			this.snapshots.set(snapshot.id, snapshot);
+			const activity = fleetActivityFromEvent(event);
+			if (activity) this.activityById.set(event.runId, activity);
 			this.tui.requestRender();
 		});
 	}
@@ -161,24 +175,28 @@ export class FleetList implements Component {
 		const roster = this.roster();
 		if (roster.length === 0) return [];
 
-		const model = buildFleetModel(roster, this.selectedIndex, Date.now(), MAX_ROWS);
+		const model = buildFleetModel(roster, this.selectedIndex, Date.now(), MAX_ROWS, this.activityById);
 		const th = this.theme;
+
+		const header = model.runningCount > 0 ? `Agents · ${model.runningCount} running` : "Agents";
+		const lines: string[] = [];
+		lines.push(truncateToWidth(th.fg("accent", header), width));
+
+		const lastRowIndex = model.rows.length - 1;
+		model.rows.forEach((row, index) => {
+			const lastBranch = index === lastRowIndex && model.overflow === 0;
+			lines.push(this.renderRowMain(row, lastBranch, width));
+			lines.push(this.renderRowSub(row, lastBranch, width));
+		});
+
+		if (model.overflow > 0) {
+			lines.push(truncateToWidth(`  ${th.fg("dim", `└─ +${model.overflow} more`)}`, width));
+		}
 
 		const hint = this.selectedIndex >= 0
 			? "up/down select · enter view · esc back"
 			: "down to manage subagents";
-
-		const lines: string[] = [];
 		lines.push(truncateToWidth("  " + th.fg("dim", hint), width));
-		lines.push("");
-
-		for (const row of model.rows) {
-			lines.push(this.renderRow(row, width));
-		}
-
-		if (model.overflow > 0) {
-			lines.push(rightAlign("", th.fg("dim", `+${model.overflow} more`), width));
-		}
 
 		return lines;
 	}
@@ -190,27 +208,38 @@ export class FleetList implements Component {
 		this.unsubscribe = undefined;
 	}
 
-	private renderRow(row: FleetRow, width: number): string {
+	/**
+	 * The branch line for an agent: `<marker> <connector> <spin> <agent>  <task> · <elapsed>`.
+	 * The connector closes the tree (`└─`) on the last visible branch.
+	 */
+	private renderRowMain(row: FleetRow, lastBranch: boolean, width: number): string {
 		const th = this.theme;
 		const marker = row.selected ? th.fg("accent", ">") : " ";
-		const sep = th.fg("dim", " · ");
+		const connector = th.fg("dim", lastBranch ? "└─" : "├─");
+		const spin = th.fg(statusColor(row.status), spinnerFrame(row.status, row.elapsedMs));
+		const agent = th.fg("accent", row.agent);
+		const task = row.task ? `  ${row.task}` : "";
+		const elapsed = th.fg("dim", `· ${formatElapsed(row.elapsedMs)}`);
 
-		const segments = [
-			th.fg(statusColor(row.status), row.agent),
-			th.fg("muted", row.status),
-			th.fg("dim", formatElapsed(row.elapsedMs)),
-			th.fg("dim", `${row.tools} tools`),
-		];
-		const left = `  ${marker} ${segments.join(sep)}`;
-		const right = row.tokens > 0 ? th.fg("dim", `${formatTokens(row.tokens)} tok`) : "";
+		return truncateToWidth(`${marker} ${connector} ${spin} ${agent}${task} ${elapsed}`, width);
+	}
 
-		return right === "" ? truncateToWidth(left, width) : rightAlign(left, right, width);
+	/**
+	 * The activity sub-line beneath an agent's branch. Keeps the tree's vertical
+	 * gutter (`│`) for inner branches so the hierarchy reads cleanly.
+	 */
+	private renderRowSub(row: FleetRow, lastBranch: boolean, width: number): string {
+		const th = this.theme;
+		const gutter = lastBranch ? " " : th.fg("dim", "│");
+		const branch = th.fg("dim", "└");
+
+		return truncateToWidth(`  ${gutter}     ${branch} ${th.fg("dim", row.activity)}`, width);
 	}
 
 	private roster(): RunSnapshot[] {
-		return [...this.snapshots.values()].sort(
-			(a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt),
-		);
+		return [...this.snapshots.values()]
+			.filter((snapshot) => isActiveStatus(snapshot.status))
+			.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
 	}
 
 	private visibleCount(): number {
@@ -219,7 +248,7 @@ export class FleetList implements Component {
 }
 
 /**
- * Registers the fleet widget below the editor and wires arrow-key navigation
+ * Registers the Agents group above the prompt and wires arrow-key navigation
  * through `onTerminalInput`, gated on an empty editor so typing is never consumed.
  * Should be registered once per cwd on `session_start` so it captures every run.
  */
@@ -234,7 +263,7 @@ export function registerFleetWidget(ctx: ExtensionContext, runtime: ViewerRuntim
 			});
 			return fleet;
 		},
-		{ placement: "belowEditor" },
+		{ placement: "aboveEditor" },
 	);
 
 	ctx.ui.onTerminalInput((data) => {

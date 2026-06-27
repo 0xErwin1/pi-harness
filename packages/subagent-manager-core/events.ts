@@ -142,6 +142,11 @@ export type RunEventInput =
 export interface RunSnapshot {
 	id: string;
 	agent: string;
+	/**
+	 * Short, single-line description of what the run was asked to do, derived from
+	 * the request prompt. Lets the fleet group label each agent with its task.
+	 */
+	task?: string;
 	status: RunStatus;
 	requestedExecutionMode: RunExecutionMode | "auto";
 	resolvedExecutionMode?: RunExecutionMode;

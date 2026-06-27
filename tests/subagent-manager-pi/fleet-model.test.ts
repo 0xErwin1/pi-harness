@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	buildFleetModel,
+	fleetActivityFromEvent,
 	type FleetRow,
 	type FleetModel,
 } from "../../packages/subagent-manager-pi/tui/fleet-model.ts";
-import type { RunSnapshot } from "../../packages/subagent-manager-core/events.ts";
+import type { RunEvent, RunSnapshot } from "../../packages/subagent-manager-core/events.ts";
 
 const BASE_STARTED_AT = "2024-01-01T12:00:00.000Z";
 const BASE_NOW = Date.parse(BASE_STARTED_AT) + 5000;
@@ -128,4 +129,129 @@ test("buildFleetModel: selectedIndex out of range does not crash and selects not
 	const model = buildFleetModel(snapshots, 99, BASE_NOW, 10);
 
 	assert.ok(model.rows.every((r) => !r.selected), "out-of-range index selects no row");
+});
+
+test("buildFleetModel: each row carries its snapshot task label", () => {
+	const snapshots = [
+		makeSnapshot("r1", { task: "Find TODO/FIXME comments" }),
+		makeSnapshot("r2", { task: "Count files and LOC" }),
+	];
+
+	const model = buildFleetModel(snapshots, -1, BASE_NOW, 10);
+
+	assert.equal(model.rows[0].task, "Find TODO/FIXME comments");
+	assert.equal(model.rows[1].task, "Count files and LOC");
+});
+
+test("buildFleetModel: task defaults to empty string when the snapshot has none", () => {
+	const model = buildFleetModel([makeSnapshot("r1")], -1, BASE_NOW, 10);
+
+	assert.equal(model.rows[0].task, "");
+});
+
+test("buildFleetModel: a long task is hard-truncated with an ellipsis", () => {
+	const longTask = "x".repeat(120);
+	const model = buildFleetModel([makeSnapshot("r1", { task: longTask })], -1, BASE_NOW, 10);
+
+	assert.ok(model.rows[0].task.length <= 60, "task must be capped");
+	assert.ok(model.rows[0].task.endsWith("…"), "truncated task ends with an ellipsis");
+});
+
+test("buildFleetModel: activity comes from the live activity map when present", () => {
+	const activity = new Map<string, string>([["r1", "read src/foo.ts"]]);
+	const model = buildFleetModel([makeSnapshot("r1")], -1, BASE_NOW, 10, activity);
+
+	assert.equal(model.rows[0].activity, "read src/foo.ts");
+});
+
+test("buildFleetModel: activity falls back to the status when none observed yet", () => {
+	const model = buildFleetModel([makeSnapshot("r1", { status: "running" })], -1, BASE_NOW, 10);
+
+	assert.equal(model.rows[0].activity, "running");
+});
+
+test("buildFleetModel: a long activity is hard-truncated with an ellipsis", () => {
+	const activity = new Map<string, string>([["r1", "y".repeat(120)]]);
+	const model = buildFleetModel([makeSnapshot("r1")], -1, BASE_NOW, 10, activity);
+
+	assert.ok(model.rows[0].activity.length <= 50, "activity must be capped");
+	assert.ok(model.rows[0].activity.endsWith("…"), "truncated activity ends with an ellipsis");
+});
+
+test("buildFleetModel: runningCount counts only running snapshots across the full roster", () => {
+	const snapshots = [
+		makeSnapshot("r1", { status: "running" }),
+		makeSnapshot("r2", { status: "running" }),
+		makeSnapshot("r3", { status: "needs-attention" }),
+	];
+
+	const model = buildFleetModel(snapshots, -1, BASE_NOW, 1);
+
+	assert.equal(model.runningCount, 2, "running count spans beyond the visible cap");
+	assert.equal(model.rows.length, 1, "rows are still capped");
+});
+
+test("fleetActivityFromEvent: a tool progress event yields '<tool> <target>'", () => {
+	const event = {
+		type: "run.progress",
+		id: "e1",
+		runId: "r1",
+		at: BASE_STARTED_AT,
+		message: "tool:read",
+		target: "src/foo.ts",
+	} as RunEvent;
+
+	assert.equal(fleetActivityFromEvent(event), "read src/foo.ts");
+});
+
+test("fleetActivityFromEvent: a tool progress event without a target yields the bare tool name", () => {
+	const event = {
+		type: "run.progress",
+		id: "e1",
+		runId: "r1",
+		at: BASE_STARTED_AT,
+		message: "tool:bash",
+	} as RunEvent;
+
+	assert.equal(fleetActivityFromEvent(event), "bash");
+});
+
+test("fleetActivityFromEvent: non-tool progress leaves the activity unchanged (null)", () => {
+	const event = {
+		type: "run.progress",
+		id: "e1",
+		runId: "r1",
+		at: BASE_STARTED_AT,
+		message: "starting up",
+	} as RunEvent;
+
+	assert.equal(fleetActivityFromEvent(event), null);
+});
+
+test("fleetActivityFromEvent: a thinking output yields 'thinking…', never the reasoning prose", () => {
+	const event = {
+		type: "run.output",
+		id: "e1",
+		runId: "r1",
+		at: BASE_STARTED_AT,
+		chunk: "",
+		kind: "thinking",
+		text: "Let me reason about the secret plan in detail",
+	} as RunEvent;
+
+	assert.equal(fleetActivityFromEvent(event), "thinking…");
+});
+
+test("fleetActivityFromEvent: an assistant output yields its first line", () => {
+	const event = {
+		type: "run.output",
+		id: "e1",
+		runId: "r1",
+		at: BASE_STARTED_AT,
+		chunk: "",
+		role: "assistant",
+		text: "Here is the summary\nand more detail",
+	} as RunEvent;
+
+	assert.equal(fleetActivityFromEvent(event), "Here is the summary");
 });

@@ -13,6 +13,7 @@ export type RunStoreListener = (event: RunEvent, snapshot: RunSnapshot) => void;
 export interface CreateRunInput {
 	id: string;
 	agent: string;
+	task?: string;
 	policyMode: string;
 	requestedExecutionMode: RunExecutionMode | "auto";
 	resolvedExecutionMode?: RunExecutionMode;
@@ -30,6 +31,7 @@ export class InMemoryRunStore {
 		const snapshot: RunSnapshot = {
 			id: input.id,
 			agent: input.agent,
+			task: input.task,
 			status: "queued",
 			policyMode: input.policyMode,
 			requestedExecutionMode: input.requestedExecutionMode,

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+	deriveRunTask,
 	ManagerRuntime,
 	selectExecutionRoute,
 	type ExecutionProvider,
@@ -90,6 +91,38 @@ test("run lifecycle: store transitions to completed with correct agent and summa
 	const [snapshot] = await runtime.status(result.runId);
 	assert.equal(snapshot.status, "completed");
 	assert.equal(snapshot.agent, "test-agent");
+});
+
+test("deriveRunTask: takes the first non-empty line of the prompt", () => {
+	assert.equal(deriveRunTask("Find TODO comments\nand list them"), "Find TODO comments");
+});
+
+test("deriveRunTask: skips leading blank lines and trims", () => {
+	assert.equal(deriveRunTask("\n\n   Count files and LOC  \n"), "Count files and LOC");
+});
+
+test("deriveRunTask: returns undefined for an empty or whitespace-only prompt", () => {
+	assert.equal(deriveRunTask("   \n  "), undefined);
+	assert.equal(deriveRunTask(""), undefined);
+});
+
+test("deriveRunTask: hard-truncates a long first line with an ellipsis", () => {
+	const task = deriveRunTask("z".repeat(200));
+	assert.ok(task);
+	assert.ok(task.length <= 80, "task is capped");
+	assert.ok(task.endsWith("…"), "truncated task ends with an ellipsis");
+});
+
+test("run lifecycle: the run snapshot records the task derived from the prompt", async () => {
+	const runtime = new ManagerRuntime({
+		registry: makeRegistry(),
+		providers: [makeInstantProvider()],
+	});
+
+	const result = await runtime.run({ agent: "test-agent", prompt: "Summarize the README\nwith bullet points" });
+
+	const [snapshot] = await runtime.status(result.runId);
+	assert.equal(snapshot.task, "Summarize the README");
 });
 
 test("interrupt(runId) aborts the per-run controller and emits run.interrupted", async () => {

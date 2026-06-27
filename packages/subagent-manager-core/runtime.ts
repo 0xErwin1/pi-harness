@@ -62,6 +62,24 @@ export interface ManagerRuntimeOptions {
 	now?: () => Date;
 }
 
+const MAX_TASK_LENGTH = 80;
+
+/**
+ * Reduces a request prompt to a short, single-line task label for the run
+ * snapshot. Takes the first non-empty line and hard-truncates it so the fleet
+ * group can render one agent per line without wrapping.
+ */
+export function deriveRunTask(prompt: string): string | undefined {
+	const firstLine = prompt
+		.split("\n")
+		.map((line) => line.trim())
+		.find((line) => line.length > 0);
+
+	if (!firstLine) return undefined;
+	if (firstLine.length <= MAX_TASK_LENGTH) return firstLine;
+	return `${firstLine.slice(0, MAX_TASK_LENGTH - 1)}…`;
+}
+
 export function selectExecutionRoute(options: {
 	request: RunRequest;
 	agent: RegisteredAgent;
@@ -157,6 +175,7 @@ export class ManagerRuntime implements ManagerFacade {
 		this.store.create({
 			id: runId,
 			agent: agent.name,
+			task: deriveRunTask(request.prompt),
 			policyMode: policy.effectiveMode,
 			requestedExecutionMode: request.execution ?? agent.execution ?? "auto",
 			resolvedExecutionMode: route.mode,
