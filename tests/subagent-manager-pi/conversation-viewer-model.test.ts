@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
 	buildViewerModel,
 	eventsToBodyLines,
+	resolveViewportOffset,
+	transcriptLineColor,
 } from "../../packages/subagent-manager-pi/tui/conversation-viewer-model.ts";
 import type { RunEvent, RunSnapshot } from "../../packages/subagent-manager-core/events.ts";
 
@@ -30,6 +32,17 @@ function progress(message: string): RunEvent {
 
 function tool(name: string): RunEvent {
 	return progress(`tool: ${name}`);
+}
+
+function toolWithTarget(name: string, target: string): RunEvent {
+	return {
+		id: `e${eventSeq++}`,
+		runId: "r1",
+		type: "run.progress",
+		message: `tool: ${name}`,
+		target,
+		at: new Date().toISOString(),
+	};
 }
 
 function assistant(text: string, turn: number): RunEvent {
@@ -201,4 +214,163 @@ test("buildViewerModel: works without snapshot (no elapsed shown)", () => {
 			now: BASE_NOW,
 		}),
 	);
+});
+
+test("eventsToBodyLines: a tool line shows its target after the tool name", () => {
+	const lines = eventsToBodyLines([toolWithTarget("read", "src/foo.ts")], 80);
+
+	assert.ok(
+		lines.some((l) => l.includes("🔧 read src/foo.ts")),
+		"tool line must include the target after the name",
+	);
+});
+
+test("eventsToBodyLines: a tool with no target falls back to the bare name", () => {
+	const lines = eventsToBodyLines([tool("bash")], 80);
+
+	assert.ok(lines.some((l) => l === "🔧 bash"), "no target → bare tool line");
+});
+
+test("eventsToBodyLines: consecutive identical tool lines collapse with a ×N count", () => {
+	const events = [
+		toolWithTarget("read", "a.ts"),
+		toolWithTarget("read", "a.ts"),
+		toolWithTarget("read", "a.ts"),
+	];
+
+	const lines = eventsToBodyLines(events, 80);
+	const toolLines = lines.filter((l) => l.startsWith("🔧"));
+
+	assert.equal(toolLines.length, 1, "three identical tool calls must collapse to one line");
+	assert.ok(toolLines[0].includes("×3"), `collapsed line must carry the count, got: ${toolLines[0]}`);
+});
+
+test("eventsToBodyLines: distinct tool targets are NOT collapsed (no information lost)", () => {
+	const events = [
+		toolWithTarget("read", "a.ts"),
+		toolWithTarget("read", "b.ts"),
+		toolWithTarget("read", "c.ts"),
+	];
+
+	const lines = eventsToBodyLines(events, 80);
+	const toolLines = lines.filter((l) => l.startsWith("🔧"));
+
+	assert.equal(toolLines.length, 3, "distinct targets must each keep their own line");
+	assert.ok(!toolLines.some((l) => l.includes("×")), "distinct lines must not be counted");
+});
+
+test("eventsToBodyLines: a long tool target is truncated to width", () => {
+	const longTarget = "x".repeat(200);
+	const lines = eventsToBodyLines([toolWithTarget("read", longTarget)], 40);
+	const toolLine = lines.find((l) => l.startsWith("🔧"));
+
+	assert.ok(toolLine !== undefined, "tool line must exist");
+	assert.ok(toolLine.length <= 40, `tool line must fit width, got ${toolLine.length}`);
+	assert.ok(toolLine.endsWith("…"), "truncated line must end with an ellipsis");
+});
+
+test("buildViewerModel: header includes turn and tool counts", () => {
+	const events = [
+		assistant("first", 1),
+		tool("read"),
+		tool("bash"),
+		assistant("second", 2),
+	];
+
+	const model = buildViewerModel({
+		snapshot: makeSnapshot(),
+		events,
+		scrollOffset: 0,
+		width: 80,
+		height: 100,
+		now: BASE_NOW,
+	});
+
+	assert.ok(model.headerLines[0].includes("2t/2🔧"), `header must show counts, got: ${model.headerLines[0]}`);
+});
+
+test("buildViewerModel: footer shows 'following' when pinned to the bottom", () => {
+	const events = Array.from({ length: 20 }, (_, i) => assistant(`line ${i}`, i + 1));
+
+	const model = buildViewerModel({
+		snapshot: makeSnapshot(),
+		events,
+		scrollOffset: 0,
+		width: 80,
+		height: 5,
+		now: BASE_NOW,
+		autoScroll: true,
+	});
+
+	assert.ok(model.footerLine.includes("following"), `footer must read 'following', got: ${model.footerLine}`);
+});
+
+test("buildViewerModel: footer shows 'paused' when scrolled away from the bottom", () => {
+	const events = Array.from({ length: 20 }, (_, i) => assistant(`line ${i}`, i + 1));
+
+	const model = buildViewerModel({
+		snapshot: makeSnapshot(),
+		events,
+		scrollOffset: 2,
+		width: 80,
+		height: 5,
+		now: BASE_NOW,
+		autoScroll: false,
+	});
+
+	assert.ok(model.footerLine.includes("paused"), `footer must read 'paused', got: ${model.footerLine}`);
+});
+
+test("resolveViewportOffset: following tracks the growing tail (maxScroll)", () => {
+	assert.equal(resolveViewportOffset(0, 20, true), 20);
+	assert.equal(resolveViewportOffset(5, 40, true), 40);
+});
+
+test("resolveViewportOffset: paused stays put as the transcript grows", () => {
+	// Same user offset, larger maxScroll after new events stream in → offset unchanged.
+	assert.equal(resolveViewportOffset(5, 10, false), 5);
+	assert.equal(resolveViewportOffset(5, 30, false), 5);
+});
+
+test("resolveViewportOffset: paused offset is clamped into range", () => {
+	assert.equal(resolveViewportOffset(50, 20, false), 20);
+	assert.equal(resolveViewportOffset(-3, 20, false), 0);
+});
+
+test("buildViewerModel: a paused viewport stays anchored when new events arrive", () => {
+	const base = Array.from({ length: 10 }, (_, i) => assistant(`L${i}`, i + 1));
+
+	const before = buildViewerModel({
+		snapshot: makeSnapshot(),
+		events: base,
+		scrollOffset: 3,
+		width: 80,
+		height: 4,
+		now: BASE_NOW,
+		autoScroll: false,
+	});
+
+	const after = buildViewerModel({
+		snapshot: makeSnapshot(),
+		events: [...base, assistant("NEW", 11), tool("read")],
+		scrollOffset: 3,
+		width: 80,
+		height: 4,
+		now: BASE_NOW,
+		autoScroll: false,
+	});
+
+	assert.deepEqual(after.bodyLines, before.bodyLines, "paused viewport must show the same window after new events");
+});
+
+test("transcriptLineColor: distinct semantic colours per line kind", () => {
+	assert.equal(transcriptLineColor("[Assistant]"), "accent");
+	assert.equal(transcriptLineColor("🔧 read src/foo.ts"), "success");
+	assert.equal(transcriptLineColor("✓ completed"), "success");
+	assert.equal(transcriptLineColor("✗ failed: boom"), "error");
+	assert.equal(transcriptLineColor("⚠ degraded"), "warning");
+	assert.equal(transcriptLineColor("■ interrupted"), "warning");
+	assert.equal(transcriptLineColor("▶ started"), "dim");
+	assert.equal(transcriptLineColor("· starting subprocess"), "dim");
+	assert.equal(transcriptLineColor("plain assistant body text"), "text");
 });

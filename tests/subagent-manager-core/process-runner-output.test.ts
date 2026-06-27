@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runPiProcessProvider } from "../../packages/subagent-manager-core/providers/process-runner.ts";
+import {
+	runPiProcessProvider,
+	summarizeToolArgs,
+} from "../../packages/subagent-manager-core/providers/process-runner.ts";
 import { InMemoryRunStore } from "../../packages/subagent-manager-core/store.ts";
 import type { ProviderRunContext } from "../../packages/subagent-manager-core/runtime.ts";
-import type { RunEvent, RunOutputEvent } from "../../packages/subagent-manager-core/events.ts";
+import type { RunEvent, RunOutputEvent, RunProgressEvent } from "../../packages/subagent-manager-core/events.ts";
 import type { RegisteredAgent } from "../../packages/subagent-manager-core/registry.ts";
 
 const fakePiBin = new URL("../../tests/fixtures/fake-pi.mjs", import.meta.url).pathname;
@@ -107,6 +110,60 @@ test("process-runner: final summary text comes from the last message_end (finalA
 	}
 
 	assert.equal(result!.summary.text, "message 2", "summary should come from the LAST assistant message_end");
+});
+
+test("summarizeToolArgs: picks the path for file tools", () => {
+	assert.equal(summarizeToolArgs("read", { path: "src/foo.ts" }), "src/foo.ts");
+	assert.equal(summarizeToolArgs("edit", { path: "packages/a.ts", edits: [] }), "packages/a.ts");
+	assert.equal(summarizeToolArgs("write", { path: "out.txt", content: "x" }), "out.txt");
+	assert.equal(summarizeToolArgs("ls", { path: "src" }), "src");
+});
+
+test("summarizeToolArgs: picks the command for bash and the pattern for search tools", () => {
+	assert.equal(summarizeToolArgs("bash", { command: "pnpm test" }), "pnpm test");
+	assert.equal(summarizeToolArgs("grep", { pattern: "TODO", glob: "*.ts" }), "TODO");
+	assert.equal(summarizeToolArgs("find", { pattern: "*.test.ts" }), "*.test.ts");
+});
+
+test("summarizeToolArgs: tool name matching is case-insensitive", () => {
+	assert.equal(summarizeToolArgs("Read", { path: "src/foo.ts" }), "src/foo.ts");
+	assert.equal(summarizeToolArgs("BASH", { command: "ls" }), "ls");
+});
+
+test("summarizeToolArgs: unknown tool falls back to the first meaningful field", () => {
+	assert.equal(summarizeToolArgs("mystery", { command: "do-thing" }), "do-thing");
+	assert.equal(summarizeToolArgs("mystery", { file: "x.ts" }), "x.ts");
+});
+
+test("summarizeToolArgs: returns undefined when no useful field is present", () => {
+	assert.equal(summarizeToolArgs("read", {}), undefined);
+	assert.equal(summarizeToolArgs("read", undefined), undefined);
+	assert.equal(summarizeToolArgs("read", { path: "   " }), undefined);
+	assert.equal(summarizeToolArgs("bash", { command: 42 }), undefined);
+});
+
+test("process-runner: a tool_execution_start with args emits a progress event carrying the target", async () => {
+	const store = new InMemoryRunStore();
+	const ctx = makeContext(store);
+
+	const previousBin = process.env.PI_HARNESS_PI_BIN;
+	process.env.PI_HARNESS_PI_BIN = fakePiBin;
+	process.env.PI_TOOL_WITH_ARGS = "1";
+
+	try {
+		await runPiProcessProvider(ctx);
+	} finally {
+		process.env.PI_HARNESS_PI_BIN = previousBin;
+		delete process.env.PI_TOOL_WITH_ARGS;
+	}
+
+	const toolProgress = store.eventsFor("r1")
+		.filter((e): e is RunProgressEvent => e.type === "run.progress")
+		.find((e) => e.message.startsWith("tool:"));
+
+	assert.ok(toolProgress !== undefined, "a tool progress event must be emitted");
+	assert.equal(toolProgress.message, "tool: read");
+	assert.equal(toolProgress.target, "src/foo.ts", "the progress event must carry the extracted target");
 });
 
 test("process-runner: single-message run.output (default fake-pi, no PI_MULTI_MESSAGE)", async () => {

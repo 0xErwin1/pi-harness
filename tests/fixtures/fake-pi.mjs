@@ -6,9 +6,11 @@
  * On SIGTERM, emits a terminated event and exits 130.
  *
  * Environment variables:
- *   PI_ARGS_FILE      — path to write received argv (slice 2) as JSON before output
- *   PI_SLOW_MODE      — when set, waits indefinitely before emitting output (for abort tests)
- *   PI_IGNORE_SIGTERM — when set, traps SIGTERM without exiting (to test SIGKILL fallback)
+ *   PI_ARGS_FILE       — path to write received argv (slice 2) as JSON before output
+ *   PI_SLOW_MODE       — when set, waits indefinitely before emitting output (for abort tests)
+ *   PI_IGNORE_SIGTERM  — when set, traps SIGTERM without exiting (to test SIGKILL fallback)
+ *   PI_TOOL_WITH_ARGS  — when set, emits a tool_execution_start carrying {toolName, args}
+ *                        before a final message_end (for tool-target extraction tests)
  */
 
 import { writeFileSync } from "node:fs";
@@ -30,6 +32,24 @@ if (process.env.PI_IGNORE_SIGTERM) {
 
 	if (process.env.PI_SLOW_MODE) {
 		setTimeout(() => {}, 60_000);
+	} else if (process.env.PI_TOOL_WITH_ARGS) {
+		process.stdout.write(
+			JSON.stringify({
+				type: "tool_execution_start",
+				toolName: "read",
+				args: { path: "src/foo.ts" },
+			}) + "\n",
+		);
+		process.stdout.write(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "done" }],
+				},
+			}) + "\n",
+		);
+		process.exit(0);
 	} else {
 		const multiCount = process.env.PI_MULTI_MESSAGE ? parseInt(process.env.PI_MULTI_MESSAGE, 10) : 0;
 

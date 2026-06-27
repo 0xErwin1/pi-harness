@@ -9,6 +9,7 @@ export interface PiJsonEvent {
 	type?: string;
 	message?: PiMessage;
 	toolName?: string;
+	args?: unknown;
 }
 
 export function parseNdjsonLine(line: string): PiJsonEvent | undefined {

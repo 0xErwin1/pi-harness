@@ -7,6 +7,7 @@ import {
 	type SubagentRowAccess,
 	type SubagentRowModel,
 } from "./subagent-row-model.ts";
+import { transcriptLineColor } from "./conversation-viewer-model.ts";
 
 /**
  * Live state threaded through the tool result `details` by the harness `execute`
@@ -201,23 +202,18 @@ function renderExpanded(
 	return container;
 }
 
-const EXPANDED_MARKER_GLYPHS = ["🔧", "▶", "·", "✓", "✗", "■", "⚠"];
-
 /**
- * Maps one transcript line to a component: assistant markers are accented, tool
- * and status markers are dimmed, and free-flowing text wraps naturally. Marker
- * detection mirrors the glyphs emitted by `eventsToBodyLines`.
+ * Maps one transcript line to a component using the shared semantic colouring:
+ * assistant headers, tool activity, and status transitions each get a distinct
+ * colour, while free-flowing text keeps the default colour and wraps naturally.
+ * Sharing `transcriptLineColor` keeps the expanded row and the overlay viewer
+ * visually consistent.
  */
 function renderExpandedLine(line: string, theme: Theme): Component {
 	if (line.length === 0) return new Text("");
 
-	if (line.startsWith("[Assistant")) {
-		return new TruncatedText(theme.fg("accent", line));
-	}
+	const color = transcriptLineColor(line);
+	if (color === "text") return new Text(line);
 
-	if (EXPANDED_MARKER_GLYPHS.some((glyph) => line.startsWith(glyph))) {
-		return new TruncatedText(theme.fg("dim", line));
-	}
-
-	return new Text(line);
+	return new TruncatedText(theme.fg(color, line));
 }

@@ -8,7 +8,7 @@ import {
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
-import { buildViewerModel } from "./conversation-viewer-model.ts";
+import { buildViewerModel, transcriptLineColor } from "./conversation-viewer-model.ts";
 
 /** Live accessor surface the viewer needs from the manager runtime. */
 export interface ViewerRuntime {
@@ -86,7 +86,7 @@ function classifyScrollKey(data: string): ScrollAction | undefined {
 	if (matchesKey(data, "pageUp") || matchesKey(data, "shift+up")) return "pageUp";
 	if (matchesKey(data, "pageDown") || matchesKey(data, "shift+down")) return "pageDown";
 	if (matchesKey(data, "home")) return "home";
-	if (matchesKey(data, "end")) return "end";
+	if (matchesKey(data, "end") || matchesKey(data, "shift+g") || matchesKey(data, "g")) return "end";
 	return undefined;
 }
 
@@ -173,7 +173,7 @@ export class ConversationViewer implements Component {
 		lines.push(separator);
 
 		for (let i = 0; i < viewportHeight; i++) {
-			lines.push(row(model.bodyLines[i] ?? ""));
+			lines.push(row(this.styleBodyLine(model.bodyLines[i] ?? "")));
 		}
 
 		lines.push(separator);
@@ -204,10 +204,20 @@ export class ConversationViewer implements Component {
 		return `${icon} ${th.bold(headerLines[0] ?? "")}`;
 	}
 
+	/**
+	 * Applies a semantic colour to one body line so assistant text, tool activity,
+	 * and status transitions stand apart. Free-flowing text keeps the default
+	 * colour; the outer `row` handles padding and width truncation.
+	 */
+	private styleBodyLine(line: string): string {
+		if (line.length === 0) return "";
+		return this.theme.fg(transcriptLineColor(line), line);
+	}
+
 	private renderFooter(footerLine: string, innerW: number): string {
 		const th = this.theme;
 		const left = th.fg("dim", footerLine);
-		const hint = th.fg("dim", "↑↓ scroll · PgUp/PgDn · Esc close");
+		const hint = th.fg("dim", "↑↓/jk · PgUp/PgDn · End/G follow · Esc close");
 		const gap = Math.max(1, innerW - visibleWidth(left) - visibleWidth(hint));
 		return left + " ".repeat(gap) + hint;
 	}

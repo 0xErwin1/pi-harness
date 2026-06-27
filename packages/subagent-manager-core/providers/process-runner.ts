@@ -10,6 +10,39 @@ import { assistantTextOf, finalAssistantText, isMessageEnd, parseNdjsonLine } fr
 /** Prefix for run.progress messages that represent a tool invocation. */
 export const TOOL_PROGRESS_PREFIX = "tool:";
 
+/**
+ * Distills a tool invocation's arguments into a single short, human-readable
+ * target so the live viewer can show "read src/foo.ts" or `bash pnpm test`
+ * instead of a bare tool name. Picks the most relevant field per tool (path for
+ * file tools, command for bash, pattern for search tools) and falls back to the
+ * first meaningful string when the tool is unknown. Returns `undefined` when no
+ * useful field is present, in which case callers show the tool name alone.
+ */
+export function summarizeToolArgs(toolName: string, args: unknown): string | undefined {
+	if (!args || typeof args !== "object") return undefined;
+
+	const fields = args as Record<string, unknown>;
+	const pick = (key: string): string | undefined => {
+		const value = fields[key];
+		return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+	};
+
+	switch (toolName.toLowerCase()) {
+		case "read":
+		case "edit":
+		case "write":
+		case "ls":
+			return pick("path");
+		case "bash":
+			return pick("command");
+		case "grep":
+		case "find":
+			return pick("pattern");
+		default:
+			return pick("path") ?? pick("command") ?? pick("pattern") ?? pick("file");
+	}
+}
+
 function stripFrontmatter(markdown: string): string {
 	if (!markdown.startsWith("---\n")) return markdown;
 	const end = markdown.indexOf("\n---", 4);
@@ -127,7 +160,12 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 				events.push(event);
 
 				if (event.type === "tool_execution_start" && event.toolName) {
-					context.emit({ type: "run.progress", message: `${TOOL_PROGRESS_PREFIX} ${event.toolName}` });
+					const target = summarizeToolArgs(event.toolName, event.args);
+					context.emit({
+						type: "run.progress",
+						message: `${TOOL_PROGRESS_PREFIX} ${event.toolName}`,
+						...(target ? { target } : {}),
+					});
 				}
 
 				if (isMessageEnd(event) && event.message) {

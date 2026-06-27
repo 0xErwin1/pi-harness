@@ -42,6 +42,12 @@ export interface RunStartedEvent extends RunEventBase {
 export interface RunProgressEvent extends RunEventBase {
 	type: "run.progress";
 	message: string;
+	/**
+	 * Optional short, human-readable summary of a tool invocation's primary
+	 * argument (file path, command, or search pattern). Lets the live viewer show
+	 * "read src/foo.ts" instead of a bare tool name. Absent for non-tool progress.
+	 */
+	target?: string;
 }
 
 export interface RunOutputEvent extends RunEventBase {
