@@ -8,10 +8,22 @@ import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
 import {
+	agentIdFor,
+	currentDepth,
+	processToken,
+	scanTree,
+	sessionRoot,
+	type AgentNode,
+} from "../../subagent-manager-core/index.ts";
+import {
 	buildFleetModel,
 	fleetActivityFromEvent,
+	flattenForest,
 	isActiveFleetStatus,
-	selectFleetRoster,
+	mergeForest,
+	selectFleetNodeRoster,
+	type FleetLocalContext,
+	type FleetNode,
 	type FleetRow,
 } from "./fleet-model.ts";
 import { isConversationViewerOpen, showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
@@ -21,8 +33,25 @@ export interface FleetRuntime {
 	subscribe(listener: RunStoreListener): () => void;
 }
 
+/**
+ * Identifies the node a viewer-open targets. `local` runs keep the live
+ * in-memory conversation viewer (via `runId`); nested (file-backed) runs carry
+ * their `agentId` so WU-D can open the file-backed transcript.
+ */
+export interface FleetOpenTarget {
+	agentId: string;
+	local: boolean;
+	runId?: string;
+}
+
 const WIDGET_KEY = "subagents";
 const MAX_ROWS = 5;
+
+/** Minimum gap between file-tree scans, piggybacked on the render loop (no fs.watch). */
+const SCAN_INTERVAL_MS = 500;
+
+/** Columns of indentation added per tree depth level so children sit under their parent. */
+const INDENT = 2;
 
 export type FleetKey = "up" | "down" | "left" | "enter" | "escape";
 
@@ -157,35 +186,78 @@ function terminalMarker(status: RunStatus): string {
  * Above-prompt "Agents" group rendering the live set of active subagent runs as
  * a tree: a header with the running count, then one branch per agent showing the
  * spinner, agent type, task, and elapsed time, with a sub-line for the agent's
- * current activity. Renders from the shared runtime (live, via subscribe) and
- * exposes `handleKey` for the `onTerminalInput` navigation path. Selection moves
- * with the arrow keys, Enter opens the selected run's conversation viewer, Esc
- * clears the selection. Self-hides when no run is active.
+ * current activity. Nested subagents (running in child processes) are discovered
+ * by scanning the shared file tree and shown indented under their parent; local
+ * runs keep their live in-memory liveness (via subscribe). Exposes `handleKey`
+ * for the `onTerminalInput` navigation path. Selection moves with the arrow keys
+ * through the flattened tree, Enter opens the selected node's viewer, Esc clears
+ * the selection. Self-hides when no run is active.
  */
 export class FleetList implements Component {
 	private selectedIndex = -1;
 	private readonly snapshots = new Map<string, RunSnapshot>();
 	private readonly activityById = new Map<string, string>();
+	private forest: AgentNode[] = [];
+	private lastScanAt = 0;
 	private unsubscribe: (() => void) | undefined;
 	private renderTimer: ReturnType<typeof setInterval> | undefined;
-	private viewingRunId: string | undefined;
+	private viewingAgentId: string | undefined;
 	private lastRunningCount = -1;
 
 	constructor(
 		private readonly tui: TUI,
 		private readonly theme: Theme,
 		runtime: FleetRuntime,
-		private readonly openViewer: (runId: string) => Promise<void>,
+		private readonly openViewer: (target: FleetOpenTarget) => Promise<void>,
 		private readonly reportRunning: (running: number) => void,
 	) {
 		this.unsubscribe = runtime.subscribe((event, snapshot) => {
 			this.snapshots.set(snapshot.id, snapshot);
 			const activity = fleetActivityFromEvent(event);
 			if (activity) this.activityById.set(event.runId, activity);
+			this.refreshForest();
 			this.syncTimer();
 			this.reportRunningCount();
 			this.tui.requestRender();
 		});
+	}
+
+	/**
+	 * Re-scans the shared file tree on a ~500ms cadence (mtime-gated inside
+	 * `scanTree`), piggybacked on the render loop rather than fs.watch. The last
+	 * forest is kept on a scan failure so a transient fs error never blanks the
+	 * group.
+	 */
+	private refreshForest(): void {
+		const now = Date.now();
+		if (now - this.lastScanAt < SCAN_INTERVAL_MS) return;
+		this.lastScanAt = now;
+		try {
+			this.forest = scanTree(sessionRoot());
+		} catch {
+			// keep the last good forest on a scan fault
+		}
+	}
+
+	/**
+	 * Builds the roster: the file-backed forest merged with live local snapshots,
+	 * flattened pre-order, then filtered to the visible set. The in-memory store
+	 * is authoritative for local liveness; the scan supplies nested discovery.
+	 */
+	private mergedRoster(now: number): FleetNode[] {
+		const liveByAgentId = new Map<string, RunSnapshot>();
+		for (const snap of this.snapshots.values()) {
+			liveByAgentId.set(agentIdFor(snap.id), snap);
+		}
+
+		const ctx: FleetLocalContext = {
+			processToken: processToken(),
+			depth: currentDepth() + 1,
+			parentAgentId: process.env.PI_HARNESS_PARENT_AGENT_ID ?? null,
+		};
+
+		const merged = mergeForest(this.forest, ctx, liveByAgentId, this.activityById);
+		return selectFleetNodeRoster(flattenForest(merged), now);
 	}
 
 	/**
@@ -200,13 +272,13 @@ export class FleetList implements Component {
 		const key = classifyFleetKey(data);
 		if (!key) return undefined;
 
-		const rowCount = this.roster().length;
-		const result = reduceFleetNav(key, this.selectedIndex, rowCount);
+		const roster = this.mergedRoster(Date.now());
+		const result = reduceFleetNav(key, this.selectedIndex, roster.length);
 		this.selectedIndex = result.selectedIndex;
 
 		if (result.open !== null) {
-			const runId = this.roster()[result.open]?.id;
-			if (runId) this.openSelectedViewer(runId);
+			const node = roster[result.open];
+			if (node) this.openSelectedViewer(node);
 		}
 
 		if (result.consume) this.tui.requestRender();
@@ -214,40 +286,46 @@ export class FleetList implements Component {
 	}
 
 	/**
-	 * Opens the conversation viewer for a run and, once it closes, restores the
-	 * selection to that run's row — so closing a viewer returns the cursor to the
-	 * agent that was being viewed, not to the inactive prompt. The selection drops
-	 * to inactive if the run has since left the roster.
+	 * Opens the viewer for a node and, once it closes, restores the selection to
+	 * that node's row — so closing a viewer returns the cursor to the agent that
+	 * was being viewed, not to the inactive prompt. Local nodes open the live
+	 * conversation viewer; nested nodes carry their agentId for the file-backed
+	 * viewer. The selection drops to inactive if the node has since left the roster.
 	 */
-	private openSelectedViewer(runId: string): void {
-		this.viewingRunId = runId;
-		void this.openViewer(runId).finally(() => this.restoreSelection(runId));
+	private openSelectedViewer(node: FleetNode): void {
+		this.viewingAgentId = node.agentId;
+		const target: FleetOpenTarget = { agentId: node.agentId, local: node.local, runId: node.runId };
+		void this.openViewer(target).finally(() => this.restoreSelection(node.agentId));
 	}
 
-	private restoreSelection(runId: string): void {
-		if (this.viewingRunId !== runId) return;
-		this.viewingRunId = undefined;
-		this.selectedIndex = resolveRestoreIndex(this.roster().map((snapshot) => snapshot.id), runId);
+	private restoreSelection(agentId: string): void {
+		if (this.viewingAgentId !== agentId) return;
+		this.viewingAgentId = undefined;
+		this.selectedIndex = resolveRestoreIndex(this.mergedRoster(Date.now()).map((node) => node.agentId), agentId);
 		this.tui.requestRender();
 	}
 
 	/**
 	 * Pushes the running-agent count to the status bar whenever it changes,
-	 * clearing the status when no run is running. We have no queued count, so only
-	 * the running total is surfaced.
+	 * clearing the status when no run is running. Counts running nodes across the
+	 * whole tree (local and nested), excluding stale ones whose process is gone;
+	 * we have no queued count, so only the running total is surfaced.
 	 */
 	private reportRunningCount(): void {
-		const running = [...this.snapshots.values()].filter((snapshot) => snapshot.status === "running").length;
+		const running = this.mergedRoster(Date.now())
+			.filter((node) => node.status === "running" && !node.staleRunning).length;
 		if (running === this.lastRunningCount) return;
 		this.lastRunningCount = running;
 		this.reportRunning(running);
 	}
 
 	render(width: number): string[] {
-		const roster = this.roster();
+		const now = Date.now();
+		this.refreshForest();
+		const roster = this.mergedRoster(now);
 		if (roster.length === 0) return [];
 
-		const model = buildFleetModel(roster, this.selectedIndex, Date.now(), MAX_ROWS, this.activityById);
+		const model = buildFleetModel(roster, this.selectedIndex, now, MAX_ROWS);
 		const th = this.theme;
 
 		const header = model.runningCount > 0 ? `Agents · ${model.runningCount} running` : "Agents";
@@ -297,9 +375,11 @@ export class FleetList implements Component {
 	 * remains visible, so the timer never runs when the widget is idle.
 	 */
 	private syncTimer(): void {
-		const hasRows = this.roster().length > 0;
+		const hasRows = this.mergedRoster(Date.now()).length > 0;
 		if (hasRows && this.renderTimer === undefined) {
 			this.renderTimer = setInterval(() => {
+				this.refreshForest();
+				this.reportRunningCount();
 				this.tui.requestRender();
 				this.syncTimer();
 			}, 200);
@@ -310,41 +390,51 @@ export class FleetList implements Component {
 	}
 
 	/**
-	 * The branch line for an agent: `<marker> <connector> <indicator> <agent>  <task> · <elapsed>`.
-	 * The indicator is the live spinner while the run is active and a plain-text
-	 * terminal marker (`done` / `failed` / `interrupted`) while it lingers. The
-	 * connector closes the tree (`└─`) on the last visible branch.
+	 * The branch line for an agent: `<marker> <indent><connector> <indicator> <agent>  <task> · <elapsed>`.
+	 * The connector block is indented by `(depth - 1) * INDENT` columns so children
+	 * sit under their parent. The indicator is the live spinner while the run is
+	 * active, a plain-text terminal marker (`done` / `failed` / `interrupted`)
+	 * while it lingers, or `stale` when a file-backed running node's process is
+	 * gone. The connector closes the tree (`└─`) on the last visible branch.
 	 */
 	private renderRowMain(row: FleetRow, lastBranch: boolean, width: number): string {
 		const th = this.theme;
 		const marker = row.selected ? th.fg("accent", ">") : " ";
+		const indent = " ".repeat(Math.max(0, (row.depth - 1) * INDENT));
 		const connector = th.fg("dim", lastBranch ? "└─" : "├─");
-		const indicatorText = isActiveFleetStatus(row.status)
-			? spinnerFrame(row.status, row.elapsedMs)
-			: terminalMarker(row.status);
-		const indicator = th.fg(statusColor(row.status), indicatorText);
+		const indicatorText = rowIndicator(row);
+		const indicator = th.fg(statusColor(row.staleRunning ? "interrupted" : row.status), indicatorText);
 		const agent = th.fg("accent", row.agent);
 		const task = row.task ? `  ${row.task}` : "";
 		const elapsed = th.fg("dim", `· ${formatElapsed(row.elapsedMs)}`);
 
-		return truncateToWidth(`${marker} ${connector} ${indicator} ${agent}${task} ${elapsed}`, width);
+		return truncateToWidth(`${marker} ${indent}${connector} ${indicator} ${agent}${task} ${elapsed}`, width);
 	}
 
 	/**
-	 * The activity sub-line beneath an agent's branch. Keeps the tree's vertical
-	 * gutter (`│`) for inner branches so the hierarchy reads cleanly.
+	 * The activity sub-line beneath an agent's branch, indented to match the row.
+	 * Keeps the tree's vertical gutter (`│`) for inner branches so the hierarchy
+	 * reads cleanly.
 	 */
 	private renderRowSub(row: FleetRow, lastBranch: boolean, width: number): string {
 		const th = this.theme;
+		const indent = " ".repeat(Math.max(0, (row.depth - 1) * INDENT));
 		const gutter = lastBranch ? " " : th.fg("dim", "│");
 		const branch = th.fg("dim", "└");
 
-		return truncateToWidth(`  ${gutter}     ${branch} ${th.fg("dim", row.activity)}`, width);
+		return truncateToWidth(`  ${indent}${gutter}     ${branch} ${th.fg("dim", row.activity)}`, width);
 	}
+}
 
-	private roster(): RunSnapshot[] {
-		return selectFleetRoster([...this.snapshots.values()], Date.now());
-	}
+/**
+ * The status indicator for a row: a plain `stale` marker when a file-backed
+ * running node's process is gone, the live spinner while active, or the terminal
+ * marker while a finished run lingers.
+ */
+function rowIndicator(row: FleetRow): string {
+	if (row.staleRunning) return "stale";
+	if (isActiveFleetStatus(row.status)) return spinnerFrame(row.status, row.elapsedMs);
+	return terminalMarker(row.status);
 }
 
 /**
@@ -366,7 +456,10 @@ export function registerFleetWidget(ctx: ExtensionContext, runtime: ViewerRuntim
 				tui,
 				theme,
 				runtime,
-				(runId) => showConversationViewer(ctx, runtime, runId),
+				(target) =>
+					target.local && target.runId
+						? showConversationViewer(ctx, runtime, target.runId)
+						: Promise.resolve(),
 				reportRunning,
 			);
 			return fleet;

@@ -4,9 +4,21 @@ import {
 	type RunStatus,
 	TOOL_PROGRESS_PREFIX,
 } from "../../subagent-manager-core/events.ts";
+import type { AgentNode } from "../../subagent-manager-core/file-tree/reader.ts";
 
 export interface FleetRow {
+	/** Stable identity of the row across processes — the node's agentId. */
 	id: string;
+	/** Globally-unique agent identity (`<processToken>-<runId>`). */
+	agentId: string;
+	/** Spawning agent's id, or `null` for a root run. */
+	parentAgentId: string | null;
+	/** Tree depth (1 = a run launched by this process, 2 = its child, …). */
+	depth: number;
+	/** True when the run lives in this process and has a live in-memory snapshot. */
+	local: boolean;
+	/** The run id, present only for local nodes (used to open the live viewer). */
+	runId?: string;
 	agent: string;
 	status: RunStatus;
 	/** Short task label for the agent, derived from the run's request prompt. */
@@ -16,6 +28,8 @@ export interface FleetRow {
 	elapsedMs: number;
 	tools: number;
 	tokens: number;
+	/** True when a file-backed node is still marked running but its process is gone. */
+	staleRunning: boolean;
 	selected: boolean;
 }
 
@@ -27,6 +41,41 @@ export interface FleetModel {
 	hiddenBelow: number;
 	/** Number of active runs in the `running` state across the whole roster. */
 	runningCount: number;
+}
+
+/**
+ * A merged tree node combining file-backed structure (depth, parent links) with
+ * live in-memory liveness for local runs. Built by {@link mergeForest} and
+ * flattened pre-order by {@link flattenForest} before windowing.
+ */
+export interface FleetNode {
+	agentId: string;
+	parentAgentId: string | null;
+	depth: number;
+	local: boolean;
+	runId?: string;
+	agent: string;
+	status: RunStatus;
+	task: string;
+	activity: string;
+	startedAt: string;
+	endedAt?: string;
+	updatedAt: string;
+	tools: number;
+	tokens: number;
+	staleRunning: boolean;
+	children: FleetNode[];
+}
+
+/**
+ * Identity of the local process and the structural slot its own runs occupy in
+ * the tree, used to recognise local nodes and to synthesise local runs that the
+ * file sink has not flushed yet.
+ */
+export interface FleetLocalContext {
+	processToken: string;
+	depth: number;
+	parentAgentId: string | null;
 }
 
 const MAX_TASK = 60;
@@ -42,10 +91,15 @@ export function isActiveFleetStatus(status: RunStatus): boolean {
 	return status === "running" || status === "needs-attention";
 }
 
-function isLingeringFleetSnapshot(snap: RunSnapshot, now: number, lingerMs: number): boolean {
-	if (!TERMINAL_STATUSES.has(snap.status)) return false;
-	if (!snap.endedAt) return false;
-	return now - Date.parse(snap.endedAt) <= lingerMs;
+/**
+ * True when a terminal status with a known terminal timestamp is still within
+ * the linger window — the shared predicate behind both the snapshot roster and
+ * the merged-node roster.
+ */
+function isLingering(status: RunStatus, endedAt: string | undefined, now: number, lingerMs: number): boolean {
+	if (!TERMINAL_STATUSES.has(status)) return false;
+	if (!endedAt) return false;
+	return now - Date.parse(endedAt) <= lingerMs;
 }
 
 /**
@@ -60,8 +114,34 @@ export function selectFleetRoster(
 	lingerMs: number = FLEET_LINGER_MS,
 ): RunSnapshot[] {
 	return snapshots
-		.filter((snap) => isActiveFleetStatus(snap.status) || isLingeringFleetSnapshot(snap, now, lingerMs))
+		.filter((snap) => isActiveFleetStatus(snap.status) || isLingering(snap.status, snap.endedAt, now, lingerMs))
 		.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+}
+
+/**
+ * Roster predicate for a merged tree node. Active nodes stay; terminal nodes
+ * linger briefly; a `staleRunning` node (running status, dead process) is shown
+ * as terminal and lingered against its last write so a crashed agent appears
+ * briefly without lingering forever.
+ */
+export function isFleetNodeVisible(node: FleetNode, now: number, lingerMs: number = FLEET_LINGER_MS): boolean {
+	if (node.staleRunning) {
+		return now - Date.parse(node.endedAt ?? node.updatedAt) <= lingerMs;
+	}
+	if (isActiveFleetStatus(node.status)) return true;
+	return isLingering(node.status, node.endedAt, now, lingerMs);
+}
+
+/**
+ * Filters a flattened forest to the visible roster, preserving the incoming
+ * pre-order so the tree shape is kept across the window.
+ */
+export function selectFleetNodeRoster(
+	nodes: FleetNode[],
+	now: number,
+	lingerMs: number = FLEET_LINGER_MS,
+): FleetNode[] {
+	return nodes.filter((node) => isFleetNodeVisible(node, now, lingerMs));
 }
 
 function truncate(text: string, max: number): string {
@@ -96,10 +176,136 @@ export function fleetActivityFromEvent(event: RunEvent): string | null {
 	return null;
 }
 
-function activityFor(snap: RunSnapshot, activityById: Map<string, string> | undefined): string {
-	const live = activityById?.get(snap.id);
-	if (live && live.trim().length > 0) return live;
-	return snap.status;
+function isLocalAgentId(agentId: string, processToken: string): boolean {
+	return agentId.startsWith(`${processToken}-`);
+}
+
+/**
+ * Builds the activity sub-line for a file-backed (nested) node from its meta:
+ * stale nodes flag the gone process, otherwise the status plus any tool/token
+ * counts. Nested nodes have no live event stream, so this is the best signal.
+ */
+function nestedActivity(status: RunStatus, tools: number, tokens: number, stale: boolean): string {
+	if (stale) return "stale (process gone)";
+
+	const parts: string[] = [status];
+	if (tools > 0) parts.push(`${tools} tools`);
+	if (tokens > 0) parts.push(`${tokens} tok`);
+	return parts.join(" · ");
+}
+
+function mergeNode(
+	node: AgentNode,
+	ctx: FleetLocalContext,
+	liveByAgentId: Map<string, RunSnapshot>,
+	activityById: Map<string, string>,
+): FleetNode {
+	const local = isLocalAgentId(node.agentId, ctx.processToken);
+	const live = local ? liveByAgentId.get(node.agentId) : undefined;
+	const runId = local ? node.agentId.slice(ctx.processToken.length + 1) : undefined;
+
+	const status = live?.status ?? node.status;
+	const tools = live?.toolCount ?? node.tools ?? 0;
+	const tokens = live?.tokens ?? node.tokens ?? 0;
+	const staleRunning = live ? false : (node.staleRunning ?? false);
+
+	const activity = live
+		? activityById.get(live.id) ?? status
+		: nestedActivity(status, tools, tokens, staleRunning);
+
+	return {
+		agentId: node.agentId,
+		parentAgentId: node.parentAgentId,
+		depth: node.depth,
+		local,
+		runId,
+		agent: live?.agent ?? node.agentType,
+		status,
+		task: live?.task ?? node.task ?? "",
+		activity,
+		startedAt: live?.startedAt ?? node.startedAt,
+		endedAt: live?.endedAt ?? node.endedAt,
+		updatedAt: live?.updatedAt ?? node.updatedAt,
+		tools,
+		tokens,
+		staleRunning,
+		children: node.children.map((child) => mergeNode(child, ctx, liveByAgentId, activityById)),
+	};
+}
+
+function synthLocalNode(
+	agentId: string,
+	snap: RunSnapshot,
+	ctx: FleetLocalContext,
+	activityById: Map<string, string>,
+): FleetNode {
+	return {
+		agentId,
+		parentAgentId: ctx.parentAgentId,
+		depth: ctx.depth,
+		local: true,
+		runId: snap.id,
+		agent: snap.agent,
+		status: snap.status,
+		task: snap.task ?? "",
+		activity: activityById.get(snap.id) ?? snap.status,
+		startedAt: snap.startedAt,
+		endedAt: snap.endedAt,
+		updatedAt: snap.updatedAt,
+		tools: snap.toolCount ?? 0,
+		tokens: snap.tokens ?? 0,
+		staleRunning: false,
+		children: [],
+	};
+}
+
+/**
+ * Merges the file-backed forest with the live in-memory snapshots.
+ *
+ * For every node, file meta is authoritative for structure (depth, parent
+ * links). For LOCAL nodes the live snapshot overrides liveness fields (status,
+ * activity, tokens, tools, timestamps) because the file lags slightly behind the
+ * in-memory store. Live local runs the sink has not flushed yet are synthesised
+ * as roots so a freshly-started agent appears immediately. Roots are returned
+ * sorted by start time; children keep the reader's start-time order.
+ */
+export function mergeForest(
+	roots: AgentNode[],
+	ctx: FleetLocalContext,
+	liveByAgentId: Map<string, RunSnapshot>,
+	activityById: Map<string, string>,
+): FleetNode[] {
+	const present = new Set<string>();
+	const collect = (node: AgentNode): void => {
+		present.add(node.agentId);
+		node.children.forEach(collect);
+	};
+	roots.forEach(collect);
+
+	const merged = roots.map((root) => mergeNode(root, ctx, liveByAgentId, activityById));
+
+	for (const [agentId, snap] of liveByAgentId) {
+		if (present.has(agentId)) continue;
+		merged.push(synthLocalNode(agentId, snap, ctx, activityById));
+	}
+
+	merged.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+	return merged;
+}
+
+/**
+ * Flattens a merged forest into a pre-order list: each parent immediately
+ * followed by its children, recursively. Sibling order is preserved from the
+ * input (start-time order), so the flat list reads top-to-bottom as the tree.
+ */
+export function flattenForest(roots: FleetNode[]): FleetNode[] {
+	const out: FleetNode[] = [];
+	const walk = (node: FleetNode): void => {
+		out.push(node);
+		for (const child of node.children) walk(child);
+	};
+	for (const root of roots) walk(root);
+	return out;
 }
 
 /**
@@ -119,38 +325,42 @@ function computeWindow(total: number, maxRows: number, selectedIndex: number): {
 }
 
 /**
- * Builds the tree model for the Agents group: one row per visible snapshot,
- * windowed around `selectedIndex` (at most `maxRows` rows) so the selection
- * stays on screen as it moves. Each row carries its task label, current
- * activity, elapsed time, and counters. `hiddenAbove`/`hiddenBelow` report how
- * many roster rows fall outside the window so the caller can render "N more"
- * markers on each side. `activityById` provides the live per-run activity phrase
- * tracked by the widget from the event stream; rows fall back to their status
- * when no activity has been observed yet.
+ * Builds the tree model for the Agents group from the FLATTENED, roster-filtered
+ * forest: one row per visible node, windowed around `selectedIndex` (at most
+ * `maxRows` rows) so the selection stays on screen as it moves. Each row carries
+ * its depth (for indentation), task label, current activity, elapsed time, and
+ * counters. `hiddenAbove`/`hiddenBelow` report how many roster rows fall outside
+ * the window so the caller can render "N more" markers on each side. A
+ * `staleRunning` node is excluded from `runningCount` because its process is gone.
  */
 export function buildFleetModel(
-	snapshots: RunSnapshot[],
+	nodes: FleetNode[],
 	selectedIndex: number,
 	now: number,
 	maxRows: number,
-	activityById?: Map<string, string>,
 ): FleetModel {
-	const total = snapshots.length;
+	const total = nodes.length;
 	const { start, end } = computeWindow(total, maxRows, selectedIndex);
-	const visible = snapshots.slice(start, end);
+	const visible = nodes.slice(start, end);
 	const hiddenAbove = start;
 	const hiddenBelow = total - end;
-	const runningCount = snapshots.filter((snap) => snap.status === "running").length;
+	const runningCount = nodes.filter((node) => node.status === "running" && !node.staleRunning).length;
 
-	const rows: FleetRow[] = visible.map((snap, index) => ({
-		id: snap.id,
-		agent: snap.agent,
-		status: snap.status,
-		task: truncate(snap.task ?? "", MAX_TASK),
-		activity: truncate(activityFor(snap, activityById), MAX_ACTIVITY),
-		elapsedMs: now - Date.parse(snap.startedAt),
-		tools: snap.toolCount ?? 0,
-		tokens: snap.tokens ?? 0,
+	const rows: FleetRow[] = visible.map((node, index) => ({
+		id: node.agentId,
+		agentId: node.agentId,
+		parentAgentId: node.parentAgentId,
+		depth: node.depth,
+		local: node.local,
+		runId: node.runId,
+		agent: node.agent,
+		status: node.status,
+		task: truncate(node.task, MAX_TASK),
+		activity: truncate(node.activity, MAX_ACTIVITY),
+		elapsedMs: now - Date.parse(node.startedAt),
+		tools: node.tools,
+		tokens: node.tokens,
+		staleRunning: node.staleRunning,
 		selected: start + index === selectedIndex,
 	}));
 
