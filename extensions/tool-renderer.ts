@@ -44,6 +44,7 @@ import type { TSchema } from "@sinclair/typebox";
 import {
 	diffBlockLines,
 	formatToolArgs,
+	outputBlockLines,
 	summarizeToolResult,
 	type DiffLineKind,
 	type ToolSummaryStatus,
@@ -162,12 +163,29 @@ export function buildToolDiffLines(details: unknown, expanded: boolean, styler: 
 	return diffBlockLines(diff, cap).map((line) => styler.fg(diffColor(line.kind), line.text));
 }
 
+/** Strips ANSI escape sequences and C0 control characters (except tab) from one line. */
+function stripAnsi(text: string): string {
+	return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x08\x0a-\x1f\x7f]/g, "");
+}
+
 /**
- * Builds the result row: the `<Verb> <args> · <summary>` line plus, for edits,
- * the diff block beneath it. The summary colour follows the tool status (bash
- * exit 0 success / nonzero error, others neutral/dim); `isError` forces error and
- * supplies a bare `error` summary when the tool produced none. May throw if the
- * styler throws — callers use `safeBuildToolResultLines` for the guarded variant.
+ * Builds the muted output block for a bash result: the lines the command actually
+ * printed, sanitized of ANSI/control bytes and dimmed. Capped at 20 lines when
+ * collapsed; the full output is shown when expanded. The `exit code: N` trailer is
+ * dropped by `outputBlockLines` since the summary already carries it.
+ */
+export function buildToolOutputLines(resultText: string | undefined, expanded: boolean, styler: ToolLineStyler): string[] {
+	const cap = expanded ? Number.MAX_SAFE_INTEGER : undefined;
+	return outputBlockLines(resultText, cap).map((line) => styler.fg("dim", stripAnsi(line)));
+}
+
+/**
+ * Builds the result row: the `<Verb> <args> · <summary>` line plus a body block —
+ * the diff for edits, the printed output for bash — beneath it. The summary colour
+ * follows the tool status (bash exit 0 success / nonzero error, others neutral/dim);
+ * `isError` forces error and supplies a bare `error` summary when the tool produced
+ * none. May throw if the styler throws — callers use `safeBuildToolResultLines` for
+ * the guarded variant.
  */
 export function buildToolResultLines(
 	toolName: string,
@@ -193,8 +211,11 @@ export function buildToolResultLines(
 	if (summaryText.length > 0) line += ` · ${styler.fg(statusColor(status), summaryText)}`;
 
 	const lines = [line];
-	if (toolName.toLowerCase() === "edit") {
+	const tool = toolName.toLowerCase();
+	if (tool === "edit") {
 		lines.push(...buildToolDiffLines(result.details, expanded, styler));
+	} else if (tool === "bash") {
+		lines.push(...buildToolOutputLines(resultText(result), expanded, styler));
 	}
 	return lines;
 }

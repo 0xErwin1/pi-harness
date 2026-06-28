@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Type } from "@sinclair/typebox";
-import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
+import type { AgentToolResult, Theme, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import {
 	buildToolCallLine,
 	buildToolDiffLines,
+	buildToolOutputLines,
 	buildToolResultLines,
 	overrideToolRendering,
 	registerToolRenderer,
@@ -73,14 +74,21 @@ test("buildToolResultLines: read yields '<Verb> <args> · <summary>' with a dim 
 	assert.deepEqual(lines, ["<b>Read</b> <accent>a.ts</accent> · <dim>2 lines</dim>"]);
 });
 
-test("buildToolResultLines: bash exit 0 colours the summary success", () => {
+test("buildToolResultLines: bash exit 0 colours the summary success and shows the output", () => {
 	const lines = buildToolResultLines("bash", { command: "x" }, textResult("a\nb\nexit code: 0"), false, false, STYLER);
-	assert.deepEqual(lines, ["<b>Bash</b> <accent>$ x</accent> · <success>exit 0 · 3 lines</success>"]);
+	assert.deepEqual(lines, [
+		"<b>Bash</b> <accent>$ x</accent> · <success>exit 0 · 3 lines</success>",
+		"<dim>a</dim>",
+		"<dim>b</dim>",
+	]);
 });
 
-test("buildToolResultLines: bash nonzero exit colours the summary error", () => {
+test("buildToolResultLines: bash nonzero exit colours the summary error and shows the output", () => {
 	const lines = buildToolResultLines("bash", { command: "x" }, textResult("boom\nexit code: 1"), false, false, STYLER);
-	assert.deepEqual(lines, ["<b>Bash</b> <accent>$ x</accent> · <error>exit 1 · 2 lines</error>"]);
+	assert.deepEqual(lines, [
+		"<b>Bash</b> <accent>$ x</accent> · <error>exit 1 · 2 lines</error>",
+		"<dim>boom</dim>",
+	]);
 });
 
 test("buildToolResultLines: isError overrides the summary colour to error", () => {
@@ -127,6 +135,37 @@ test("buildToolDiffLines: expanded shows the full diff with no continuation", ()
 	const lines = buildToolDiffLines({ diff: `--- a\n+++ b\n${body}` }, true, STYLER);
 	assert.equal(lines.length, 25);
 	assert.ok(!lines.some((l) => l.includes("more")));
+});
+
+// ── buildToolOutputLines ─────────────────────────────────────────────────────
+
+test("buildToolOutputLines: dims each printed line and drops the exit trailer", () => {
+	const lines = buildToolOutputLines("hello\nworld\nexit code: 0", false, STYLER);
+	assert.deepEqual(lines, ["<dim>hello</dim>", "<dim>world</dim>"]);
+});
+
+test("buildToolOutputLines: strips ANSI colour codes from the command output", () => {
+	const lines = buildToolOutputLines("\x1b[31mred\x1b[0m line\nexit code: 0", false, STYLER);
+	assert.deepEqual(lines, ["<dim>red line</dim>"]);
+});
+
+test("buildToolOutputLines: collapsed caps at 20 lines with a continuation", () => {
+	const body = `${Array.from({ length: 25 }, (_, i) => `o${i}`).join("\n")}\nexit code: 0`;
+	const lines = buildToolOutputLines(body, false, STYLER);
+	assert.equal(lines.length, 21);
+	assert.equal(lines[20], "<dim>… +5 more</dim>");
+});
+
+test("buildToolOutputLines: expanded shows everything with no continuation", () => {
+	const body = `${Array.from({ length: 25 }, (_, i) => `o${i}`).join("\n")}\nexit code: 0`;
+	const lines = buildToolOutputLines(body, true, STYLER);
+	assert.equal(lines.length, 25);
+	assert.ok(!lines.some((l) => l.includes("more")));
+});
+
+test("buildToolOutputLines: empty output yields no lines", () => {
+	assert.deepEqual(buildToolOutputLines("exit code: 0", false, STYLER), []);
+	assert.deepEqual(buildToolOutputLines(undefined, false, STYLER), []);
 });
 
 test("buildToolDiffLines: no diff yields no lines", () => {
@@ -344,4 +383,140 @@ test("registerToolRenderer: configured overrides still self-render and delegate 
 	assert.equal(tools.length, 7);
 	assert.ok(tools.every((t) => t.renderShell === "self"), "every override must render its own shell");
 	assert.ok(tools.every((t) => typeof t.execute === "function"), "every override must keep a delegating execute");
+});
+
+// ── deferred draw-time wrapping (main-thread, never truncate) ─────────────────
+
+const ANSI = { bold: "\x1b[1m", boldOff: "\x1b[22m", accent: "\x1b[36m", fgOff: "\x1b[39m" } as const;
+
+/**
+ * Real-ANSI theme double: `fg`/`bold` emit actual SGR escape sequences so
+ * `wrapTextWithAnsi` (which preserves ANSI across line breaks and ignores their
+ * width) behaves exactly as it does in production with a real theme.
+ */
+const ANSI_THEME = {
+	fg: (_color: string, text: string): string => `${ANSI.accent}${text}${ANSI.fgOff}`,
+	bold: (text: string): string => `${ANSI.bold}${text}${ANSI.boldOff}`,
+} as unknown as Theme;
+
+/** A theme whose styling throws, to exercise the renderer's defensive fallback. */
+const THROWING_THEME = {
+	fg: (): string => {
+		throw new Error("boom");
+	},
+	bold: (): string => {
+		throw new Error("boom");
+	},
+} as unknown as Theme;
+
+const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+/** Overrides one fake tool definition and returns the registered (renderer-replaced) one. */
+function overrideAndGet(name: string): ToolDefinition {
+	const { registrar, tools } = makeRegistrar();
+	overrideToolRendering(registrar, {
+		name,
+		label: name,
+		description: `${name} description`,
+		parameters: Type.Object({}),
+		execute: async () => ({ content: [{ type: "text" as const, text: "" }], details: undefined }),
+	});
+	return tools[0];
+}
+
+type RenderCallCtx = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
+type RenderResultOpts = Parameters<NonNullable<ToolDefinition["renderResult"]>>[1];
+type RenderResultCtx = Parameters<NonNullable<ToolDefinition["renderResult"]>>[3];
+
+function longCommand(n: number): string {
+	return Array.from({ length: n }, (_, i) => `token${i}`).join(" ");
+}
+
+test("renderCall: a long bash command wraps via wrapTextWithAnsi at a narrow width, no truncation", () => {
+	const tool = overrideAndGet("bash");
+	const command = longCommand(20);
+
+	const lines = tool.renderCall!({ command }, ANSI_THEME, {} as RenderCallCtx).render(20);
+
+	assert.ok(lines.length > 1, `a wide command must wrap into multiple lines, got ${lines.length}`);
+	for (const l of lines) {
+		const visible = stripAnsi(l);
+		assert.ok(!visible.includes("…"), `wrapped lines must never be truncated: ${JSON.stringify(visible)}`);
+		assert.ok(visible.length <= 20, `each wrapped line must fit the width, got ${visible.length}`);
+	}
+
+	const recovered = lines.map(stripAnsi).join("");
+	for (let i = 0; i < 20; i++) {
+		assert.ok(recovered.includes(`token${i}`), `command fragment token${i} must survive wrapping, got: ${recovered}`);
+	}
+});
+
+test("renderCall: wrapping preserves the bold-verb and accent-args colouring across line breaks", () => {
+	const tool = overrideAndGet("bash");
+
+	const lines = tool.renderCall!({ command: longCommand(20) }, ANSI_THEME, {} as RenderCallCtx).render(20);
+
+	assert.ok(lines[0].includes(ANSI.bold), "the bold verb code must lead the first line");
+	assert.ok(lines.some((l) => l.includes(ANSI.accent)), "the accent args colour must be present");
+	assert.ok(lines.slice(1).some((l) => l.includes("\x1b")), "continuation lines must re-emit the active ANSI colour");
+});
+
+test("renderResult: a long bash result line wraps, preserves colour, never truncates", () => {
+	const tool = overrideAndGet("bash");
+	const command = longCommand(20);
+	const result = { content: [{ type: "text", text: "out\nexit code: 0" }], details: undefined } as unknown as AgentToolResult<unknown>;
+	const ctx = { args: { command }, isError: false } as unknown as RenderResultCtx;
+
+	const lines = tool.renderResult!(result, { expanded: false, isPartial: false } as RenderResultOpts, ANSI_THEME, ctx).render(20);
+
+	assert.ok(lines.length > 1, `a wide result line must wrap, got ${lines.length}`);
+	for (const l of lines) {
+		const visible = stripAnsi(l);
+		assert.ok(!visible.includes("…"), `wrapped result lines must never be truncated: ${JSON.stringify(visible)}`);
+		assert.ok(visible.length <= 20, `each wrapped result line must fit the width, got ${visible.length}`);
+	}
+
+	const recovered = lines.map(stripAnsi).join("");
+	assert.ok(recovered.includes("exit 0"), "the status summary must survive wrapping");
+	assert.ok(lines.some((l) => l.includes(ANSI.accent)), "the accent args colour must survive wrapping");
+});
+
+test("renderCall: a throwing theme degrades to a wrapped minimal line and never throws", () => {
+	const tool = overrideAndGet("bash");
+	const command = longCommand(12);
+
+	assert.doesNotThrow(() => {
+		const lines = tool.renderCall!({ command }, THROWING_THEME, {} as RenderCallCtx).render(16);
+		assert.ok(lines.length >= 1, "the fallback must still produce at least one line");
+		const recovered = lines.join(" ");
+		assert.ok(recovered.includes("Bash"), "the minimal fallback must keep the verb");
+		assert.ok(recovered.includes("token0"), "the minimal fallback must keep the args");
+		for (const l of lines) assert.ok(!l.includes("\x1b"), "the plain fallback must carry no ANSI");
+	});
+});
+
+test("renderResult: a throwing theme degrades to a wrapped minimal line and never throws", () => {
+	const tool = overrideAndGet("bash");
+	const command = longCommand(12);
+	const result = { content: [{ type: "text", text: "x" }], details: undefined } as unknown as AgentToolResult<unknown>;
+	const ctx = { args: { command }, isError: false } as unknown as RenderResultCtx;
+
+	assert.doesNotThrow(() => {
+		const lines = tool
+			.renderResult!(result, { expanded: false, isPartial: false } as RenderResultOpts, THROWING_THEME, ctx)
+			.render(16);
+		assert.ok(lines.length >= 1, "the fallback must still produce at least one line");
+		const recovered = lines.join(" ");
+		assert.ok(recovered.includes("Bash"), "the minimal fallback must keep the verb");
+		assert.ok(recovered.includes("token0"), "the minimal fallback must keep the args");
+	});
+});
+
+test("renderCall: a non-positive draw width degrades to the unwrapped styled line", () => {
+	const tool = overrideAndGet("read");
+
+	const lines = tool.renderCall!({ path: "a.ts" }, ANSI_THEME, {} as RenderCallCtx).render(0);
+
+	assert.equal(lines.length, 1, "a non-positive width must not wrap");
+	assert.ok(stripAnsi(lines[0]).includes("a.ts"), "the styled line content must survive a non-positive width");
 });

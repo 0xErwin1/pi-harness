@@ -8,6 +8,7 @@ import {
 	matchResultToCall,
 	resolveViewportOffset,
 	styleDiffLine,
+	styleOutputLine,
 	styleToolLine,
 	styleTranscriptLine,
 	transcriptLineColor,
@@ -26,11 +27,12 @@ const STYLER = {
 
 /** Strips the internal kind markers (control chars) so a raw body line's visible width can be measured. */
 function stripMarkers(line: string): string {
-	return line.replace(/[\u0001-\u0006]/g, "");
+	return line.replace(/[\u0001-\u0007]/g, "");
 }
 
 const isToolLine = (line: string): boolean => styleToolLine(line, STYLER) !== undefined;
 const isDiffLine = (line: string): boolean => styleDiffLine(line, STYLER) !== undefined;
+const isOutputLine = (line: string): boolean => styleOutputLine(line, STYLER) !== undefined;
 
 const BASE_STARTED_AT = "2024-01-01T12:00:00.000Z";
 const BASE_NOW = Date.parse(BASE_STARTED_AT) + 3000;
@@ -409,6 +411,56 @@ test("bash nonzero exit colours the summary error", () => {
 		80,
 	);
 	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b> <muted>$ false</muted> · <error>exit 1 · 2 lines</error>");
+});
+
+test("bash result renders the printed output as muted lines under the summary", () => {
+	const lines = eventsToBodyLines(
+		[toolWithTarget("bash", "echo hi"), toolResult("bash", { resultText: "hello\nworld\nexit code: 0" })],
+		80,
+	);
+
+	const summary = lines[0];
+	assert.ok(isToolLine(summary), "first line is the tool summary");
+
+	const outputs = lines.filter(isOutputLine);
+	assert.deepEqual(
+		outputs.map((l) => styleTranscriptLine(l, STYLER)),
+		["<muted>hello</muted>", "<muted>world</muted>"],
+		"the command output is shown muted, with the exit-code trailer dropped",
+	);
+});
+
+test("bash output block caps at 20 lines with a '… +N more' continuation", () => {
+	const body = `${Array.from({ length: 25 }, (_, i) => `out ${i + 1}`).join("\n")}\nexit code: 0`;
+	const outputs = eventsToBodyLines(
+		[toolWithTarget("bash", "seq"), toolResult("bash", { resultText: body })],
+		80,
+	).filter(isOutputLine);
+
+	assert.equal(outputs.length, 21, "20 output lines + 1 continuation");
+	assert.equal(stripMarkers(outputs[20]), "… +5 more");
+});
+
+test("bash with no real output (only the exit trailer) shows the summary but no output lines", () => {
+	const lines = eventsToBodyLines(
+		[toolWithTarget("bash", "true"), toolResult("bash", { resultText: "exit code: 0" })],
+		80,
+	);
+	assert.ok(!lines.some(isOutputLine), "an empty body produces no output block");
+});
+
+test("non-bash tools do not get an output block", () => {
+	const lines = eventsToBodyLines(
+		[tool("read"), toolResult("read", { resultText: "a\nb\nc" })],
+		80,
+	);
+	assert.ok(!lines.some(isOutputLine), "read still summarizes, with no inline output dump");
+});
+
+test("styleOutputLine returns undefined for non-output lines", () => {
+	assert.equal(styleOutputLine("plain text", STYLER), undefined);
+	const [summary] = eventsToBodyLines([toolWithTarget("bash", "x")], 80);
+	assert.equal(styleOutputLine(summary, STYLER), undefined, "a tool line is not an output line");
 });
 
 test("grep result shows `N matches`, singular for one", () => {

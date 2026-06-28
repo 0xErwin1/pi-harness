@@ -1,5 +1,6 @@
 import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
 import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/events.ts";
+import { outputBlockLines } from "../tool-format/index.ts";
 
 export interface ViewerModel {
 	headerLines: string[];
@@ -69,6 +70,17 @@ const STATUS_COLOR: Record<SummaryStatus, TranscriptColor> = { dim: "dim", succe
 
 /** Maximum diff lines rendered inline before a `… +N more` continuation. */
 const DIFF_BLOCK_CAP = 20;
+
+/** Maximum bash output lines rendered inline before a `… +N more` continuation. */
+const OUTPUT_BLOCK_CAP = 20;
+
+/**
+ * Marks a tool output block line — the text a command actually printed, shown
+ * under a bash call so the reader sees the output, not just a line count. The
+ * styler renders it muted with no verb. Like the other markers it is a C0 control
+ * (BEL) that cannot occur in real content once `stripControlChars` has run.
+ */
+const OUTPUT_MARK = "\u0007";
 
 /**
  * Style surface the model functions delegate to so they stay theme-agnostic and
@@ -188,6 +200,17 @@ export function styleDiffLine(line: string, styler: TranscriptStyler): string | 
 }
 
 /**
+ * Styles a tool output block line and strips its internal marker: the printed
+ * command output is rendered muted so it reads as subordinate to the call above it
+ * without competing with assistant text. Returns `undefined` for any non-output
+ * line, keyed off the `OUTPUT_MARK` prefix.
+ */
+export function styleOutputLine(line: string, styler: TranscriptStyler): string | undefined {
+	if (!line.startsWith(OUTPUT_MARK)) return undefined;
+	return styler.fg("muted", line.slice(OUTPUT_MARK.length));
+}
+
+/**
  * Single entry point for colouring one body line: tool lines, then diff lines,
  * then everything else via `transcriptLineColor`. Both render layers (the overlay
  * viewer and the expanded Ctrl-O row) share this so they stay visually identical.
@@ -200,6 +223,9 @@ export function styleTranscriptLine(line: string, styler: TranscriptStyler): str
 
 	const diff = styleDiffLine(line, styler);
 	if (diff !== undefined) return diff;
+
+	const output = styleOutputLine(line, styler);
+	if (output !== undefined) return output;
 
 	return styler.fg(transcriptLineColor(line), line);
 }
@@ -503,7 +529,11 @@ interface DiffItem {
 	kind: "diff";
 	text: string;
 }
-type LineItem = ToolItem | TextItem | DiffItem;
+interface OutputItem {
+	kind: "output";
+	text: string;
+}
+type LineItem = ToolItem | TextItem | DiffItem | OutputItem;
 
 /**
  * Splits a tool-call display into a bold verb and its args. The verb is the first
@@ -536,6 +566,7 @@ function toolItemKey(item: ToolItem): string {
 function encodeItem(item: LineItem, width: number): string[] {
 	if (item.kind === "text") return [width > 0 ? truncateByLength(item.text, width) : item.text];
 	if (item.kind === "diff") return [`${DIFF_MARK}${width > 0 ? truncateByLength(item.text, width) : item.text}`];
+	if (item.kind === "output") return [`${OUTPUT_MARK}${width > 0 ? truncateByLength(item.text, width) : item.text}`];
 	return encodeToolItem(item, width);
 }
 
@@ -753,6 +784,12 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 					const diff = diffOf(event.details);
 					if (diff !== undefined) {
 						for (const line of diffBlockLines(diff)) items.push({ kind: "diff", text: stripControlChars(line) });
+					}
+
+					if (event.toolName.toLowerCase() === "bash" && resultInfo.resultText) {
+						for (const line of outputBlockLines(resultInfo.resultText, OUTPUT_BLOCK_CAP)) {
+							items.push({ kind: "output", text: stripControlChars(line) });
+						}
 					}
 				}
 				break;

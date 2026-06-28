@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
 	diffBlockLines,
 	formatToolArgs,
+	outputBlockLines,
 	parseDiffStat,
 	summarizeToolResult,
 } from "../../packages/subagent-manager-pi/tool-format/index.ts";
@@ -200,4 +201,47 @@ test("diffBlockLines: no continuation when within the cap", () => {
 	const lines = diffBlockLines("--- a\n+++ b\n+one\n-two", 20);
 	assert.equal(lines.length, 2);
 	assert.ok(!lines.some((l) => l.kind === "more"));
+});
+
+// ── outputBlockLines ────────────────────────────────────────────────────────
+
+test("outputBlockLines: returns the printed lines verbatim", () => {
+	assert.deepEqual(outputBlockLines("one\ntwo\nthree"), ["one", "two", "three"]);
+});
+
+test("outputBlockLines: drops a trailing 'exit code: N' bash trailer", () => {
+	assert.deepEqual(outputBlockLines("building...\ndone\nexit code: 0"), ["building...", "done"]);
+});
+
+test("outputBlockLines: drops the trailer even with trailing blank lines after it", () => {
+	assert.deepEqual(outputBlockLines("done\nexit code: 1\n\n"), ["done"]);
+});
+
+test("outputBlockLines: trims trailing blank lines", () => {
+	assert.deepEqual(outputBlockLines("a\nb\n\n\n"), ["a", "b"]);
+});
+
+test("outputBlockLines: empty/whitespace-only output yields no lines", () => {
+	assert.deepEqual(outputBlockLines(""), []);
+	assert.deepEqual(outputBlockLines(undefined), []);
+	assert.deepEqual(outputBlockLines("\n\n"), []);
+	assert.deepEqual(outputBlockLines("exit code: 0"), []);
+});
+
+test("outputBlockLines: caps the block and appends a '… +N more' line", () => {
+	const body = Array.from({ length: 25 }, (_, i) => `line ${i + 1}`).join("\n");
+	const lines = outputBlockLines(body, 20);
+	assert.equal(lines.length, 21);
+	assert.equal(lines[20], "… +5 more");
+	assert.equal(lines[0], "line 1");
+});
+
+test("outputBlockLines: no continuation when within the cap; a huge cap shows everything", () => {
+	assert.deepEqual(outputBlockLines("a\nb\nc", 20), ["a", "b", "c"]);
+	const body = Array.from({ length: 50 }, (_, i) => `l${i}`).join("\n");
+	assert.equal(outputBlockLines(body, Number.MAX_SAFE_INTEGER).length, 50);
+});
+
+test("outputBlockLines: keeps a non-trailing exit-code-looking line", () => {
+	assert.deepEqual(outputBlockLines("exit code: 7\nstill running"), ["exit code: 7", "still running"]);
 });
