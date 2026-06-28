@@ -8,7 +8,12 @@ import {
 import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
-import { buildViewerModel, transcriptLineColor } from "./conversation-viewer-model.ts";
+import {
+	buildViewerModel,
+	formatInvocationSubline,
+	styleTranscriptLine,
+	type TranscriptStyler,
+} from "./conversation-viewer-model.ts";
 
 /** Live accessor surface the viewer needs from the manager runtime. */
 export interface ViewerRuntime {
@@ -150,10 +155,15 @@ export class ConversationViewer implements Component {
 
 		const th = this.theme;
 		const innerW = width - 4;
-		const viewportHeight = this.viewportHeight();
-		this.lastViewportHeight = viewportHeight;
 
 		const snapshot = this.runtime.snapshot(this.runId);
+		const invocationSubline = formatInvocationSubline(snapshot?.model, snapshot?.thinking);
+
+		// The invocation sub-line consumes one extra chrome row, so the scrollable
+		// body shrinks by one when it is present to keep the overlay within bounds.
+		const viewportHeight = Math.max(MIN_VIEWPORT, this.viewportHeight() - (invocationSubline ? 1 : 0));
+		this.lastViewportHeight = viewportHeight;
+
 		const model = buildViewerModel({
 			snapshot,
 			events: this.runtime.events(this.runId),
@@ -177,6 +187,7 @@ export class ConversationViewer implements Component {
 		const lines: string[] = [];
 		lines.push(top);
 		lines.push(row(this.renderHeader(model.headerLines, snapshot)));
+		if (invocationSubline) lines.push(row(th.fg("dim", invocationSubline)));
 		lines.push(separator);
 
 		for (let i = 0; i < viewportHeight; i++) {
@@ -213,12 +224,18 @@ export class ConversationViewer implements Component {
 
 	/**
 	 * Applies a semantic colour to one body line so assistant text, tool activity,
-	 * and status transitions stand apart. Free-flowing text keeps the default
-	 * colour; the outer `row` handles padding and width truncation.
+	 * result summaries, edit diffs, and status transitions stand apart. Tool lines
+	 * get mixed colouring (bold verb, accent args, status-coloured summary) and diff
+	 * lines colour by their `+`/`-` change kind, both via `styleTranscriptLine`;
+	 * free-flowing text keeps the default colour. The outer `row` handles padding
+	 * and width truncation.
 	 */
 	private styleBodyLine(line: string): string {
-		if (line.length === 0) return "";
-		return this.theme.fg(transcriptLineColor(line), line);
+		const styler: TranscriptStyler = {
+			fg: (color, text) => this.theme.fg(color, text),
+			bold: (text) => this.theme.bold(text),
+		};
+		return styleTranscriptLine(line, styler);
 	}
 
 	/**

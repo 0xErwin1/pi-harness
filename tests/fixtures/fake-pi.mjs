@@ -6,18 +6,20 @@
  * On SIGTERM, emits a terminated event and exits 130.
  *
  * Environment variables:
- *   PI_ARGS_FILE       — path to write received argv (slice 2) as JSON before output
- *   PI_SLOW_MODE       — when set, waits indefinitely before emitting output (for abort tests)
- *   PI_IGNORE_SIGTERM  — when set, traps SIGTERM without exiting (to test SIGKILL fallback)
- *   PI_TOOL_WITH_ARGS  — when set, emits a tool_execution_start carrying {toolName, args}
- *                        before a final message_end (for tool-target extraction tests)
- *   PI_TOOL_MCP        — when set, emits a tool_execution_start for an MCP-style tool with
- *                        multi-field args before a final message_end (for rich tool-call
- *                        formatting tests)
- *   PI_THINKING        — when set, emits a message_end whose assistant content carries
- *                        a thinking block before the final text (for thinking-stream tests)
- *   PI_TOKENS          — when set, emits two assistant message_end events each carrying a
- *                        `usage` payload (for token-accounting tests)
+ *   PI_ARGS_FILE        — path to write received argv (slice 2) as JSON before output
+ *   PI_SLOW_MODE        — when set, waits indefinitely before emitting output (for abort tests)
+ *   PI_IGNORE_SIGTERM   — when set, traps SIGTERM without exiting (to test SIGKILL fallback)
+ *   PI_TOOL_WITH_ARGS   — when set, emits a tool_execution_start carrying {toolName, args}
+ *                         before a final message_end (for tool-target extraction tests)
+ *   PI_TOOL_MCP         — when set, emits a tool_execution_start for an MCP-style tool with
+ *                         multi-field args before a final message_end (for rich tool-call
+ *                         formatting tests)
+ *   PI_TOOL_WITH_RESULT — when set, emits tool_execution_start + tool_execution_end (with result)
+ *                         before a final message_end (for run.tool_result emission tests)
+ *   PI_THINKING         — when set, emits a message_end whose assistant content carries
+ *                         a thinking block before the final text (for thinking-stream tests)
+ *   PI_TOKENS           — when set, emits two assistant message_end events each carrying a
+ *                         `usage` payload (for token-accounting tests)
  */
 
 import { writeFileSync } from "node:fs";
@@ -53,6 +55,37 @@ if (process.env.PI_IGNORE_SIGTERM) {
 				message: {
 					role: "assistant",
 					content: [{ type: "text", text: "done" }],
+				},
+			}) + "\n",
+		);
+		process.exit(0);
+	} else if (process.env.PI_TOOL_WITH_RESULT) {
+		process.stdout.write(
+			JSON.stringify({
+				type: "tool_execution_start",
+				toolCallId: "call-r001",
+				toolName: "read",
+				args: { path: "README.md" },
+			}) + "\n",
+		);
+		process.stdout.write(
+			JSON.stringify({
+				type: "tool_execution_end",
+				toolCallId: "call-r001",
+				toolName: "read",
+				result: {
+					content: [{ type: "text", text: "README contents here" }],
+					details: { truncation: null },
+				},
+				isError: false,
+			}) + "\n",
+		);
+		process.stdout.write(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "tool result done" }],
 				},
 			}) + "\n",
 		);

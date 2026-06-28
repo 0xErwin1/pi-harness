@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	buildCollapsedLine,
+	collapsedSpinnerFrame,
 	resolveRowCounts,
 } from "../../packages/subagent-manager-pi/tui/subagent-row.ts";
 import type { SubagentRowModel } from "../../packages/subagent-manager-pi/tui/subagent-row-model.ts";
+import { ICON_CATALOG } from "../../packages/subagent-manager-pi/icons/catalog.ts";
 
 function makeModel(overrides: Partial<SubagentRowModel> = {}): SubagentRowModel {
 	return {
@@ -43,6 +45,23 @@ test("buildCollapsedLine: composes agent, status, elapsed, tokens, tools, curren
 	assert.equal(line, "Explore · running · 5s · 1.2k tok · 3 tools · looking at the store");
 });
 
+test("buildCollapsedLine: prepends a dim-eligible `<model> · thinking: <level>` segment when known", () => {
+	const line = buildCollapsedLine(
+		makeModel({ model: "anthropic/claude-haiku-4-5", thinking: "high", tokens: 0 }),
+		{ turns: 0, tools: 3 },
+	);
+	assert.ok(
+		line.startsWith("claude-haiku-4-5 · thinking: high · Explore · running"),
+		`model/effort segment must lead the row, got: ${line}`,
+	);
+});
+
+test("buildCollapsedLine: omits the model/effort segment when unknown", () => {
+	const line = buildCollapsedLine(makeModel(), { turns: 0, tools: 3 });
+	assert.ok(!line.includes("thinking:"), `no model/effort segment when unknown, got: ${line}`);
+	assert.ok(line.startsWith("Explore · running"), `row must start with the agent, got: ${line}`);
+});
+
 test("buildCollapsedLine: drops turns and never shows the old Nt/M counts", () => {
 	const line = buildCollapsedLine(makeModel(), { turns: 9, tools: 3 });
 	assert.ok(!line.includes("9t"), `turns count must not appear, got: ${line}`);
@@ -76,6 +95,17 @@ test("buildCollapsedLine: an unresolved row reads 'starting', never a frozen 'qu
 
 	assert.equal(line, "starting · 0ms · 0 tok · 0 tools · starting…");
 	assert.ok(!line.startsWith("queued"), "an in-flight row must not present as a frozen queued run");
+});
+
+test("collapsedSpinnerFrame: draws the active frame from the icon registry spinner", () => {
+	const unicode = ICON_CATALOG.unicode.spinner;
+	assert.equal(collapsedSpinnerFrame(unicode, 0), unicode[0]);
+
+	const frame = collapsedSpinnerFrame(unicode, 12_345);
+	assert.ok(unicode.includes(frame), `frame must come from the registry spinner, got: ${frame}`);
+
+	// The ascii fallback set is a distinct array, so the same clock yields a different glyph.
+	assert.notEqual(collapsedSpinnerFrame(ICON_CATALOG.ascii.spinner, 0), unicode[0]);
 });
 
 test("buildCollapsedLine: formats sub-second and multi-minute elapsed", () => {

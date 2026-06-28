@@ -6,6 +6,49 @@ export interface ViewerModel {
 	bodyLines: string[];
 	footerLine: string;
 	maxScroll: number;
+	/** Resolved model id for the run (verbatim from the snapshot), for the invocation sub-line. */
+	model?: string;
+	/** Resolved thinking level for the run, for the invocation sub-line. */
+	thinking?: string;
+}
+
+/**
+ * Zero-width control sentinels that tag a body line's KIND for the styling layer
+ * WITHOUT appearing in the rendered output. The glyph that used to mark a tool
+ * line is gone; instead `eventsToBodyLines` prefixes each tool/diff line with one
+ * of these markers, and the styling functions strip it before colouring. They are
+ * C0 control characters that never occur in tool output, paths, commands, diffs,
+ * or assistant text, so structural detection cannot misfire on real content. The
+ * three summary markers also encode the summary's colour (neutral / success /
+ * error) so the styler needs no second channel.
+ */
+const TOOL_MARK = "\u0001";
+const SUM_DIM = "\u0002";
+const SUM_OK = "\u0003";
+const SUM_ERR = "\u0004";
+const DIFF_MARK = "\u0005";
+
+type SummaryStatus = "dim" | "success" | "error";
+
+const STATUS_MARK: Record<SummaryStatus, string> = { dim: SUM_DIM, success: SUM_OK, error: SUM_ERR };
+const SUMMARY_MARKS: ReadonlyArray<readonly [string, SummaryStatus]> = [
+	[SUM_DIM, "dim"],
+	[SUM_OK, "success"],
+	[SUM_ERR, "error"],
+];
+const STATUS_COLOR: Record<SummaryStatus, TranscriptColor> = { dim: "dim", success: "success", error: "error" };
+
+/** Maximum diff lines rendered inline before a `… +N more` continuation. */
+const DIFF_BLOCK_CAP = 20;
+
+/**
+ * Style surface the model functions delegate to so they stay theme-agnostic and
+ * headlessly testable: `fg` applies a semantic colour, `bold` weights text. The
+ * render layer wires these to its theme; tests pass deterministic doubles.
+ */
+export interface TranscriptStyler {
+	fg(color: TranscriptColor, text: string): string;
+	bold(text: string): string;
 }
 
 function formatElapsedMs(ms: number): string {
@@ -53,7 +96,72 @@ function truncateByLength(text: string, max: number): string {
 	return `${text.slice(0, max - 1)}…`;
 }
 
-const TOOL_LINE_PREFIX = "[tool] ";
+/**
+ * Splits a rendered tool line into its styled parts and strips the internal kind
+ * marker: a bold verb, accent args, and a status-coloured ` · summary`. Detection
+ * is structural — the line carries a `TOOL_MARK` prefix and an optional summary
+ * marker that also names the summary's colour — so no glyph is needed and real
+ * tool output can never be mistaken for a tool line. Returns `undefined` for any
+ * line that is not a tool line so callers fall through to their default colouring.
+ */
+export function styleToolLine(line: string, styler: TranscriptStyler): string | undefined {
+	if (!line.startsWith(TOOL_MARK)) return undefined;
+
+	const body = line.slice(TOOL_MARK.length);
+
+	let callPart = body;
+	let summary: string | undefined;
+	let status: SummaryStatus = "dim";
+	for (const [mark, markStatus] of SUMMARY_MARKS) {
+		const at = body.indexOf(mark);
+		if (at >= 0) {
+			callPart = body.slice(0, at);
+			summary = body.slice(at + mark.length);
+			status = markStatus;
+			break;
+		}
+	}
+
+	const spaceAt = callPart.indexOf(" ");
+	const verb = spaceAt < 0 ? callPart : callPart.slice(0, spaceAt);
+	const args = spaceAt < 0 ? "" : callPart.slice(spaceAt + 1);
+
+	let out = styler.bold(verb);
+	if (args.length > 0) out += ` ${styler.fg("accent", args)}`;
+	if (summary !== undefined && summary.length > 0) out += ` · ${styler.fg(STATUS_COLOR[status], summary)}`;
+	return out;
+}
+
+/**
+ * Styles a diff body line and strips its internal marker: additions in success,
+ * deletions in error, hunk/context/continuation lines dim. Returns `undefined`
+ * for any non-diff line. Detection keys off the `DIFF_MARK` prefix, so assistant
+ * text that happens to start with `+`/`-` is never mistaken for a diff.
+ */
+export function styleDiffLine(line: string, styler: TranscriptStyler): string | undefined {
+	if (!line.startsWith(DIFF_MARK)) return undefined;
+
+	const text = line.slice(DIFF_MARK.length);
+	const color: TranscriptColor = text.startsWith("+") ? "success" : text.startsWith("-") ? "error" : "dim";
+	return styler.fg(color, text);
+}
+
+/**
+ * Single entry point for colouring one body line: tool lines, then diff lines,
+ * then everything else via `transcriptLineColor`. Both render layers (the overlay
+ * viewer and the expanded Ctrl-O row) share this so they stay visually identical.
+ */
+export function styleTranscriptLine(line: string, styler: TranscriptStyler): string {
+	if (line.length === 0) return "";
+
+	const tool = styleToolLine(line, styler);
+	if (tool !== undefined) return tool;
+
+	const diff = styleDiffLine(line, styler);
+	if (diff !== undefined) return diff;
+
+	return styler.fg(transcriptLineColor(line), line);
+}
 
 /**
  * Markers for a grouped thinking block. Pi's native thread renders reasoning as a
@@ -74,6 +182,41 @@ export function formatTokens(tokens: number): string {
 	if (tokens < 1000) return String(tokens);
 	if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(1)}k`;
 	return `${(tokens / 1_000_000).toFixed(1)}M`;
+}
+
+/**
+ * Shortens a slash-qualified model id to its last path segment
+ * (`anthropic/claude-haiku-4-5` → `claude-haiku-4-5`); leaves a bare id untouched.
+ */
+export function shortModelId(model: string): string {
+	const segments = model.split("/");
+	return segments[segments.length - 1] || model;
+}
+
+/**
+ * Composes the bare `<model> · thinking: <level>` segment from whichever of the
+ * two is known, shortening the model id. Returns `undefined` when neither is
+ * known so callers can omit the segment entirely.
+ */
+export function formatModelEffort(model?: string, thinking?: string): string | undefined {
+	const m = model && model.trim() ? shortModelId(model.trim()) : undefined;
+	const t = thinking && thinking.trim() ? thinking.trim() : undefined;
+	if (!m && !t) return undefined;
+
+	const parts: string[] = [];
+	if (m) parts.push(m);
+	if (t) parts.push(`thinking: ${t}`);
+	return parts.join(" · ");
+}
+
+/**
+ * Builds the dim invocation sub-line shown under the viewer header
+ * (`  ↳ <model> · thinking: <level>`), or `undefined` when neither model nor
+ * thinking is known.
+ */
+export function formatInvocationSubline(model?: string, thinking?: string): string | undefined {
+	const text = formatModelEffort(model, thinking);
+	return text === undefined ? undefined : `  ↳ ${text}`;
 }
 
 /**
@@ -126,61 +269,283 @@ function renderThinkingBlock(texts: string[], width: number): string[] {
 	return lines;
 }
 
-/**
- * Collapses consecutive identical tool lines into a single `… ×N` line so a long
- * run of the same call (same tool AND same target) reads as one grouped entry
- * instead of dozens of repeats. Distinct calls are never merged, so no
- * information is lost. When `width` is positive, lines are truncated to fit while
- * preserving the trailing count.
- */
-function collapseToolRuns(lines: string[], width: number): string[] {
-	const out: string[] = [];
-	let runLine: string | undefined;
-	let runCount = 0;
+// ── per-tool result summaries ──────────────────────────────────────────────────
 
-	const flush = () => {
-		if (runLine === undefined) return;
-		const suffix = runCount > 1 ? ` ×${runCount}` : "";
-		const base = width > 0 ? truncateByLength(runLine, width - suffix.length) : runLine;
-		out.push(`${base}${suffix}`);
-		runLine = undefined;
-		runCount = 0;
+/** Counts displayable lines in tool output, ignoring a single trailing newline. */
+function countLines(text: string | undefined): number {
+	if (!text) return 0;
+	const lines = text.split("\n");
+	while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+	return lines.length;
+}
+
+/** Counts non-empty lines (one per grep match / find entry). */
+function countNonEmptyLines(text: string | undefined): number {
+	if (!text) return 0;
+	return text.split("\n").filter((line) => line.trim().length > 0).length;
+}
+
+/** Pi appends an `exit code: N` trailer to bash output; this lifts N back out. */
+function bashExitCode(text: string | undefined): number | undefined {
+	if (!text) return undefined;
+	const match = text.match(/exit code:\s*(\d+)/i);
+	return match ? Number(match[1]) : undefined;
+}
+
+interface ReadTruncation {
+	truncated?: boolean;
+	outputLines?: number;
+	totalLines?: number;
+}
+
+/** Narrows the Read tool's `details.truncation` object without trusting its shape. */
+function readTruncation(details: unknown): ReadTruncation | undefined {
+	if (!details || typeof details !== "object") return undefined;
+	const truncation = (details as { truncation?: unknown }).truncation;
+	if (!truncation || typeof truncation !== "object") return undefined;
+
+	const fields = truncation as Record<string, unknown>;
+	const num = (key: string): number | undefined => (typeof fields[key] === "number" ? (fields[key] as number) : undefined);
+	return {
+		truncated: typeof fields.truncated === "boolean" ? fields.truncated : undefined,
+		outputLines: num("outputLines"),
+		totalLines: num("totalLines"),
 	};
+}
 
-	for (const line of lines) {
-		if (line.startsWith(TOOL_LINE_PREFIX)) {
-			if (line === runLine) {
-				runCount += 1;
-			} else {
-				flush();
-				runLine = line;
-				runCount = 1;
+/** Narrows the Edit tool's `details.diff` unified-diff string. */
+function diffOf(details: unknown): string | undefined {
+	if (!details || typeof details !== "object") return undefined;
+	const diff = (details as { diff?: unknown }).diff;
+	return typeof diff === "string" ? diff : undefined;
+}
+
+/**
+ * Counts added/removed lines in a unified diff: lines starting with `+`/`-`,
+ * excluding the `+++`/`---` file headers and the `@@` hunk markers.
+ */
+function countDiff(diff: string): { adds: number; dels: number } {
+	let adds = 0;
+	let dels = 0;
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+++") || line.startsWith("---")) continue;
+		if (line.startsWith("+")) adds += 1;
+		else if (line.startsWith("-")) dels += 1;
+	}
+	return { adds, dels };
+}
+
+/**
+ * Projects a unified diff to the inline block: drops the `+++`/`---` file headers,
+ * keeps hunks and context, caps the body and appends a `… +N more` continuation
+ * when the change is longer than the cap.
+ */
+function diffBlockLines(diff: string): string[] {
+	const rendered: string[] = [];
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+++") || line.startsWith("---")) continue;
+		rendered.push(line);
+	}
+	while (rendered.length > 0 && rendered[rendered.length - 1] === "") rendered.pop();
+
+	if (rendered.length <= DIFF_BLOCK_CAP) return rendered;
+
+	const shown = rendered.slice(0, DIFF_BLOCK_CAP);
+	shown.push(`… +${rendered.length - DIFF_BLOCK_CAP} more`);
+	return shown;
+}
+
+interface ToolResultInfo {
+	resultText?: string;
+	details?: unknown;
+	isError?: boolean;
+}
+
+/**
+ * Derives the per-tool result summary text (line counts, exit codes, match counts,
+ * diff stats). Returns `undefined` to omit the summary for an unknown tool, except
+ * an errored unknown tool which surfaces a bare `error` marker.
+ */
+function deriveToolSummary(toolName: string, result: ToolResultInfo): string | undefined {
+	const base = baseToolSummary(toolName, result);
+	if (base !== undefined) return base;
+	return result.isError ? "error" : undefined;
+}
+
+function baseToolSummary(toolName: string, result: ToolResultInfo): string | undefined {
+	switch (toolName.toLowerCase()) {
+		case "read": {
+			const truncation = readTruncation(result.details);
+			if (truncation?.outputLines !== undefined) {
+				if (truncation.truncated && truncation.totalLines !== undefined) {
+					return `${truncation.outputLines}/${truncation.totalLines} lines`;
+				}
+				return `${truncation.outputLines} lines`;
 			}
-			continue;
+			return `${countLines(result.resultText)} lines`;
 		}
+		case "bash": {
+			const lines = countLines(result.resultText);
+			const code = bashExitCode(result.resultText);
+			return code !== undefined ? `exit ${code} · ${lines} lines` : `${lines} lines`;
+		}
+		case "grep": {
+			const matches = countNonEmptyLines(result.resultText);
+			return `${matches} ${matches === 1 ? "match" : "matches"}`;
+		}
+		case "find":
+		case "ls": {
+			const results = countNonEmptyLines(result.resultText);
+			return `${results} ${results === 1 ? "result" : "results"}`;
+		}
+		case "edit": {
+			const diff = diffOf(result.details);
+			if (diff === undefined) return undefined;
+			const { adds, dels } = countDiff(diff);
+			return `+${adds} -${dels}`;
+		}
+		case "write":
+			return `${countLines(result.resultText)} lines`;
+		default:
+			return undefined;
+	}
+}
 
-		flush();
-		out.push(width > 0 ? truncateByLength(line, width) : line);
+/** Resolves the summary colour: error on failure, success/error by bash exit code, else neutral. */
+function deriveSummaryStatus(toolName: string, result: ToolResultInfo): SummaryStatus {
+	if (result.isError) return "error";
+	if (toolName.toLowerCase() === "bash") {
+		const code = bashExitCode(result.resultText);
+		if (code !== undefined) return code === 0 ? "success" : "error";
+	}
+	return "dim";
+}
+
+/**
+ * Picks the index of the tool-call slot a result belongs to: an exact `toolCallId`
+ * match when both sides carry one, otherwise the most recent slot that has not yet
+ * received a result (subagent tool use is sequential, so a result follows its
+ * call). Returns `undefined` when every slot is already matched.
+ */
+export function matchResultToCall(
+	slots: ReadonlyArray<{ toolCallId?: string; matched: boolean }>,
+	result: { toolCallId?: string },
+): number | undefined {
+	if (result.toolCallId !== undefined) {
+		const exact = slots.findIndex((slot) => slot.toolCallId !== undefined && slot.toolCallId === result.toolCallId);
+		if (exact >= 0) return exact;
 	}
 
-	flush();
-	return out;
+	for (let i = slots.length - 1; i >= 0; i--) {
+		if (!slots[i].matched) return i;
+	}
+	return undefined;
+}
+
+// ── transcript line model ───────────────────────────────────────────────────────
+
+interface ToolItem {
+	kind: "tool";
+	verb: string;
+	args: string;
+	summary?: string;
+	status: SummaryStatus;
+	toolCallId?: string;
+	matched: boolean;
+	count: number;
+}
+interface TextItem {
+	kind: "text";
+	text: string;
+}
+interface DiffItem {
+	kind: "diff";
+	text: string;
+}
+type LineItem = ToolItem | TextItem | DiffItem;
+
+/**
+ * Splits a tool-call display into a bold verb and its args. The verb is the first
+ * whitespace-delimited token; everything after is args. Bash keeps Pi's `$ <cmd>`
+ * prompt style, applied here since the upstream `formatToolCall` emits a bare
+ * command.
+ */
+function splitToolDisplay(display: string, toolName: string): { verb: string; args: string } {
+	const spaceAt = display.indexOf(" ");
+	const verb = spaceAt < 0 ? display : display.slice(0, spaceAt);
+	let args = spaceAt < 0 ? "" : display.slice(spaceAt + 1);
+
+	if (toolName.toLowerCase() === "bash" && args.length > 0 && !args.startsWith("$")) {
+		args = `$ ${args}`;
+	}
+	return { verb, args };
+}
+
+/** Identity of a tool item for run-collapsing: identical verb, args, summary and status merge. */
+function toolItemKey(item: ToolItem): string {
+	return `${item.verb} ${item.args} ${item.summary ?? ""} ${item.status}`;
+}
+
+/**
+ * Encodes one line item into a marked, width-fitted string. Tool lines keep their
+ * verb/args/summary regions intact when they fit; when too wide they degrade to a
+ * single truncated tool line (verb still bold). Diff lines carry the diff marker;
+ * plain text passes through truncated.
+ */
+function encodeItem(item: LineItem, width: number): string {
+	if (item.kind === "text") return width > 0 ? truncateByLength(item.text, width) : item.text;
+	if (item.kind === "diff") return `${DIFF_MARK}${width > 0 ? truncateByLength(item.text, width) : item.text}`;
+	return encodeToolItem(item, width);
+}
+
+function encodeToolItem(item: ToolItem, width: number): string {
+	const countSuffix = item.count > 1 ? ` ×${item.count}` : "";
+	const call = item.verb + (item.args ? ` ${item.args}` : "") + countSuffix;
+	const hasSummary = item.summary !== undefined && item.summary.length > 0;
+	const summary = item.summary ?? "";
+	const visibleLength = call.length + (hasSummary ? 3 + summary.length : 0);
+
+	if (width <= 0 || visibleLength <= width) {
+		const summaryPart = hasSummary ? `${STATUS_MARK[item.status]}${summary}` : "";
+		return `${TOOL_MARK}${call}${summaryPart}`;
+	}
+
+	const full = call + (hasSummary ? ` · ${summary}` : "");
+	return `${TOOL_MARK}${truncateByLength(full, width)}`;
+}
+
+/**
+ * Collapses consecutive identical tool items into one carrying a `×N` count, then
+ * encodes every item to its final marked, width-fitted string. Distinct calls are
+ * never merged, so no information is lost.
+ */
+function finalizeItems(items: LineItem[], width: number): string[] {
+	const collapsed: LineItem[] = [];
+	for (const item of items) {
+		const prev = collapsed[collapsed.length - 1];
+		if (item.kind === "tool" && prev && prev.kind === "tool" && toolItemKey(prev) === toolItemKey(item)) {
+			prev.count += 1;
+			continue;
+		}
+		collapsed.push(item.kind === "tool" ? { ...item } : item);
+	}
+	return collapsed.map((item) => encodeItem(item, width));
 }
 
 export type TranscriptColor = "accent" | "success" | "error" | "warning" | "dim" | "text";
 
 /**
  * Maps a transcript line to a semantic colour so the viewer can give assistant
- * text, reasoning, tool activity, and status transitions a distinct visual
- * hierarchy. Pure and theme-agnostic: callers translate the colour name through
- * their theme. Detection keys off the plain-text markers emitted by
- * `eventsToBodyLines` (no pictographs), so the markers and this classifier must
- * stay in sync.
+ * text, reasoning, and status transitions a distinct visual hierarchy. Pure and
+ * theme-agnostic: callers translate the colour name through their theme. Tool and
+ * diff lines are NOT classified here — they carry mixed, marker-tagged colouring
+ * handled by `styleToolLine`/`styleDiffLine`, so callers (or `styleTranscriptLine`)
+ * must check those first. Detection keys off the plain-text markers emitted by
+ * `eventsToBodyLines`, so the markers and this classifier must stay in sync.
  */
 export function transcriptLineColor(line: string): TranscriptColor {
 	if (line.startsWith("[prompt]")) return "dim";
 	if (line.startsWith("[Assistant")) return "accent";
-	if (line.startsWith(TOOL_LINE_PREFIX)) return "success";
 	if (line.startsWith("[done]")) return "success";
 	if (line.startsWith("[failed]")) return "error";
 	if (line.startsWith("[attention]")) return "warning";
@@ -206,27 +571,31 @@ export function resolveViewportOffset(scrollOffset: number, maxScroll: number, f
 
 /**
  * Renders the run's chronological event stream into displayable body lines,
- * merging assistant text turns with live tool activity and status transitions.
- * When `prompt` is provided it is prepended as a `[prompt]` block before the
- * event stream, so the viewer shows what the subagent was asked to do first.
+ * merging assistant text turns with live tool activity, tool result summaries,
+ * edit diffs, and status transitions. When `prompt` is provided it is prepended as
+ * a `[prompt]` block.
  *
- * This is the core of the live viewer: tool-use turns carry no assistant text,
- * so a transcript built only from accumulated assistant messages stays empty
- * while the subagent is actually working. Reading the event stream surfaces the
- * tool calls (and progress/status changes) as they happen, mirroring Ctrl-O.
+ * Each tool call becomes one line; a following `run.tool_result` is correlated to
+ * its call (by `toolCallId` when present, else by adjacency to the most recent
+ * unmatched call) and its summary is folded into that line, with an edit's diff
+ * rendered as a following block. Lines carry internal kind markers that the
+ * styling layer strips, so the visible line starts with the verb — no glyph.
  */
 export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: string): string[] {
-	const lines: string[] = [];
+	const items: LineItem[] = [];
+	const toolItems: ToolItem[] = [];
 	let thinkingRun: string[] = [];
 
+	const pushText = (text: string) => items.push({ kind: "text", text });
+
 	if (prompt) {
-		lines.push("[prompt]");
-		for (const line of wrapText(prompt, width)) lines.push(line);
+		pushText("[prompt]");
+		for (const line of wrapText(prompt, width)) pushText(line);
 	}
 
 	const flushThinking = () => {
 		if (thinkingRun.length === 0) return;
-		lines.push(...renderThinkingBlock(thinkingRun, width));
+		for (const line of renderThinkingBlock(thinkingRun, width)) pushText(line);
 		thinkingRun = [];
 	};
 
@@ -240,45 +609,63 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 
 		switch (event.type) {
 			case "run.started":
-				lines.push("[started]");
+				pushText("[started]");
 				break;
 			case "run.progress": {
 				const tool = toolNameFromProgress(event.message);
 				if (tool) {
 					const display = event.toolCall ?? (event.target ? `${tool} ${event.target}` : tool);
-					lines.push(`${TOOL_LINE_PREFIX}${display}`);
+					const { verb, args } = splitToolDisplay(display, tool);
+					const item: ToolItem = { kind: "tool", verb, args, status: "dim", matched: false, count: 1 };
+					items.push(item);
+					toolItems.push(item);
 				} else {
-					lines.push(`· ${event.message}`);
+					pushText(`· ${event.message}`);
 				}
 				break;
 			}
 			case "run.output":
 				if (event.role === "assistant" && event.text) {
-					lines.push("[Assistant]");
-					for (const line of wrapText(event.text, width)) lines.push(line);
+					pushText("[Assistant]");
+					for (const line of wrapText(event.text, width)) pushText(line);
 				}
 				break;
+			case "run.tool_result": {
+				const idx = matchResultToCall(toolItems, event);
+				if (idx !== undefined) {
+					const item = toolItems[idx];
+					item.matched = true;
+					item.summary = deriveToolSummary(event.toolName, event);
+					item.status = deriveSummaryStatus(event.toolName, event);
+
+					const diff = diffOf(event.details);
+					if (diff !== undefined) {
+						for (const line of diffBlockLines(diff)) items.push({ kind: "diff", text: line });
+					}
+				}
+				break;
+			}
 			case "run.needs_attention":
-				lines.push(`[attention] ${event.reason}`);
+				pushText(`[attention] ${event.reason}`);
 				break;
 			case "run.completed":
-				lines.push("[done]");
+				pushText("[done]");
 				break;
 			case "run.failed":
-				lines.push(`[failed] ${event.error}`);
+				pushText(`[failed] ${event.error}`);
 				break;
 			case "run.interrupted":
-				lines.push("[interrupted]");
+				pushText("[interrupted]");
 				break;
 			case "provider.degraded":
-				lines.push(`[degraded] ${event.provider}: ${event.reason}`);
+				pushText(`[degraded] ${event.provider}: ${event.reason}`);
 				break;
 		}
 	}
 
 	flushThinking();
 
-	return collapseToolRuns(lines, width);
+	return finalizeItems(items, width);
 }
 
 export function buildViewerModel(input: {
@@ -319,5 +706,5 @@ export function buildViewerModel(input: {
 	const pct = totalLines === 0 ? 100 : Math.min(100, Math.round(((effectiveOffset + height) / totalLines) * 100));
 	const footerLine = `${totalLines} lines · ${pct}% · ${following ? "following" : "paused"}`;
 
-	return { headerLines, bodyLines, footerLine, maxScroll };
+	return { headerLines, bodyLines, footerLine, maxScroll, model: snapshot?.model, thinking: snapshot?.thinking };
 }

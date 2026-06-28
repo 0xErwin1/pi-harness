@@ -10,6 +10,19 @@ export interface PiJsonEvent {
 	message?: PiMessage;
 	toolName?: string;
 	args?: unknown;
+	/** Present on `tool_execution_start` and `tool_execution_end` events. */
+	toolCallId?: string;
+	/**
+	 * Present on `tool_execution_end` events. Carries the tool's output:
+	 * `content` holds the textual result, `details` holds tool-specific structured
+	 * metadata (e.g. a diff string for Edit, truncation info for Read).
+	 */
+	result?: {
+		content?: Array<{ type: string; text: string }>;
+		details?: unknown;
+	};
+	/** Present on `tool_execution_end`; true when the tool raised an error. */
+	isError?: boolean;
 }
 
 export function parseNdjsonLine(line: string): PiJsonEvent | undefined {
@@ -229,6 +242,39 @@ export function formatToolCall(toolName: string, args: unknown): string {
 		default:
 			return formatGenericCall(name, fields);
 	}
+}
+
+/**
+ * Extracts a structured tool result summary from a `tool_execution_end` event.
+ *
+ * Returns `undefined` for any other event type or when `toolName` is absent (the
+ * two minimum fields needed to identify which tool produced the result). All other
+ * fields are optional so callers never need to check for missing intermediate
+ * structures — `resultText` resolves the first text-typed content item, falling back
+ * to the first content item regardless of type, and is `undefined` when content is
+ * absent or empty.
+ */
+export function toolResultOf(event: PiJsonEvent): {
+	toolName: string;
+	toolCallId?: string;
+	resultText?: string;
+	details?: unknown;
+	isError?: boolean;
+} | undefined {
+	if (event.type !== "tool_execution_end") return undefined;
+	if (!event.toolName) return undefined;
+
+	const result = event.result;
+	const textItem = result?.content?.find((c) => c.type === "text");
+	const resultText = textItem?.text ?? result?.content?.[0]?.text;
+
+	return {
+		toolName: event.toolName,
+		toolCallId: event.toolCallId,
+		resultText,
+		details: result?.details,
+		isError: event.isError,
+	};
 }
 
 export function finalAssistantText(events: PiJsonEvent[]): string | undefined {

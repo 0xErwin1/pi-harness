@@ -19,6 +19,7 @@ export type RunEventType =
 	| "run.started"
 	| "run.progress"
 	| "run.output"
+	| "run.tool_result"
 	| "run.needs_attention"
 	| "run.completed"
 	| "run.failed"
@@ -64,6 +65,22 @@ export interface RunProgressEvent extends RunEventBase {
 	 * present; absent for non-tool progress.
 	 */
 	toolCall?: string;
+}
+
+/**
+ * Carries the result of a completed tool invocation from the child process.
+ * Appended to the run's event log for downstream viewers to render result
+ * summaries (line counts, exit codes, diff stats). Does not affect run status.
+ */
+export interface RunToolResultEvent extends RunEventBase {
+	type: "run.tool_result";
+	toolName: string;
+	toolCallId?: string;
+	/** First text-typed output from the tool result content array, if any. */
+	resultText?: string;
+	/** Tool-specific structured metadata (e.g. diff string for Edit, truncation info for Read). */
+	details?: unknown;
+	isError?: boolean;
 }
 
 export interface RunOutputEvent extends RunEventBase {
@@ -130,6 +147,7 @@ export type RunEvent =
 	| RunStartedEvent
 	| RunProgressEvent
 	| RunOutputEvent
+	| RunToolResultEvent
 	| RunNeedsAttentionEvent
 	| RunCompletedEvent
 	| RunFailedEvent
@@ -143,6 +161,7 @@ export type RunEventInput =
 	| Omit<RunStartedEvent, "id" | "runId" | "at">
 	| Omit<RunProgressEvent, "id" | "runId" | "at">
 	| Omit<RunOutputEvent, "id" | "runId" | "at">
+	| Omit<RunToolResultEvent, "id" | "runId" | "at">
 	| Omit<RunNeedsAttentionEvent, "id" | "runId" | "at">
 	| Omit<RunCompletedEvent, "id" | "runId" | "at">
 	| Omit<RunFailedEvent, "id" | "runId" | "at">
@@ -181,4 +200,8 @@ export interface RunSnapshot {
 	tokens?: number;
 	/** Running count of tool invocations observed for the run. */
 	toolCount?: number;
+	/** Model id used for the run, sourced from the agent spec or per-call metadata override. */
+	model?: string;
+	/** Thinking level for the run (e.g. "medium", "high"), sourced from agent spec or metadata. */
+	thinking?: string;
 }

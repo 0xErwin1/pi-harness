@@ -8,6 +8,7 @@ import {
 	finalAssistantText,
 	formatToolCall,
 	tokensOf,
+	toolResultOf,
 	TOOL_CALL_VALUE_MAX,
 	type PiJsonEvent,
 	type PiMessage,
@@ -330,4 +331,130 @@ test("formatToolCall: always returns at least the tool name", () => {
 	assert.equal(formatToolCall("read", {}), "read");
 	assert.equal(formatToolCall("read", undefined), "read");
 	assert.equal(formatToolCall("mystery", { nested: { deep: 1 } }), "mystery");
+});
+
+// ---------------------------------------------------------------------------
+// toolResultOf
+// ---------------------------------------------------------------------------
+
+test("toolResultOf: returns undefined for non-tool_execution_end events", () => {
+	assert.equal(toolResultOf({ type: "tool_execution_start", toolName: "read" }), undefined);
+	assert.equal(toolResultOf({ type: "message_end" }), undefined);
+	assert.equal(toolResultOf({ type: "message_start" }), undefined);
+	assert.equal(toolResultOf({}), undefined);
+});
+
+test("toolResultOf: returns undefined when tool_execution_end has no toolName", () => {
+	assert.equal(toolResultOf({ type: "tool_execution_end" }), undefined);
+});
+
+test("toolResultOf: extracts toolName, toolCallId, resultText, details, isError from a tool_execution_end event", () => {
+	const event: PiJsonEvent = {
+		type: "tool_execution_end",
+		toolName: "read",
+		toolCallId: "call-abc",
+		result: {
+			content: [
+				{ type: "text", text: "file content here" },
+			],
+			details: { truncation: null },
+		},
+		isError: false,
+	};
+	const result = toolResultOf(event);
+	assert.ok(result !== undefined);
+	assert.equal(result.toolName, "read");
+	assert.equal(result.toolCallId, "call-abc");
+	assert.equal(result.resultText, "file content here");
+	assert.deepEqual(result.details, { truncation: null });
+	assert.equal(result.isError, false);
+});
+
+test("toolResultOf: prefers the first type:text content item for resultText", () => {
+	const event: PiJsonEvent = {
+		type: "tool_execution_end",
+		toolName: "bash",
+		result: {
+			content: [
+				{ type: "image", text: "" },
+				{ type: "text", text: "exit code: 0" },
+			],
+		},
+	};
+	const result = toolResultOf(event);
+	assert.ok(result !== undefined);
+	assert.equal(result.resultText, "exit code: 0");
+});
+
+test("toolResultOf: falls back to content[0].text when no type:text item exists", () => {
+	const event: PiJsonEvent = {
+		type: "tool_execution_end",
+		toolName: "bash",
+		result: {
+			content: [{ type: "image", text: "data-url" }],
+		},
+	};
+	const result = toolResultOf(event);
+	assert.ok(result !== undefined);
+	assert.equal(result.resultText, "data-url");
+});
+
+test("toolResultOf: resultText is undefined when content is absent or empty", () => {
+	const noContent = toolResultOf({ type: "tool_execution_end", toolName: "read", result: {} });
+	assert.ok(noContent !== undefined);
+	assert.equal(noContent.resultText, undefined);
+
+	const emptyContent = toolResultOf({ type: "tool_execution_end", toolName: "read", result: { content: [] } });
+	assert.ok(emptyContent !== undefined);
+	assert.equal(emptyContent.resultText, undefined);
+});
+
+test("toolResultOf: is defensive when result is absent", () => {
+	const event: PiJsonEvent = { type: "tool_execution_end", toolName: "write" };
+	const result = toolResultOf(event);
+	assert.ok(result !== undefined);
+	assert.equal(result.toolName, "write");
+	assert.equal(result.toolCallId, undefined);
+	assert.equal(result.resultText, undefined);
+	assert.equal(result.details, undefined);
+	assert.equal(result.isError, undefined);
+});
+
+test("toolResultOf: isError:true is carried through", () => {
+	const event: PiJsonEvent = {
+		type: "tool_execution_end",
+		toolName: "bash",
+		result: { content: [{ type: "text", text: "error output" }] },
+		isError: true,
+	};
+	const result = toolResultOf(event);
+	assert.ok(result !== undefined);
+	assert.equal(result.isError, true);
+	assert.equal(result.resultText, "error output");
+});
+
+// ---------------------------------------------------------------------------
+// parseNdjsonLine: new fields populated for tool_execution_end
+// ---------------------------------------------------------------------------
+
+test("parseNdjsonLine: populates toolCallId, result, and isError for a tool_execution_end line", () => {
+	const line = JSON.stringify({
+		type: "tool_execution_end",
+		toolCallId: "call-x99",
+		toolName: "edit",
+		result: {
+			content: [{ type: "text", text: "edit applied" }],
+			details: { diff: "@@ -1 +1 @@\n-old\n+new" },
+		},
+		isError: false,
+	});
+	const event = parseNdjsonLine(line);
+	assert.ok(event !== undefined);
+	assert.equal(event.type, "tool_execution_end");
+	assert.equal(event.toolCallId, "call-x99");
+	assert.equal(event.toolName, "edit");
+	assert.ok(event.result !== undefined);
+	assert.deepEqual(event.result!.content, [{ type: "text", text: "edit applied" }]);
+	assert.deepEqual(event.result!.details, { diff: "@@ -1 +1 @@\n-old\n+new" });
+	assert.equal(event.isError, false);
 });

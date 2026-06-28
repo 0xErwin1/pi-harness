@@ -8,7 +8,15 @@ import {
 	type SubagentRowAccess,
 	type SubagentRowModel,
 } from "./subagent-row-model.ts";
-import { formatTokens, transcriptLineColor } from "./conversation-viewer-model.ts";
+import {
+	formatModelEffort,
+	formatTokens,
+	styleDiffLine,
+	styleToolLine,
+	type TranscriptStyler,
+	transcriptLineColor,
+} from "./conversation-viewer-model.ts";
+import { getIcons } from "../icons/config.ts";
 
 /**
  * Live state threaded through the tool result `details` by the harness `execute`
@@ -37,7 +45,16 @@ const ICON_INTERRUPTED = "/";
 const ICON_ATTENTION = "!";
 const ICON_QUEUED = "-";
 
-const SPINNER_FRAMES = ["-", "\\", "|", "/"];
+const SPINNER_TICK_MS = 80;
+
+/**
+ * Selects the active spinner frame from the icon registry by wall-clock time
+ * (`% spinner.length`). Pure over the injected spinner array and clock so it is
+ * deterministic and headlessly testable; the glyphs honor the active icon mode.
+ */
+export function collapsedSpinnerFrame(spinner: readonly string[], now: number): string {
+	return spinner[Math.floor(now / SPINNER_TICK_MS) % spinner.length];
+}
 
 function statusGlyph(status: RunStatus): string {
 	switch (status) {
@@ -96,11 +113,13 @@ export function resolveRowCounts(
 
 /**
  * Composes the collapsed single-line row text (no ANSI) from the row model and
- * resolved counts. Shape: `<agent> · <status> · <elapsed> · <tokens> tok · <N>
- * tools · <current activity>`. Turns are intentionally dropped (they read ~0
- * during tool use and confuse); tokens and a concise current-activity phrase
- * replace the old turns count and thinking dump. The status glyph and colouring
- * are applied by the component; this stays pure so it is headlessly assertable.
+ * resolved counts. Shape: `<model> · thinking: <level> · <agent> · <status> ·
+ * <elapsed> · <tokens> tok · <N> tools · <current activity>`. The leading
+ * model/effort segment is omitted when unknown; the render layer dims it. Turns
+ * are intentionally dropped (they read ~0 during tool use and confuse); tokens and
+ * a concise current-activity phrase replace the old turns count and thinking dump.
+ * The status glyph and colouring are applied by the component; this stays pure so
+ * it is headlessly assertable.
  */
 export function buildCollapsedLine(
 	model: SubagentRowModel,
@@ -108,6 +127,8 @@ export function buildCollapsedLine(
 ): string {
 	const parts: string[] = [];
 
+	const modelEffort = formatModelEffort(model.model, model.thinking);
+	if (modelEffort) parts.push(modelEffort);
 	if (model.agent) parts.push(model.agent);
 	parts.push(model.status);
 	parts.push(formatElapsed(model.elapsedMs));
@@ -197,13 +218,19 @@ function renderCollapsed(
 	theme: Theme,
 ): Component {
 	const glyph = isPartial && (model.status === "running" || model.status === "starting")
-		? SPINNER_FRAMES[Math.floor(Date.now() / 80) % SPINNER_FRAMES.length]
+		? collapsedSpinnerFrame(getIcons().spinner, Date.now())
 		: statusGlyph(model.status);
 
 	const icon = theme.fg(statusColor(model.status), glyph);
 	const body = buildCollapsedLine(model, counts);
 
-	return new TruncatedText(`${icon} ${theme.fg("text", body)}`);
+	const modelEffort = formatModelEffort(model.model, model.thinking);
+	const coloredBody =
+		modelEffort && body.startsWith(modelEffort)
+			? theme.fg("dim", modelEffort) + theme.fg("text", body.slice(modelEffort.length))
+			: theme.fg("text", body);
+
+	return new TruncatedText(`${icon} ${coloredBody}`);
 }
 
 function renderExpanded(
@@ -235,14 +262,27 @@ function renderExpanded(
 }
 
 /**
- * Maps one transcript line to a component using the shared semantic colouring:
- * assistant headers, tool activity, and status transitions each get a distinct
- * colour, while free-flowing text keeps the default colour and wraps naturally.
- * Sharing `transcriptLineColor` keeps the expanded row and the overlay viewer
- * visually consistent.
+ * Maps one transcript line to a component using the shared colouring: tool lines
+ * get the bold-verb / accent-args / status-coloured-summary treatment via
+ * `styleToolLine`, diff lines colour by their `+`/`-` change kind via
+ * `styleDiffLine`, assistant headers and status transitions take a single semantic
+ * colour, and free-flowing text keeps the default colour and wraps naturally.
+ * Sharing the model helpers keeps the expanded row and the overlay viewer visually
+ * consistent.
  */
 function renderExpandedLine(line: string, theme: Theme): Component {
 	if (line.length === 0) return new Text("");
+
+	const styler: TranscriptStyler = {
+		fg: (color, text) => theme.fg(color, text),
+		bold: (text) => theme.bold(text),
+	};
+
+	const styledTool = styleToolLine(line, styler);
+	if (styledTool !== undefined) return new TruncatedText(styledTool);
+
+	const styledDiff = styleDiffLine(line, styler);
+	if (styledDiff !== undefined) return new TruncatedText(styledDiff);
 
 	const color = transcriptLineColor(line);
 	if (color === "text") return new Text(line);

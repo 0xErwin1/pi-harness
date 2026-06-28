@@ -339,8 +339,9 @@ test("buildExpandedBodyLines: tool-only run yields the tool activity, not an emp
 	const lines = buildExpandedBodyLines(access, ["r1"], 0);
 
 	assert.ok(lines.length > 0, "expanded body must not be empty during a tool-only run");
-	assert.ok(lines.some((l) => l.includes("[tool]") && l.includes("Read")), "must surface the Read tool line");
-	assert.ok(lines.some((l) => l.includes("[tool]") && l.includes("Bash")), "must surface the Bash tool line");
+	assert.ok(lines.some((l) => l.includes("Read")), "must surface the Read tool line");
+	assert.ok(lines.some((l) => l.includes("Bash")), "must surface the Bash tool line");
+	assert.ok(!lines.some((l) => l.includes("[tool]")), "the literal [tool] prefix must be gone");
 });
 
 test("buildExpandedBodyLines: merges tool activity and assistant text chronologically", () => {
@@ -352,7 +353,7 @@ test("buildExpandedBodyLines: merges tool activity and assistant text chronologi
 
 	const lines = buildExpandedBodyLines(access, ["r1"], 0);
 
-	const toolIndex = lines.findIndex((l) => l.includes("[tool]") && l.includes("Read"));
+	const toolIndex = lines.findIndex((l) => l.includes("Read"));
 	const textIndex = lines.findIndex((l) => l.includes("here is the answer"));
 
 	assert.ok(toolIndex >= 0, "tool line must be present");

@@ -24,6 +24,10 @@ export interface SubagentRowModel {
 	 * reasons, or the status when nothing else applies. Never dumps reasoning prose.
 	 */
 	currentActivity: string;
+	/** Model id for the row's run, sourced from the snapshot; absent when unknown. */
+	model?: string;
+	/** Thinking level for the row's run, sourced from the snapshot; absent when unknown. */
+	thinking?: string;
 }
 
 const MAX_ACTIVITY = 50;
@@ -91,7 +95,18 @@ export function buildSubagentRowModel(
 	if (!currentActivity && lastMessageText) currentActivity = lastMessageText;
 	if (!currentActivity) currentActivity = resolved ? status : "starting…";
 
-	return { agent, status, activity, elapsedMs, turns, tools, tokens, currentActivity: conciseActivity(currentActivity) };
+	return {
+		agent,
+		status,
+		activity,
+		elapsedMs,
+		turns,
+		tools,
+		tokens,
+		currentActivity: conciseActivity(currentActivity),
+		...(firstSnapshot?.model ? { model: firstSnapshot.model } : {}),
+		...(firstSnapshot?.thinking ? { thinking: firstSnapshot.thinking } : {}),
+	};
 }
 
 /**

@@ -238,3 +238,91 @@ test("policy-blocked run throws without creating a store entry", async () => {
 	const snapshots = await runtime.status();
 	assert.equal(snapshots.length, 0, "blocked run must not create a store entry");
 });
+
+// ---------------------------------------------------------------------------
+// model and thinking forwarding to RunSnapshot
+// ---------------------------------------------------------------------------
+
+const AGENT_WITH_MODEL: RegisteredAgent = {
+	name: "model-agent",
+	description: "Agent with model and thinking",
+	promptRef: "You are an agent.",
+	policyMode: "writer",
+	scope: "builtin",
+	order: 0,
+	model: "claude-haiku-4-5",
+	thinking: "medium",
+};
+
+function makeRegistryWithModel() {
+	return { builtin: [AGENT_WITH_MODEL] };
+}
+
+test("run lifecycle: snapshot.model is set from the agent spec when no metadata override", async () => {
+	const runtime = new ManagerRuntime({
+		registry: makeRegistryWithModel(),
+		providers: [makeInstantProvider()],
+	});
+
+	const result = await runtime.run({ agent: "model-agent", prompt: "hello" });
+
+	const [snapshot] = await runtime.status(result.runId);
+	assert.equal(snapshot.model, "claude-haiku-4-5");
+});
+
+test("run lifecycle: snapshot.thinking is set from the agent spec", async () => {
+	const runtime = new ManagerRuntime({
+		registry: makeRegistryWithModel(),
+		providers: [makeInstantProvider()],
+	});
+
+	const result = await runtime.run({ agent: "model-agent", prompt: "hello" });
+
+	const [snapshot] = await runtime.status(result.runId);
+	assert.equal(snapshot.thinking, "medium");
+});
+
+test("run lifecycle: request metadata.model overrides agent spec model in snapshot", async () => {
+	const runtime = new ManagerRuntime({
+		registry: makeRegistryWithModel(),
+		providers: [makeInstantProvider()],
+	});
+
+	const result = await runtime.run({
+		agent: "model-agent",
+		prompt: "hello",
+		metadata: { model: "claude-sonnet-4-7" },
+	});
+
+	const [snapshot] = await runtime.status(result.runId);
+	assert.equal(snapshot.model, "claude-sonnet-4-7", "metadata.model must override agent spec model");
+});
+
+test("run lifecycle: request metadata.thinking overrides agent spec thinking in snapshot", async () => {
+	const runtime = new ManagerRuntime({
+		registry: makeRegistryWithModel(),
+		providers: [makeInstantProvider()],
+	});
+
+	const result = await runtime.run({
+		agent: "model-agent",
+		prompt: "hello",
+		metadata: { thinking: "high" },
+	});
+
+	const [snapshot] = await runtime.status(result.runId);
+	assert.equal(snapshot.thinking, "high", "metadata.thinking must override agent spec thinking");
+});
+
+test("run lifecycle: snapshot.model is undefined when neither agent spec nor metadata set it", async () => {
+	const runtime = new ManagerRuntime({
+		registry: makeRegistry(),
+		providers: [makeInstantProvider()],
+	});
+
+	const result = await runtime.run({ agent: "test-agent", prompt: "hello" });
+
+	const [snapshot] = await runtime.status(result.runId);
+	assert.equal(snapshot.model, undefined);
+	assert.equal(snapshot.thinking, undefined);
+});

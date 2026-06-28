@@ -29,6 +29,8 @@ import {
 } from "./fleet-model.ts";
 import { isConversationViewerOpen, showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
 import { createFileBackedViewerRuntime } from "./file-backed-viewer.ts";
+import { getIcons } from "../icons/config.ts";
+import type { IconSet } from "../icons/types.ts";
 
 /** Live accessor surface the fleet widget needs from the manager runtime. */
 export interface FleetRuntime {
@@ -153,32 +155,34 @@ function statusColor(status: RunStatus): Parameters<Theme["fg"]>[0] {
 	}
 }
 
-const SPINNER_FRAMES = ["-", "\\", "|", "/"];
 const SPINNER_INTERVAL_MS = 120;
 
 /**
- * ASCII running indicator. Cycles through `-\|/` by a frame derived from elapsed
- * time for running agents and shows a static `!` for runs awaiting attention. No
- * braille or pictographs (hard project constraint).
+ * Running indicator. Selects a frame of the icon registry's spinner by a frame
+ * index derived from elapsed time (`% spinner.length`) for running agents, and
+ * shows a static `!` for runs awaiting attention. The spinner glyphs honor the
+ * active icon mode (braille in nerdfont, sparkles in unicode, `-\|/` in ascii).
  */
-function spinnerFrame(status: RunStatus, elapsedMs: number): string {
+function spinnerFrame(status: RunStatus, elapsedMs: number, spinner: readonly string[]): string {
 	if (status === "needs-attention") return "!";
-	const frame = Math.floor(Math.max(0, elapsedMs) / SPINNER_INTERVAL_MS) % SPINNER_FRAMES.length;
-	return SPINNER_FRAMES[frame];
+	const frame = Math.floor(Math.max(0, elapsedMs) / SPINNER_INTERVAL_MS) % spinner.length;
+	return spinner[frame];
 }
 
 /**
- * Plain-text marker shown in place of the spinner while a finished run lingers
- * in the roster, so the user sees the outcome (no spinner, no pictograph).
+ * Terminal marker from the icon registry shown in place of the spinner while a
+ * finished run lingers in the roster, so the user sees the outcome. The markers
+ * stay the words `done`/`failed`/`interrupted` in unicode/ascii modes and become
+ * glyphs in nerdfont.
  */
-function terminalMarker(status: RunStatus): string {
+function terminalMarker(status: RunStatus, icons: IconSet): string {
 	switch (status) {
 		case "completed":
-			return "done";
+			return icons.agentDone;
 		case "failed":
-			return "failed";
+			return icons.agentFailed;
 		case "interrupted":
-			return "interrupted";
+			return icons.agentInterrupted;
 		default:
 			return "";
 	}
@@ -212,6 +216,7 @@ export class FleetList implements Component {
 		runtime: FleetRuntime,
 		private readonly openViewer: (target: FleetOpenTarget) => Promise<void>,
 		private readonly reportRunning: (running: number) => void,
+		private readonly iconProvider: () => IconSet = getIcons,
 	) {
 		this.unsubscribe = runtime.subscribe((event, snapshot) => {
 			this.snapshots.set(snapshot.id, snapshot);
@@ -323,6 +328,7 @@ export class FleetList implements Component {
 
 	render(width: number): string[] {
 		const now = Date.now();
+		const icons = this.iconProvider();
 		this.refreshForest();
 		const roster = this.mergedRoster(now);
 		if (roster.length === 0) return [];
@@ -341,8 +347,8 @@ export class FleetList implements Component {
 		const lastRowIndex = model.rows.length - 1;
 		model.rows.forEach((row, index) => {
 			const lastBranch = index === lastRowIndex && model.hiddenBelow === 0;
-			lines.push(this.renderRowMain(row, lastBranch, width));
-			lines.push(this.renderRowSub(row, lastBranch, width));
+			lines.push(this.renderRowMain(row, lastBranch, width, icons));
+			lines.push(this.renderRowSub(row, lastBranch, width, icons));
 		});
 
 		if (model.hiddenBelow > 0) {
@@ -394,17 +400,19 @@ export class FleetList implements Component {
 	/**
 	 * The branch line for an agent: `<marker> <indent><connector> <indicator> <agent>  <task> · <elapsed>`.
 	 * The connector block is indented by `(depth - 1) * INDENT` columns so children
-	 * sit under their parent. The indicator is the live spinner while the run is
-	 * active, a plain-text terminal marker (`done` / `failed` / `interrupted`)
-	 * while it lingers, or `stale` when a file-backed running node's process is
-	 * gone. The connector closes the tree (`└─`) on the last visible branch.
+	 * sit under their parent. All glyphs come from the icon registry: the selection
+	 * marker, the tree connector (`treeBranch`/`treeLast`, closing the tree on the
+	 * last visible branch), and the indicator — the live spinner while the run is
+	 * active, the terminal marker (`agentDone`/`agentFailed`/`agentInterrupted`)
+	 * while it lingers, or `agentStale` when a file-backed running node's process
+	 * is gone.
 	 */
-	private renderRowMain(row: FleetRow, lastBranch: boolean, width: number): string {
+	private renderRowMain(row: FleetRow, lastBranch: boolean, width: number, icons: IconSet): string {
 		const th = this.theme;
-		const marker = row.selected ? th.fg("accent", ">") : " ";
+		const marker = row.selected ? th.fg("accent", icons.selection) : " ";
 		const indent = " ".repeat(Math.max(0, (row.depth - 1) * INDENT));
-		const connector = th.fg("dim", lastBranch ? "└─" : "├─");
-		const indicatorText = rowIndicator(row);
+		const connector = th.fg("dim", lastBranch ? icons.treeLast : icons.treeBranch);
+		const indicatorText = rowIndicator(row, icons);
 		const indicator = th.fg(statusColor(row.staleRunning ? "interrupted" : row.status), indicatorText);
 		const agent = th.fg("accent", row.agent);
 		const task = row.task ? `  ${row.task}` : "";
@@ -415,28 +423,29 @@ export class FleetList implements Component {
 
 	/**
 	 * The activity sub-line beneath an agent's branch, indented to match the row.
-	 * Keeps the tree's vertical gutter (`│`) for inner branches so the hierarchy
-	 * reads cleanly.
+	 * Keeps the tree's vertical gutter (`treeVertical`) for inner branches and the
+	 * sub-branch glyph (`treeSub`) from the icon registry so the hierarchy reads
+	 * cleanly.
 	 */
-	private renderRowSub(row: FleetRow, lastBranch: boolean, width: number): string {
+	private renderRowSub(row: FleetRow, lastBranch: boolean, width: number, icons: IconSet): string {
 		const th = this.theme;
 		const indent = " ".repeat(Math.max(0, (row.depth - 1) * INDENT));
-		const gutter = lastBranch ? " " : th.fg("dim", "│");
-		const branch = th.fg("dim", "└");
+		const gutter = lastBranch ? " " : th.fg("dim", icons.treeVertical);
+		const branch = th.fg("dim", icons.treeSub);
 
 		return truncateToWidth(`  ${indent}${gutter}     ${branch} ${th.fg("dim", row.activity)}`, width);
 	}
 }
 
 /**
- * The status indicator for a row: a plain `stale` marker when a file-backed
- * running node's process is gone, the live spinner while active, or the terminal
- * marker while a finished run lingers.
+ * The status indicator for a row, sourced entirely from the icon registry: the
+ * `agentStale` marker when a file-backed running node's process is gone, a live
+ * spinner frame while active, or the terminal marker while a finished run lingers.
  */
-function rowIndicator(row: FleetRow): string {
-	if (row.staleRunning) return "stale";
-	if (isActiveFleetStatus(row.status)) return spinnerFrame(row.status, row.elapsedMs);
-	return terminalMarker(row.status);
+export function rowIndicator(row: FleetRow, icons: IconSet): string {
+	if (row.staleRunning) return icons.agentStale;
+	if (isActiveFleetStatus(row.status)) return spinnerFrame(row.status, row.elapsedMs, icons.spinner);
+	return terminalMarker(row.status, icons);
 }
 
 /**
@@ -446,7 +455,7 @@ function rowIndicator(row: FleetRow): string {
  * by its `agentId`, reading the shared session-root transcript. Both pass the
  * node's `.jsonl` path so the viewer footer and the `o` key can surface it.
  */
-function openFleetTarget(
+export function openFleetTarget(
 	ctx: ExtensionContext,
 	runtime: ViewerRuntime,
 	target: FleetOpenTarget,

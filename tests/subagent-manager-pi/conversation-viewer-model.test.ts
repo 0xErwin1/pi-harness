@@ -3,10 +3,34 @@ import assert from "node:assert/strict";
 import {
 	buildViewerModel,
 	eventsToBodyLines,
+	formatInvocationSubline,
+	formatModelEffort,
+	matchResultToCall,
 	resolveViewportOffset,
+	styleDiffLine,
+	styleToolLine,
+	styleTranscriptLine,
 	transcriptLineColor,
 } from "../../packages/subagent-manager-pi/tui/conversation-viewer-model.ts";
 import type { RunEvent, RunSnapshot } from "../../packages/subagent-manager-core/events.ts";
+
+/**
+ * Deterministic styler double: `fg` wraps text in `<color>…</color>` and `bold`
+ * in `<b>…</b>`, so the styled output of a body line is fully assertable without a
+ * real theme. The verb is bold, the args accent, the summary dim/success/error.
+ */
+const STYLER = {
+	fg: (color: string, text: string): string => `<${color}>${text}</${color}>`,
+	bold: (text: string): string => `<b>${text}</b>`,
+};
+
+/** Strips the internal kind markers (control chars) so a raw body line's visible width can be measured. */
+function stripMarkers(line: string): string {
+	return line.replace(/[\u0001-\u0006]/g, "");
+}
+
+const isToolLine = (line: string): boolean => styleToolLine(line, STYLER) !== undefined;
+const isDiffLine = (line: string): boolean => styleDiffLine(line, STYLER) !== undefined;
 
 const BASE_STARTED_AT = "2024-01-01T12:00:00.000Z";
 const BASE_NOW = Date.parse(BASE_STARTED_AT) + 3000;
@@ -66,6 +90,13 @@ function thinking(text: string): RunEvent {
 
 function started(): RunEvent {
 	return { id: `e${eventSeq++}`, runId: "r1", type: "run.started", agent: "viewer-agent", at: new Date().toISOString() };
+}
+
+function toolResult(
+	toolName: string,
+	opts: { toolCallId?: string; resultText?: string; details?: unknown; isError?: boolean } = {},
+): RunEvent {
+	return { id: `e${eventSeq++}`, runId: "r1", type: "run.tool_result", toolName, ...opts, at: new Date().toISOString() };
 }
 
 test("buildViewerModel: header contains agent name, status, and elapsed time", () => {
@@ -231,45 +262,50 @@ test("buildViewerModel: works without snapshot (no elapsed shown)", () => {
 	);
 });
 
-test("eventsToBodyLines: a tool line shows its target after the tool name", () => {
-	const lines = eventsToBodyLines([toolWithTarget("read", "src/foo.ts")], 80);
+test("eventsToBodyLines: a tool line renders `<verb> <args>` with NO glyph prefix", () => {
+	const [line] = eventsToBodyLines([toolWithTarget("read", "src/foo.ts")], 80);
 
-	assert.ok(
-		lines.some((l) => l.includes("[tool] read src/foo.ts")),
-		"tool line must include the target after the name",
-	);
+	assert.equal(styleTranscriptLine(line, STYLER), "<b>read</b> <accent>src/foo.ts</accent>");
+	assert.ok(isToolLine(line), "the line must be classified as a tool line");
+	assert.ok(!stripMarkers(line).includes("▸"), "the tool glyph prefix must be gone");
+	assert.ok(!line.includes("[tool]"), "the literal [tool] prefix must be gone");
 });
 
-test("eventsToBodyLines: a tool with no target falls back to the bare name", () => {
-	const lines = eventsToBodyLines([tool("bash")], 80);
+test("eventsToBodyLines: a tool with no args renders just the bold verb", () => {
+	const [line] = eventsToBodyLines([tool("bash")], 80);
 
-	assert.ok(lines.some((l) => l === "[tool] bash"), "no target → bare tool line");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b>bash</b>");
 });
 
-test("eventsToBodyLines: a tool line prefers the richer toolCall over the bare name+target", () => {
-	const lines = eventsToBodyLines(
+test("eventsToBodyLines: a tool line uses the richer toolCall verbatim (verb bold, args accent)", () => {
+	const [line] = eventsToBodyLines(
 		[toolWithCall("engram_mem_save", 'engram_mem_save (query: "auth bug", project: "pi-harness")')],
 		120,
 	);
 
-	assert.ok(
-		lines.some((l) => l === '[tool] engram_mem_save (query: "auth bug", project: "pi-harness")'),
-		"the rich toolCall must be rendered verbatim after the [tool] marker",
+	assert.equal(
+		styleTranscriptLine(line, STYLER),
+		'<b>engram_mem_save</b> <accent>(query: "auth bug", project: "pi-harness")</accent>',
 	);
 });
 
-test("eventsToBodyLines: identical toolCall lines still collapse with a ×N count", () => {
+test("eventsToBodyLines: bash keeps the `$ <cmd>` arg style", () => {
+	const [line] = eventsToBodyLines([toolWithTarget("bash", "pnpm test")], 80);
+
+	assert.equal(styleTranscriptLine(line, STYLER), "<b>bash</b> <accent>$ pnpm test</accent>");
+});
+
+test("eventsToBodyLines: identical toolCall lines collapse with a ×N count", () => {
 	const events = [
 		toolWithCall("read", "read a.ts"),
 		toolWithCall("read", "read a.ts"),
 		toolWithCall("read", "read a.ts"),
 	];
 
-	const lines = eventsToBodyLines(events, 80);
-	const toolLines = lines.filter((l) => l.startsWith("[tool]"));
+	const toolLines = eventsToBodyLines(events, 80).filter(isToolLine);
 
 	assert.equal(toolLines.length, 1, "three identical rich tool calls must collapse to one line");
-	assert.ok(toolLines[0].includes("×3"), `collapsed line must carry the count, got: ${toolLines[0]}`);
+	assert.ok(stripMarkers(toolLines[0]).includes("×3"), `collapsed line must carry the count, got: ${stripMarkers(toolLines[0])}`);
 });
 
 test("eventsToBodyLines: consecutive identical tool lines collapse with a ×N count", () => {
@@ -279,11 +315,10 @@ test("eventsToBodyLines: consecutive identical tool lines collapse with a ×N co
 		toolWithTarget("read", "a.ts"),
 	];
 
-	const lines = eventsToBodyLines(events, 80);
-	const toolLines = lines.filter((l) => l.startsWith("[tool]"));
+	const toolLines = eventsToBodyLines(events, 80).filter(isToolLine);
 
 	assert.equal(toolLines.length, 1, "three identical tool calls must collapse to one line");
-	assert.ok(toolLines[0].includes("×3"), `collapsed line must carry the count, got: ${toolLines[0]}`);
+	assert.ok(stripMarkers(toolLines[0]).includes("×3"), `collapsed line must carry the count, got: ${stripMarkers(toolLines[0])}`);
 });
 
 test("eventsToBodyLines: distinct tool targets are NOT collapsed (no information lost)", () => {
@@ -293,21 +328,242 @@ test("eventsToBodyLines: distinct tool targets are NOT collapsed (no information
 		toolWithTarget("read", "c.ts"),
 	];
 
-	const lines = eventsToBodyLines(events, 80);
-	const toolLines = lines.filter((l) => l.startsWith("[tool]"));
+	const toolLines = eventsToBodyLines(events, 80).filter(isToolLine);
 
 	assert.equal(toolLines.length, 3, "distinct targets must each keep their own line");
-	assert.ok(!toolLines.some((l) => l.includes("×")), "distinct lines must not be counted");
+	assert.ok(!toolLines.some((l) => stripMarkers(l).includes("×")), "distinct lines must not be counted");
 });
 
-test("eventsToBodyLines: a long tool target is truncated to width", () => {
+test("eventsToBodyLines: a long tool arg is truncated to width", () => {
 	const longTarget = "x".repeat(200);
-	const lines = eventsToBodyLines([toolWithTarget("read", longTarget)], 40);
-	const toolLine = lines.find((l) => l.startsWith("[tool]"));
+	const [line] = eventsToBodyLines([toolWithTarget("read", longTarget)], 40);
+	const visible = stripMarkers(line);
 
-	assert.ok(toolLine !== undefined, "tool line must exist");
-	assert.ok(toolLine.length <= 40, `tool line must fit width, got ${toolLine.length}`);
-	assert.ok(toolLine.endsWith("…"), "truncated line must end with an ellipsis");
+	assert.ok(isToolLine(line), "tool line must exist");
+	assert.ok(visible.length <= 40, `tool line must fit width, got ${visible.length}`);
+	assert.ok(visible.endsWith("…"), "truncated line must end with an ellipsis");
+});
+
+test("styleToolLine: verb bold, args accent", () => {
+	const [line] = eventsToBodyLines([toolWithTarget("read", "src/foo.ts")], 80);
+	assert.equal(styleToolLine(line, STYLER), "<b>read</b> <accent>src/foo.ts</accent>");
+});
+
+test("styleToolLine: a no-args tool styles only the bold verb", () => {
+	const [line] = eventsToBodyLines([tool("bash")], 80);
+	assert.equal(styleToolLine(line, STYLER), "<b>bash</b>");
+});
+
+test("styleToolLine: returns undefined for a non-tool line so the caller can fall through", () => {
+	assert.equal(styleToolLine("[Assistant]", STYLER), undefined);
+	assert.equal(styleToolLine("plain body text", STYLER), undefined);
+});
+
+// ── per-tool result summaries ──────────────────────────────────────────────────
+
+test("read result renders a dim `N lines` summary", () => {
+	const [line] = eventsToBodyLines([tool("read"), toolResult("read", { resultText: "a\nb\nc" })], 80);
+	assert.equal(styleTranscriptLine(line, STYLER), "<b>read</b> · <dim>3 lines</dim>");
+});
+
+test("read result uses details.truncation line counts, and the `out/total` form when truncated", () => {
+	const exact = eventsToBodyLines(
+		[tool("read"), toolResult("read", { resultText: "ignored", details: { truncation: { outputLines: 14 } } })],
+		80,
+	)[0];
+	assert.equal(styleTranscriptLine(exact, STYLER), "<b>read</b> · <dim>14 lines</dim>");
+
+	const truncated = eventsToBodyLines(
+		[tool("read"), toolResult("read", { details: { truncation: { truncated: true, outputLines: 50, totalLines: 200 } } })],
+		80,
+	)[0];
+	assert.equal(styleTranscriptLine(truncated, STYLER), "<b>read</b> · <dim>50/200 lines</dim>");
+});
+
+test("bash result shows `exit 0 · N lines` coloured success", () => {
+	const [line] = eventsToBodyLines(
+		[toolWithTarget("bash", "pnpm test"), toolResult("bash", { resultText: "line1\nline2\nexit code: 0" })],
+		80,
+	);
+	assert.equal(styleTranscriptLine(line, STYLER), "<b>bash</b> <accent>$ pnpm test</accent> · <success>exit 0 · 3 lines</success>");
+});
+
+test("bash nonzero exit colours the summary error", () => {
+	const [line] = eventsToBodyLines(
+		[toolWithTarget("bash", "false"), toolResult("bash", { resultText: "boom\nexit code: 1" })],
+		80,
+	);
+	assert.equal(styleTranscriptLine(line, STYLER), "<b>bash</b> <accent>$ false</accent> · <error>exit 1 · 2 lines</error>");
+});
+
+test("grep result shows `N matches`, singular for one", () => {
+	const many = eventsToBodyLines(
+		[toolWithCall("grep", "grep /foo/"), toolResult("grep", { resultText: "a.ts:1: foo\nb.ts:2: foo" })],
+		80,
+	)[0];
+	assert.equal(styleTranscriptLine(many, STYLER), "<b>grep</b> <accent>/foo/</accent> · <dim>2 matches</dim>");
+
+	const one = eventsToBodyLines(
+		[toolWithCall("grep", "grep /foo/"), toolResult("grep", { resultText: "a.ts:1: foo" })],
+		80,
+	)[0];
+	assert.equal(styleTranscriptLine(one, STYLER), "<b>grep</b> <accent>/foo/</accent> · <dim>1 match</dim>");
+});
+
+test("find / ls result shows `N results`", () => {
+	const find = eventsToBodyLines(
+		[toolWithCall("find", "find {*.ts}"), toolResult("find", { resultText: "a.ts\nb.ts\nc.ts" })],
+		80,
+	)[0];
+	assert.equal(styleTranscriptLine(find, STYLER), "<b>find</b> <accent>{*.ts}</accent> · <dim>3 results</dim>");
+
+	const ls = eventsToBodyLines(
+		[toolWithTarget("ls", "src"), toolResult("ls", { resultText: "only" })],
+		80,
+	)[0];
+	assert.equal(styleTranscriptLine(ls, STYLER), "<b>ls</b> <accent>src</accent> · <dim>1 result</dim>");
+});
+
+test("write result shows `N lines`", () => {
+	const [line] = eventsToBodyLines(
+		[toolWithTarget("write", "out.txt"), toolResult("write", { resultText: "x\ny" })],
+		80,
+	);
+	assert.equal(styleTranscriptLine(line, STYLER), "<b>write</b> <accent>out.txt</accent> · <dim>2 lines</dim>");
+});
+
+test("an unknown tool omits the summary, but shows `error` when it errored", () => {
+	const ok = eventsToBodyLines(
+		[toolWithCall("custom_tool", "custom_tool (x: 1)"), toolResult("custom_tool", { resultText: "whatever" })],
+		80,
+	)[0];
+	assert.equal(styleTranscriptLine(ok, STYLER), "<b>custom_tool</b> <accent>(x: 1)</accent>");
+
+	const errored = eventsToBodyLines(
+		[toolWithCall("custom_tool", "custom_tool (x: 1)"), toolResult("custom_tool", { isError: true })],
+		80,
+	)[0];
+	assert.equal(styleTranscriptLine(errored, STYLER), "<b>custom_tool</b> <accent>(x: 1)</accent> · <error>error</error>");
+});
+
+test("an errored known tool still shows its summary but in error colour", () => {
+	const [line] = eventsToBodyLines([tool("read"), toolResult("read", { resultText: "nope", isError: true })], 80);
+	assert.equal(styleTranscriptLine(line, STYLER), "<b>read</b> · <error>1 lines</error>");
+});
+
+// ── edit diff rendering ─────────────────────────────────────────────────────────
+
+test("edit result shows `+A -R` and renders the diff block with coloured +/- lines", () => {
+	const diff = "--- a/x.rs\n+++ b/x.rs\n@@ -1,3 +1,3 @@\n context\n-old line\n+new line\n+added line";
+	const styled = eventsToBodyLines([toolWithTarget("edit", "crates/x.rs"), toolResult("edit", { details: { diff } })], 80).map(
+		(l) => styleTranscriptLine(l, STYLER),
+	);
+
+	assert.equal(styled[0], "<b>edit</b> <accent>crates/x.rs</accent> · <dim>+2 -1</dim>");
+	assert.ok(styled.includes("<dim>@@ -1,3 +1,3 @@</dim>"), "hunk header dim");
+	assert.ok(styled.includes("<dim> context</dim>"), "context line dim");
+	assert.ok(styled.includes("<error>-old line</error>"), "removed line error");
+	assert.ok(styled.includes("<success>+new line</success>"), "added line success");
+	assert.ok(styled.includes("<success>+added line</success>"), "second added line success");
+	assert.ok(!styled.some((s) => s.includes("+++")), "the +++ file header is skipped");
+	assert.ok(!styled.some((s) => s.includes("--- a/")), "the --- file header is skipped");
+});
+
+test("a long edit diff caps the block and shows a `… +N more` continuation", () => {
+	const body = Array.from({ length: 30 }, (_, i) => `+line ${i}`).join("\n");
+	const diff = `--- a\n+++ b\n@@ -1 +1 @@\n${body}`;
+	const lines = eventsToBodyLines([toolWithTarget("edit", "f.ts"), toolResult("edit", { details: { diff } })], 200);
+
+	const diffLines = lines.filter(isDiffLine);
+	assert.equal(diffLines.length, 21, "the block caps at 20 lines plus one continuation");
+	assert.ok(
+		stripMarkers(diffLines[20]).includes("11 more"),
+		`continuation must report the remainder, got: ${stripMarkers(diffLines[20])}`,
+	);
+});
+
+test("the collapsed-row body line for an edit carries the +A -R summary, never the full diff", () => {
+	// The diff block lives only after the tool line in the transcript; the tool line's
+	// own summary stays compact so the inline row shows just `+A -R`.
+	const diff = "@@ -1 +1 @@\n-x\n+y";
+	const [toolLine] = eventsToBodyLines([toolWithTarget("edit", "f.ts"), toolResult("edit", { details: { diff } })], 80);
+	assert.equal(styleTranscriptLine(toolLine, STYLER), "<b>edit</b> <accent>f.ts</accent> · <dim>+1 -1</dim>");
+});
+
+// ── result/call correlation ─────────────────────────────────────────────────────
+
+test("a result attaches to the most recent tool call by adjacency when no toolCallId", () => {
+	const events = [tool("read"), tool("bash"), toolResult("bash", { resultText: "exit code: 0" })];
+	const styled = eventsToBodyLines(events, 80).filter(isToolLine).map((l) => styleTranscriptLine(l, STYLER));
+
+	assert.ok(styled.includes("<b>read</b>"), "the earlier read keeps no summary");
+	assert.ok(styled.some((l) => l.startsWith("<b>bash</b>") && l.includes("exit 0")), "the adjacent bash gets the result");
+});
+
+test("matchResultToCall: exact toolCallId match wins over adjacency", () => {
+	const slots = [
+		{ toolCallId: "A", matched: false },
+		{ toolCallId: "B", matched: false },
+	];
+	assert.equal(matchResultToCall(slots, { toolCallId: "A" }), 0);
+});
+
+test("matchResultToCall: falls back to the most recent unmatched slot when no id matches", () => {
+	const slots = [
+		{ toolCallId: undefined, matched: true },
+		{ toolCallId: undefined, matched: false },
+	];
+	assert.equal(matchResultToCall(slots, { toolCallId: "Z" }), 1);
+	assert.equal(matchResultToCall(slots, {}), 1);
+});
+
+test("matchResultToCall: returns undefined when every slot is already matched", () => {
+	assert.equal(matchResultToCall([{ matched: true }], {}), undefined);
+});
+
+// ── model + effort ──────────────────────────────────────────────────────────────
+
+test("formatInvocationSubline: both, one, or neither of model and thinking", () => {
+	assert.equal(formatInvocationSubline("anthropic/claude-haiku-4-5", "high"), "  ↳ claude-haiku-4-5 · thinking: high");
+	assert.equal(formatInvocationSubline("anthropic/claude-haiku-4-5", undefined), "  ↳ claude-haiku-4-5");
+	assert.equal(formatInvocationSubline(undefined, "low"), "  ↳ thinking: low");
+	assert.equal(formatInvocationSubline(undefined, undefined), undefined);
+	assert.equal(formatInvocationSubline("", ""), undefined);
+});
+
+test("formatModelEffort: shortens the slash-qualified model id and joins thinking", () => {
+	assert.equal(formatModelEffort("anthropic/claude-haiku-4-5", "high"), "claude-haiku-4-5 · thinking: high");
+	assert.equal(formatModelEffort("claude-opus", undefined), "claude-opus");
+	assert.equal(formatModelEffort(undefined, undefined), undefined);
+});
+
+test("buildViewerModel: exposes the snapshot model and thinking", () => {
+	const model = buildViewerModel({
+		snapshot: makeSnapshot({ model: "anthropic/claude-haiku-4-5", thinking: "high" }),
+		events: [],
+		scrollOffset: 0,
+		width: 80,
+		height: 20,
+		now: BASE_NOW,
+	});
+
+	assert.equal(model.model, "anthropic/claude-haiku-4-5");
+	assert.equal(model.thinking, "high");
+});
+
+test("buildViewerModel: counts every tool call regardless of result events", () => {
+	const events = [tool("read"), tool("bash"), toolResult("bash", { resultText: "exit code: 0" })];
+
+	const model = buildViewerModel({
+		snapshot: makeSnapshot(),
+		events,
+		scrollOffset: 0,
+		width: 80,
+		height: 100,
+		now: BASE_NOW,
+	});
+
+	assert.ok(model.headerLines[0].includes("2 tools"), `header must count 2 tools, got: ${model.headerLines[0]}`);
 });
 
 test("buildViewerModel: header shows tokens and tool count, never the old Nt/M shape", () => {
@@ -421,7 +677,6 @@ test("buildViewerModel: a paused viewport stays anchored when new events arrive"
 
 test("transcriptLineColor: distinct semantic colours per line kind (plain-text markers, no emoji)", () => {
 	assert.equal(transcriptLineColor("[Assistant]"), "accent");
-	assert.equal(transcriptLineColor("[tool] read src/foo.ts"), "success");
 	assert.equal(transcriptLineColor("[done]"), "success");
 	assert.equal(transcriptLineColor("[failed] boom"), "error");
 	assert.equal(transcriptLineColor("[attention] needs input"), "warning");

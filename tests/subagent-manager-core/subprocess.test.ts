@@ -222,6 +222,94 @@ test("subprocess provider sends SIGKILL after grace period when child ignores SI
 	}
 });
 
+test("subprocess provider passes --thinking <level> when agent thinking is set", async () => {
+	const argsFile = join(tmpdir(), `pi-args-thinking-${Date.now()}.json`);
+	const saved = process.env.PI_HARNESS_PI_BIN;
+	const savedArgs = process.env.PI_ARGS_FILE;
+
+	try {
+		process.env.PI_HARNESS_PI_BIN = FAKE_PI_PATH;
+		process.env.PI_ARGS_FILE = argsFile;
+
+		const provider = createSubprocessProvider();
+		await provider.run(makeContext({ agent: { name: "test-agent", description: "Test agent", promptRef: "You are a test agent.", policyMode: "writer", scope: "builtin", order: 0, thinking: "high" } }));
+
+		const capturedArgs = JSON.parse(
+			new TextDecoder().decode(
+				await import("node:fs/promises").then((m) => m.readFile(argsFile)),
+			),
+		) as string[];
+
+		const idx = capturedArgs.indexOf("--thinking");
+		assert.ok(idx !== -1, "--thinking flag must be in spawned args when agent.thinking is set");
+		assert.equal(capturedArgs[idx + 1], "high", "thinking level must match agent.thinking");
+	} finally {
+		if (existsSync(argsFile)) unlinkSync(argsFile);
+		if (saved === undefined) delete process.env.PI_HARNESS_PI_BIN;
+		else process.env.PI_HARNESS_PI_BIN = saved;
+		if (savedArgs === undefined) delete process.env.PI_ARGS_FILE;
+		else process.env.PI_ARGS_FILE = savedArgs;
+	}
+});
+
+test("subprocess provider omits --thinking when agent thinking is not set", async () => {
+	const argsFile = join(tmpdir(), `pi-args-nothinking-${Date.now()}.json`);
+	const saved = process.env.PI_HARNESS_PI_BIN;
+	const savedArgs = process.env.PI_ARGS_FILE;
+
+	try {
+		process.env.PI_HARNESS_PI_BIN = FAKE_PI_PATH;
+		process.env.PI_ARGS_FILE = argsFile;
+
+		const provider = createSubprocessProvider();
+		await provider.run(makeContext());
+
+		const capturedArgs = JSON.parse(
+			new TextDecoder().decode(
+				await import("node:fs/promises").then((m) => m.readFile(argsFile)),
+			),
+		) as string[];
+
+		assert.ok(!capturedArgs.includes("--thinking"), "--thinking must not be in args when agent.thinking is absent");
+	} finally {
+		if (existsSync(argsFile)) unlinkSync(argsFile);
+		if (saved === undefined) delete process.env.PI_HARNESS_PI_BIN;
+		else process.env.PI_HARNESS_PI_BIN = saved;
+		if (savedArgs === undefined) delete process.env.PI_ARGS_FILE;
+		else process.env.PI_ARGS_FILE = savedArgs;
+	}
+});
+
+test("subprocess provider passes --thinking from request metadata when set, overriding agent spec", async () => {
+	const argsFile = join(tmpdir(), `pi-args-meta-thinking-${Date.now()}.json`);
+	const saved = process.env.PI_HARNESS_PI_BIN;
+	const savedArgs = process.env.PI_ARGS_FILE;
+
+	try {
+		process.env.PI_HARNESS_PI_BIN = FAKE_PI_PATH;
+		process.env.PI_ARGS_FILE = argsFile;
+
+		const provider = createSubprocessProvider();
+		await provider.run(makeContext({ request: { agent: "test-agent", prompt: "test prompt", metadata: { thinking: "medium" } } }));
+
+		const capturedArgs = JSON.parse(
+			new TextDecoder().decode(
+				await import("node:fs/promises").then((m) => m.readFile(argsFile)),
+			),
+		) as string[];
+
+		const idx = capturedArgs.indexOf("--thinking");
+		assert.ok(idx !== -1, "--thinking must be in args when metadata.thinking is set");
+		assert.equal(capturedArgs[idx + 1], "medium");
+	} finally {
+		if (existsSync(argsFile)) unlinkSync(argsFile);
+		if (saved === undefined) delete process.env.PI_HARNESS_PI_BIN;
+		else process.env.PI_HARNESS_PI_BIN = saved;
+		if (savedArgs === undefined) delete process.env.PI_ARGS_FILE;
+		else process.env.PI_ARGS_FILE = savedArgs;
+	}
+});
+
 test("subprocess provider sends SIGTERM when AbortSignal fires", async () => {
 	const saved = process.env.PI_HARNESS_PI_BIN;
 	const savedSlow = process.env.PI_SLOW_MODE;

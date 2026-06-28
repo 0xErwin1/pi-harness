@@ -19,6 +19,10 @@ export interface CreateRunInput {
 	requestedExecutionMode: RunExecutionMode | "auto";
 	resolvedExecutionMode?: RunExecutionMode;
 	startedAt?: string;
+	/** Model id for the run, forwarded from the agent spec or per-call metadata. */
+	model?: string;
+	/** Thinking level for the run, forwarded from the agent spec or per-call metadata. */
+	thinking?: string;
 }
 
 export class InMemoryRunStore {
@@ -40,6 +44,8 @@ export class InMemoryRunStore {
 			resolvedExecutionMode: input.resolvedExecutionMode,
 			startedAt: at,
 			updatedAt: at,
+			...(input.model !== undefined ? { model: input.model } : {}),
+			...(input.thinking !== undefined ? { thinking: input.thinking } : {}),
 		};
 		this.snapshots.set(snapshot.id, snapshot);
 		this.events.set(snapshot.id, []);
@@ -99,6 +105,9 @@ export class InMemoryRunStore {
 				if (event.message.startsWith(TOOL_PROGRESS_PREFIX)) {
 					snapshot.toolCount = (snapshot.toolCount ?? 0) + 1;
 				}
+				break;
+			case "run.tool_result":
+				// Result events are logged for viewer consumption but do not change status.
 				break;
 			case "run.output":
 				snapshot.status = "running";

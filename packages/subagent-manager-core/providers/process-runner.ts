@@ -16,6 +16,7 @@ import {
 	isMessageEnd,
 	parseNdjsonLine,
 	tokensOf,
+	toolResultOf,
 } from "./pi-json-events.ts";
 
 /**
@@ -145,11 +146,17 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 			? context.request.metadata.model
 			: context.agent.model;
 
+	const thinking =
+		typeof context.request.metadata?.thinking === "string"
+			? context.request.metadata.thinking
+			: context.agent.thinking;
+
 	const piArgs = [
 		"--mode",
 		"json",
 		"--no-session",
 		...(model ? ["--model", model] : []),
+		...(thinking ? ["--thinking", thinking] : []),
 		"--append-system-prompt",
 		promptFile,
 		"-p",
@@ -220,6 +227,20 @@ export async function runPiProcessProvider(context: ProviderRunContext): Promise
 						...(target ? { target } : {}),
 						toolCall,
 					});
+				}
+
+				if (event.type === "tool_execution_end") {
+					const toolResult = toolResultOf(event);
+					if (toolResult) {
+						context.emit({
+							type: "run.tool_result",
+							toolName: toolResult.toolName,
+							...(toolResult.toolCallId !== undefined ? { toolCallId: toolResult.toolCallId } : {}),
+							...(toolResult.resultText !== undefined ? { resultText: toolResult.resultText } : {}),
+							...(toolResult.details !== undefined ? { details: toolResult.details } : {}),
+							...(toolResult.isError !== undefined ? { isError: toolResult.isError } : {}),
+						});
+					}
 				}
 
 				if (isMessageEnd(event) && event.message) {

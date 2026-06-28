@@ -65,6 +65,19 @@ export interface ManagerRuntimeOptions {
 const MAX_TASK_LENGTH = 80;
 
 /**
+ * Process-global monotonic counter feeding every run id. Run ids must be unique
+ * across ALL `ManagerRuntime` instances in the process, not merely within one:
+ * the harness keys a separate runtime per cwd, yet every run shares one
+ * process-global identity space (the session file tree and run-id-keyed
+ * consumers). A per-instance counter resets to 0 in each runtime, so two
+ * same-agent runs created in the same millisecond in different runtimes collided
+ * on an identical id and clobbered each other, freezing one row at `starting`.
+ * A single global counter makes collisions impossible regardless of how many
+ * runtimes exist.
+ */
+let globalRunSeq = 0;
+
+/**
  * Reduces a request prompt to a short, single-line task label for the run
  * snapshot. Takes the first non-empty line and hard-truncates it so the fleet
  * group can render one agent per line without wrapping.
@@ -112,7 +125,6 @@ export class ManagerRuntime implements ManagerFacade {
 	private readonly store: InMemoryRunStore;
 	private readonly now: () => Date;
 	private readonly controllers = new Map<string, AbortController>();
-	private runSeq = 0;
 
 	constructor(options: ManagerRuntimeOptions) {
 		this.registry = options.registry;
@@ -182,6 +194,8 @@ export class ManagerRuntime implements ManagerFacade {
 			requestedExecutionMode: request.execution ?? agent.execution ?? "auto",
 			resolvedExecutionMode: route.mode,
 			startedAt: this.now().toISOString(),
+			model: typeof request.metadata?.model === "string" ? request.metadata.model : agent.model,
+			thinking: typeof request.metadata?.thinking === "string" ? request.metadata.thinking : agent.thinking,
 		});
 		options?.onStart?.(runId);
 		this.emit(runId, { type: "run.started", agent: agent.name });
@@ -228,15 +242,16 @@ export class ManagerRuntime implements ManagerFacade {
 	}
 
 	/**
-	 * Builds a run id that is unique within this runtime even when several runs of
-	 * the same agent are created in the same millisecond (parallel same-agent
-	 * batches). The timestamp keeps ids sortable/readable; a per-runtime monotonic
-	 * counter guarantees uniqueness, so a second `store.create` can never collide
-	 * with and clobber an in-flight run's snapshot.
+	 * Builds a run id that is unique across every runtime in the process even when
+	 * several runs of the same agent are created in the same millisecond (parallel
+	 * same-agent batches, or concurrent launches across per-cwd runtimes). The
+	 * timestamp keeps ids sortable/readable; a process-global monotonic counter
+	 * guarantees uniqueness, so a second `store.create` can never collide with and
+	 * clobber an in-flight run's snapshot.
 	 */
 	private createRunId(agent: string): string {
 		const ms = this.now().getTime().toString(36);
-		const seq = (this.runSeq++).toString(36);
+		const seq = (globalRunSeq++).toString(36);
 		return `${agent}-${ms}-${seq}`;
 	}
 

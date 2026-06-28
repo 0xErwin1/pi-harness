@@ -32,15 +32,20 @@ import {
 	builtinAgentDirectories,
 	createManagerCommandSurface,
 	readSubagentManagerConfig,
-	registerFleetWidget,
+	registerTodoTool,
+	registerTodosCommand,
+	registerTwoColumnWidget,
+	replayFromBranch,
 	renderSubagentCall,
 	renderSubagentResult,
 	saveBuiltinAgentRoutingOverride,
 	selectMostRecentRunId,
 	showConversationViewer,
+	TOOL_NAME as TODO_TOOL_NAME,
 	translateSubagentPayload,
 	type CompatPayload,
 	type SubagentResultDetails,
+	type TwoColumnWidgetHandle,
 } from "../packages/subagent-manager-pi/index.ts";
 import {
 	ManagerRuntime,
@@ -959,6 +964,30 @@ const runtimes = new Map<string, ManagerRuntime>();
 
 const registeredCwds = new Set<string>();
 
+let twoColumnHandle: TwoColumnWidgetHandle | undefined;
+
+/**
+ * Extracts `{ input, output }` token counts from a turn-end message, but only
+ * for assistant messages that actually carry usage. Defensive across the message
+ * union (a turn can end on a non-assistant message), so it returns `undefined`
+ * rather than fabricating zeros when no usage is present.
+ */
+function assistantTurnUsage(message: unknown): { input: number; output: number } | undefined {
+	if (message === null || typeof message !== "object") return undefined;
+
+	const candidate = message as { role?: unknown; usage?: unknown };
+	if (candidate.role !== "assistant" || candidate.usage === null || typeof candidate.usage !== "object") {
+		return undefined;
+	}
+
+	const usage = candidate.usage as Record<string, unknown>;
+	const input = typeof usage.input === "number" ? usage.input : 0;
+	const output = typeof usage.output === "number" ? usage.output : 0;
+	if (input === 0 && output === 0) return undefined;
+
+	return { input, output };
+}
+
 let sessionCleanupInstalled = false;
 
 /**
@@ -1263,6 +1292,9 @@ export default function harness(pi: ExtensionAPI): void {
 		},
 	});
 
+	registerTodoTool(pi);
+	registerTodosCommand(pi);
+
 	// Append the orchestrator contract to the system prompt. The asset is read
 	// at runtime so a not-yet-created or unreadable file simply skips injection.
 	pi.on("before_agent_start", (event, _ctx) => {
@@ -1274,12 +1306,46 @@ export default function harness(pi: ExtensionAPI): void {
 		};
 	});
 
-	// Register the fleet widget once per cwd so it captures every run from session start.
+	// Hide tasks completed in a turn once the next turn begins, so the Todos
+	// column stays uncluttered between turns.
+	pi.on("tool_execution_end", (event, _ctx) => {
+		if (event.toolName === TODO_TOOL_NAME) twoColumnHandle?.onTodoToolEnd();
+	});
+
+	pi.on("agent_start", (_event, _ctx) => {
+		twoColumnHandle?.onAgentStart();
+	});
+
+	// Attribute each turn's assistant token usage to the active todo tasks so the
+	// Todos column can show live per-task token metrics. `turn_end.message` is the
+	// turn's assistant message; its `usage` carries `input`/`output` counts.
+	pi.on("turn_end", (event, _ctx) => {
+		const usage = assistantTurnUsage(event.message);
+		if (usage) twoColumnHandle?.addTokenUsage(usage.input, usage.output);
+	});
+
+	// Register the combined Agents + Todos widget once per cwd so it captures
+	// every run from session start. Also replay the last todo tool result from the
+	// branch so todo state survives compaction and session tree navigation, and
+	// reset the hide-between-turns state on every session boundary.
 	pi.on("session_start", (_event, ctx) => {
 		installSessionCleanup(pi);
-		if (registeredCwds.has(ctx.cwd)) return;
-		registeredCwds.add(ctx.cwd);
-		registerFleetWidget(ctx, getManagerRuntime(ctx.cwd));
+		replayFromBranch(ctx);
+		if (!registeredCwds.has(ctx.cwd)) {
+			registeredCwds.add(ctx.cwd);
+			twoColumnHandle = registerTwoColumnWidget(ctx, getManagerRuntime(ctx.cwd));
+		}
+		twoColumnHandle?.onSessionReset();
+	});
+
+	pi.on("session_compact", (_event, ctx) => {
+		replayFromBranch(ctx);
+		twoColumnHandle?.onSessionReset();
+	});
+
+	pi.on("session_tree", (_event, ctx) => {
+		replayFromBranch(ctx);
+		twoColumnHandle?.onSessionReset();
 	});
 
 	pi.registerCommand("sdd:models", {

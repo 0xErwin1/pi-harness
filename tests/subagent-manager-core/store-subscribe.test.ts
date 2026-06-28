@@ -257,6 +257,95 @@ test("existing get behavior unchanged after subscribe wiring", () => {
 	assert.equal(snapshot.status, "running");
 });
 
+// ---------------------------------------------------------------------------
+// run.tool_result event handling
+// ---------------------------------------------------------------------------
+
+test("applyEvent: run.tool_result is appended to the event log", () => {
+	const store = makeStore();
+
+	const toolResultEv: RunEvent = {
+		id: "e1",
+		runId: "r1",
+		type: "run.tool_result",
+		toolName: "read",
+		toolCallId: "call-abc",
+		resultText: "file contents",
+		details: { truncation: null },
+		isError: false,
+		at: new Date().toISOString(),
+	} as unknown as RunEvent;
+
+	store.append(toolResultEv);
+
+	const events = store.eventsFor("r1");
+	assert.equal(events.length, 1);
+	assert.equal(events[0].type, "run.tool_result");
+});
+
+test("applyEvent: run.tool_result does not change snapshot status", () => {
+	const store = makeStore();
+
+	store.append(startedEvent());
+
+	const statusAfterStart = store.get("r1")?.status;
+	assert.equal(statusAfterStart, "running");
+
+	const toolResultEv: RunEvent = {
+		id: "e2",
+		runId: "r1",
+		type: "run.tool_result",
+		toolName: "bash",
+		resultText: "exit code: 0",
+		at: new Date().toISOString(),
+	} as unknown as RunEvent;
+
+	store.append(toolResultEv);
+
+	assert.equal(store.get("r1")?.status, "running", "status must remain unchanged after run.tool_result");
+});
+
+// ---------------------------------------------------------------------------
+// CreateRunInput: model and thinking forwarded to snapshot
+// ---------------------------------------------------------------------------
+
+test("create: model is copied from CreateRunInput into the snapshot", () => {
+	const store = new InMemoryRunStore();
+	store.create({
+		id: "r2",
+		agent: "alpha",
+		policyMode: "normal",
+		requestedExecutionMode: "auto",
+		model: "claude-sonnet-4-5",
+	});
+
+	const snapshot = store.get("r2");
+	assert.equal(snapshot?.model, "claude-sonnet-4-5");
+});
+
+test("create: thinking is copied from CreateRunInput into the snapshot", () => {
+	const store = new InMemoryRunStore();
+	store.create({
+		id: "r3",
+		agent: "alpha",
+		policyMode: "normal",
+		requestedExecutionMode: "auto",
+		thinking: "high",
+	});
+
+	const snapshot = store.get("r3");
+	assert.equal(snapshot?.thinking, "high");
+});
+
+test("create: model and thinking are undefined when not provided", () => {
+	const store = new InMemoryRunStore();
+	store.create({ id: "r4", agent: "alpha", policyMode: "normal", requestedExecutionMode: "auto" });
+
+	const snapshot = store.get("r4");
+	assert.equal(snapshot?.model, undefined);
+	assert.equal(snapshot?.thinking, undefined);
+});
+
 test("existing list behavior unchanged after subscribe wiring", () => {
 	const store = makeStore();
 	store.create({ id: "r2", agent: "beta", policyMode: "normal", requestedExecutionMode: "auto" });

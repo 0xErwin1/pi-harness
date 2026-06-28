@@ -384,3 +384,56 @@ test("buildChildEnv: PI_HARNESS_PARENT_AGENT_ID matches agentIdFor(runId)", () =
 		else process.env.PI_HARNESS_RUN_ROOT = savedRoot;
 	}
 });
+
+// ---------------------------------------------------------------------------
+// run.tool_result emission
+// ---------------------------------------------------------------------------
+
+test("process-runner: tool_execution_end emits a run.tool_result event with tool result fields", async () => {
+	const store = new InMemoryRunStore();
+	const ctx = makeContext(store);
+
+	const previousBin = process.env.PI_HARNESS_PI_BIN;
+	process.env.PI_HARNESS_PI_BIN = fakePiBin;
+	process.env.PI_TOOL_WITH_RESULT = "1";
+
+	try {
+		await runPiProcessProvider(ctx);
+	} finally {
+		process.env.PI_HARNESS_PI_BIN = previousBin;
+		delete process.env.PI_TOOL_WITH_RESULT;
+	}
+
+	const events = store.eventsFor("r1");
+	const toolResultEvents = events.filter((e) => e.type === "run.tool_result");
+
+	assert.equal(toolResultEvents.length, 1, "one run.tool_result event must be emitted for the tool_execution_end");
+
+	const ev = toolResultEvents[0] as RunEvent & { type: "run.tool_result"; toolName: string; toolCallId?: string; resultText?: string };
+	assert.equal(ev.toolName, "read");
+	assert.equal(ev.toolCallId, "call-r001");
+	assert.equal(ev.resultText, "README contents here");
+});
+
+test("process-runner: run.tool_result does not alter snapshot status (status stays running until runtime completes it)", async () => {
+	const store = new InMemoryRunStore();
+	const ctx = makeContext(store);
+
+	const previousBin = process.env.PI_HARNESS_PI_BIN;
+	process.env.PI_HARNESS_PI_BIN = fakePiBin;
+	process.env.PI_TOOL_WITH_RESULT = "1";
+
+	try {
+		await runPiProcessProvider(ctx);
+	} finally {
+		process.env.PI_HARNESS_PI_BIN = previousBin;
+		delete process.env.PI_TOOL_WITH_RESULT;
+	}
+
+	const snapshot = store.get("r1");
+	assert.ok(snapshot?.status !== "failed", "run must not be in failed state after a tool result event");
+	assert.ok(snapshot?.status !== "interrupted", "run must not be in interrupted state after a tool result event");
+
+	const toolResultEvents = store.eventsFor("r1").filter((e) => e.type === "run.tool_result");
+	assert.equal(toolResultEvents.length, 1, "the run.tool_result event must still be in the log");
+});
