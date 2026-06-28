@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	applyScroll,
+	classifyScrollKey,
 	ConversationViewer,
 	type ScrollState,
 	type ViewerRuntime,
@@ -83,6 +84,39 @@ test("applyScroll: pageDown jumps a viewport, clamps, and re-engages autoScroll 
 	const bottom = applyScroll("pageDown", state(35, false), MAX_SCROLL, VIEWPORT);
 	assert.equal(bottom.scrollOffset, MAX_SCROLL);
 	assert.equal(bottom.autoScroll, true);
+});
+
+test("applyScroll: halfPageUp jumps half a viewport and disables autoScroll", () => {
+	const next = applyScroll("halfPageUp", state(35, true), MAX_SCROLL, VIEWPORT);
+	assert.equal(next.scrollOffset, 30);
+	assert.equal(next.autoScroll, false);
+});
+
+test("applyScroll: halfPageDown jumps half a viewport, clamps, and re-engages autoScroll at bottom", () => {
+	const mid = applyScroll("halfPageDown", state(5, false), MAX_SCROLL, VIEWPORT);
+	assert.equal(mid.scrollOffset, 10);
+	assert.equal(mid.autoScroll, false);
+
+	const bottom = applyScroll("halfPageDown", state(MAX_SCROLL - 2, false), MAX_SCROLL, VIEWPORT);
+	assert.equal(bottom.scrollOffset, MAX_SCROLL);
+	assert.equal(bottom.autoScroll, true);
+});
+
+test("applyScroll: halfPage uses at least 1 row when the viewport is tiny", () => {
+	const next = applyScroll("halfPageDown", state(0, false), MAX_SCROLL, 1);
+	assert.equal(next.scrollOffset, 1);
+});
+
+test("classifyScrollKey: vim bindings map to scroll actions", () => {
+	assert.equal(classifyScrollKey("j"), "down");
+	assert.equal(classifyScrollKey("k"), "up");
+	assert.equal(classifyScrollKey("\x04"), "halfPageDown"); // Ctrl-D
+	assert.equal(classifyScrollKey("\x15"), "halfPageUp"); // Ctrl-U
+	assert.equal(classifyScrollKey("\x06"), "pageDown"); // Ctrl-F
+	assert.equal(classifyScrollKey("\x02"), "pageUp"); // Ctrl-B
+	assert.equal(classifyScrollKey("g"), "home");
+	assert.equal(classifyScrollKey("G"), "end");
+	assert.equal(classifyScrollKey("x"), undefined);
 });
 
 test("applyScroll: home goes to top, end goes to bottom with autoScroll", () => {

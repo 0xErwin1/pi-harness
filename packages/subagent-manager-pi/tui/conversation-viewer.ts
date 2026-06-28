@@ -10,7 +10,7 @@ import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.t
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
 import {
 	buildViewerModel,
-	formatInvocationSubline,
+	formatModelEffort,
 	styleTranscriptLine,
 	type TranscriptStyler,
 } from "./conversation-viewer-model.ts";
@@ -36,12 +36,11 @@ export function isConversationViewerOpen(): boolean {
 	return openViewerCount > 0;
 }
 
-/** Lines consumed by the bordered chrome: top, header, header separator, footer separator, footer, bottom. */
-const CHROME_LINES = 6;
+/** Rows reserved at the bottom for the agent identity line and the hint line. */
+const FOOTER_ROWS = 2;
 const MIN_VIEWPORT = 3;
-const VIEWPORT_HEIGHT_PCT = 80;
 
-export type ScrollAction = "up" | "down" | "pageUp" | "pageDown" | "home" | "end";
+export type ScrollAction = "up" | "down" | "halfPageUp" | "halfPageDown" | "pageUp" | "pageDown" | "home" | "end";
 
 export interface ScrollState {
 	scrollOffset: number;
@@ -70,6 +69,14 @@ export function applyScroll(
 			const offset = clamp(state.scrollOffset + 1);
 			return { scrollOffset: offset, autoScroll: offset >= maxScroll };
 		}
+		case "halfPageUp": {
+			const offset = clamp(state.scrollOffset - Math.max(1, Math.floor(viewportHeight / 2)));
+			return { scrollOffset: offset, autoScroll: false };
+		}
+		case "halfPageDown": {
+			const offset = clamp(state.scrollOffset + Math.max(1, Math.floor(viewportHeight / 2)));
+			return { scrollOffset: offset, autoScroll: offset >= maxScroll };
+		}
 		case "pageUp": {
 			const offset = clamp(state.scrollOffset - viewportHeight);
 			return { scrollOffset: offset, autoScroll: false };
@@ -85,20 +92,31 @@ export function applyScroll(
 	}
 }
 
-function classifyScrollKey(data: string): ScrollAction | undefined {
+/**
+ * Maps a key to a scroll action using a vim-style scheme: `j`/`k` line, `Ctrl-d`/
+ * `Ctrl-u` half page, `Ctrl-f`/`Ctrl-b` full page, `g` to the top and `G` (shift+g)
+ * to the bottom (which re-engages follow). Arrow and PageUp/PageDown keys are kept
+ * as synonyms so the bindings stay discoverable for non-vim users. Returns
+ * `undefined` for any other key so the caller can handle it (close, copy path).
+ */
+export function classifyScrollKey(data: string): ScrollAction | undefined {
 	if (matchesKey(data, "up") || matchesKey(data, "k")) return "up";
 	if (matchesKey(data, "down") || matchesKey(data, "j")) return "down";
-	if (matchesKey(data, "pageUp") || matchesKey(data, "shift+up")) return "pageUp";
-	if (matchesKey(data, "pageDown") || matchesKey(data, "shift+down")) return "pageDown";
-	if (matchesKey(data, "home")) return "home";
-	if (matchesKey(data, "end") || matchesKey(data, "shift+g") || matchesKey(data, "g")) return "end";
+	if (matchesKey(data, "ctrl+u")) return "halfPageUp";
+	if (matchesKey(data, "ctrl+d")) return "halfPageDown";
+	if (matchesKey(data, "ctrl+b") || matchesKey(data, "pageUp") || matchesKey(data, "shift+up")) return "pageUp";
+	if (matchesKey(data, "ctrl+f") || matchesKey(data, "pageDown") || matchesKey(data, "shift+down")) return "pageDown";
+	if (matchesKey(data, "home") || matchesKey(data, "g")) return "home";
+	if (matchesKey(data, "end") || matchesKey(data, "shift+g")) return "end";
 	return undefined;
 }
 
 /**
- * Scrollable overlay that replays a run's accumulated assistant transcript and
- * live-updates as the run streams. Built on the proven `ctx.ui.custom({ overlay })`
- * lifecycle (mirrors `showModelPanel`); unsubscribes from the runtime on dispose.
+ * Full-screen, borderless view of a single subagent's conversation. Replaces the
+ * old bordered modal: the transcript fills the screen and reads like the main
+ * thread, while `ctx.ui.custom` captures keyboard focus so the prompt is disabled
+ * for the duration (you are "inside" the subagent). Live-updates as the run streams
+ * and unsubscribes from the runtime on dispose. Esc/q returns to the main thread.
  */
 export class ConversationViewer implements Component {
 	private scrollOffset = 0;
@@ -150,25 +168,27 @@ export class ConversationViewer implements Component {
 		this.tui.requestRender();
 	}
 
+	/**
+	 * Renders the subagent's conversation as a borderless, full-screen view that
+	 * reads like the main thread rather than a modal: the transcript body fills the
+	 * screen top-down, with a two-row footer at the bottom carrying the subagent's
+	 * identity (status, elapsed, tokens, model/effort) and the scroll/key hints. The
+	 * body lines come straight from `buildViewerModel`, so tool calls, thinking, and
+	 * output are styled exactly as the main conversation.
+	 */
 	render(width: number): string[] {
 		if (width < 6) return [];
 
-		const th = this.theme;
-		const innerW = width - 4;
-
 		const snapshot = this.runtime.snapshot(this.runId);
-		const invocationSubline = formatInvocationSubline(snapshot?.model, snapshot?.thinking);
 
-		// The invocation sub-line consumes one extra chrome row, so the scrollable
-		// body shrinks by one when it is present to keep the overlay within bounds.
-		const viewportHeight = Math.max(MIN_VIEWPORT, this.viewportHeight() - (invocationSubline ? 1 : 0));
+		const viewportHeight = Math.max(MIN_VIEWPORT, this.viewportHeight());
 		this.lastViewportHeight = viewportHeight;
 
 		const model = buildViewerModel({
 			snapshot,
 			events: this.runtime.events(this.runId),
 			scrollOffset: this.scrollOffset,
-			width: innerW,
+			width,
 			height: viewportHeight,
 			now: Date.now(),
 			autoScroll: this.autoScroll,
@@ -177,26 +197,13 @@ export class ConversationViewer implements Component {
 		this.lastMaxScroll = model.maxScroll;
 		if (this.autoScroll) this.scrollOffset = model.maxScroll;
 
-		const pad = (text: string) => text + " ".repeat(Math.max(0, innerW - visibleWidth(text)));
-		const row = (content: string) =>
-			`${th.fg("border", "│")} ${truncateToWidth(pad(content), innerW)} ${th.fg("border", "│")}`;
-		const top = th.fg("border", `╭${"─".repeat(width - 2)}╮`);
-		const bottom = th.fg("border", `╰${"─".repeat(width - 2)}╯`);
-		const separator = row(th.fg("dim", "─".repeat(innerW)));
-
 		const lines: string[] = [];
-		lines.push(top);
-		lines.push(row(this.renderHeader(model.headerLines, snapshot)));
-		if (invocationSubline) lines.push(row(th.fg("dim", invocationSubline)));
-		lines.push(separator);
-
 		for (let i = 0; i < viewportHeight; i++) {
-			lines.push(row(this.styleBodyLine(model.bodyLines[i] ?? "")));
+			lines.push(this.styleBodyLine(model.bodyLines[i] ?? ""));
 		}
 
-		lines.push(separator);
-		lines.push(row(this.renderFooter(model.footerLine, innerW)));
-		lines.push(bottom);
+		lines.push(this.renderAgentLine(model.headerLines[0] ?? "subagent", snapshot, width));
+		lines.push(this.renderHintLine(model.footerLine, width));
 
 		return lines;
 	}
@@ -209,7 +216,12 @@ export class ConversationViewer implements Component {
 		this.unsubscribe = undefined;
 	}
 
-	private renderHeader(headerLines: string[], snapshot: RunSnapshot | undefined): string {
+	/**
+	 * The bottom identity line: a status glyph, the bold run summary (agent · status
+	 * · elapsed · tokens · tools) and, when known, a dim model/effort tail. Truncated
+	 * to the full width since there is no border to fit inside.
+	 */
+	private renderAgentLine(header: string, snapshot: RunSnapshot | undefined, width: number): string {
 		const th = this.theme;
 		const status = snapshot?.status ?? "unknown";
 		const icon = status === "running"
@@ -219,7 +231,13 @@ export class ConversationViewer implements Component {
 				: status === "failed"
 					? th.fg("error", "x")
 					: th.fg("dim", "-");
-		return `${icon} ${th.bold(headerLines[0] ?? "")}`;
+
+		const modelEffort = formatModelEffort(snapshot?.model, snapshot?.thinking);
+		const styled = modelEffort
+			? `${icon} ${th.bold(header)} ${th.fg("dim", `· ${modelEffort}`)}`
+			: `${icon} ${th.bold(header)}`;
+
+		return truncateToWidth(styled, width);
 	}
 
 	/**
@@ -240,31 +258,28 @@ export class ConversationViewer implements Component {
 	}
 
 	/**
-	 * Renders the footer. When a transcript path is known it is shown after the
-	 * scroll stats (left-aligned, truncated to leave room for the hint) and the
-	 * hint advertises `o` to surface the full path for copy/open; the full path is
-	 * always available via `o` even when the line truncates. Without a path the
-	 * legacy scroll hint is shown.
+	 * The bottom hint line: scroll stats (plus the transcript path when known) on the
+	 * left, the vim-style key hints on the right. `Esc`/`q` returns to the main
+	 * thread; `o` surfaces the full transcript path for copy/open. The full path stays
+	 * reachable via `o` even when the left text truncates.
 	 */
-	private renderFooter(footerLine: string, innerW: number): string {
+	private renderHintLine(footerLine: string, width: number): string {
 		const th = this.theme;
 		const hintText = this.transcriptPath
-			? "o copy path · End/G follow · Esc close"
-			: "up/down/jk · PgUp/PgDn · End/G follow · Esc close";
+			? "o copy path · j/k · C-d/u · g/G · q back"
+			: "j/k · C-d/u · g/G · q back";
 		const hint = th.fg("dim", hintText);
 
 		const leftText = this.transcriptPath ? `${footerLine} · ${this.transcriptPath}` : footerLine;
-		const leftWidth = Math.max(0, innerW - visibleWidth(hint) - 1);
+		const leftWidth = Math.max(0, width - visibleWidth(hint) - 1);
 		const left = th.fg("dim", truncateToWidth(leftText, leftWidth));
 
-		const gap = Math.max(1, innerW - visibleWidth(left) - visibleWidth(hint));
+		const gap = Math.max(1, width - visibleWidth(left) - visibleWidth(hint));
 		return left + " ".repeat(gap) + hint;
 	}
 
 	private viewportHeight(): number {
-		const rows = this.tui.terminal.rows;
-		const maxRows = Math.floor((rows * VIEWPORT_HEIGHT_PCT) / 100);
-		return Math.max(MIN_VIEWPORT, maxRows - CHROME_LINES);
+		return Math.max(MIN_VIEWPORT, this.tui.terminal.rows - FOOTER_ROWS);
 	}
 }
 
@@ -287,8 +302,9 @@ export function showConversationViewer(
 			overlay: true,
 			overlayOptions: {
 				anchor: "center",
-				width: "80%",
-				maxHeight: "80%",
+				width: "100%",
+				maxHeight: "100%",
+				margin: 0,
 			},
 		},
 	);
