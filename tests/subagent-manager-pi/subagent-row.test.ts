@@ -12,7 +12,7 @@ import type {
 } from "../../packages/subagent-manager-pi/tui/subagent-row-model.ts";
 import { eventsToBodyLines } from "../../packages/subagent-manager-pi/tui/conversation-viewer-model.ts";
 import type { RunEvent } from "../../packages/subagent-manager-core/events.ts";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { ICON_CATALOG } from "../../packages/subagent-manager-pi/icons/catalog.ts";
 
 function makeModel(overrides: Partial<SubagentRowModel> = {}): SubagentRowModel {

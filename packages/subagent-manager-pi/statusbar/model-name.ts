@@ -1,4 +1,4 @@
-import type { ThemeColor } from "@mariozechner/pi-coding-agent";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 
 /**
  * Reasoning effort levels reported by `pi.getThinkingLevel()`. Kept as a local

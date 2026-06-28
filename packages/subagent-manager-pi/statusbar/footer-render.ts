@@ -1,5 +1,5 @@
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import type { ThemeColor } from "@mariozechner/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { IconSet } from "../icons/types.ts";
 import { getIcons } from "../icons/config.ts";
 import {

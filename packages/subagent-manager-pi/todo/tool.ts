@@ -1,6 +1,6 @@
-import type { Static } from "@sinclair/typebox";
-import { TruncatedText } from "@mariozechner/pi-tui";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
+import type { Static } from "typebox";
+import { TruncatedText } from "@earendil-works/pi-tui";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import { applyTaskMutation } from "./reducer.ts";
 import { getState, commitState } from "./store.ts";
 import { TodoParams } from "./types.ts";

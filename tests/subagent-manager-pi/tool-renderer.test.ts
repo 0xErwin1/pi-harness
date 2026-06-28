@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Type } from "@sinclair/typebox";
-import type { AgentToolResult, Theme, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { Type } from "typebox";
+import type { AgentToolResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
 	buildToolCallLine,
 	buildToolDiffLines,

@@ -1,5 +1,5 @@
-import { truncateToWidth } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { TaskState } from "../todo/state.ts";
 import type { Task } from "../todo/types.ts";
 import type { IconSet } from "../icons/types.ts";

@@ -4,8 +4,8 @@ import {
 	truncateToWidth,
 	type TUI,
 	visibleWidth,
-} from "@mariozechner/pi-tui";
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-tui";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { getState } from "../todo/store.ts";
 import type { TaskState } from "../todo/state.ts";
 import type { Task } from "../todo/types.ts";

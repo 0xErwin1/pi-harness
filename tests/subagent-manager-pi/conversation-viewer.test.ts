@@ -7,8 +7,8 @@ import {
 	type ScrollState,
 	type ViewerRuntime,
 } from "../../packages/subagent-manager-pi/tui/conversation-viewer.ts";
-import type { TUI } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import type { TUI } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 
 const VIEWPORT = 10;
 const MAX_SCROLL = 40;

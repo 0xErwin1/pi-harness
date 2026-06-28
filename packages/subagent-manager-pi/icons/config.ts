@@ -49,7 +49,7 @@ export function resolveIconMode(input: {
 
 /**
  * Resolves the settings.json path using the homedir convention.
- * getSettingsPath() from @mariozechner/pi-coding-agent is NOT re-exported
+ * getSettingsPath() from @earendil-works/pi-coding-agent is NOT re-exported
  * from the package root, so the homedir fallback is used here.
  */
 function getSettingsPath(): string {

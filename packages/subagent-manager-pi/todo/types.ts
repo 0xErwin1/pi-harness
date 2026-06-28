@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 export type TaskStatus = "pending" | "in_progress" | "completed" | "deleted";
 export type TaskAction = "create" | "update" | "list" | "get" | "delete" | "clear";

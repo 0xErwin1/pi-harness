@@ -1,4 +1,4 @@
-import type { Static } from "@sinclair/typebox";
+import type { Static } from "typebox";
 import { EMPTY_STATE } from "./state.ts";
 import type { TaskState } from "./state.ts";
 import type { Task, TaskAction, TaskStatus } from "./types.ts";

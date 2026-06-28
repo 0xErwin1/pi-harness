@@ -25,7 +25,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 	ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Trigger logic (ported 1:1 from gentle-ai trigger catalog)

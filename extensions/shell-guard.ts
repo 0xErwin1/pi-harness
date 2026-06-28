@@ -14,7 +14,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 	ToolCallEventResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 /**
  * Commands that are never allowed. Each pattern targets an irreversible or

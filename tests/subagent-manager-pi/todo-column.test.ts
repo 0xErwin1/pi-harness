@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { visibleWidth } from "@mariozechner/pi-tui";
-import type { Theme } from "@mariozechner/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { renderTodoColumn, DEFAULT_TODO_BODY_ROWS, type TaskMetric } from "../../packages/subagent-manager-pi/tui/todo-column.ts";
 import { ICON_CATALOG } from "../../packages/subagent-manager-pi/icons/catalog.ts";
 import type { IconSet } from "../../packages/subagent-manager-pi/icons/types.ts";

@@ -11,7 +11,7 @@
  *   - Building delegation messages that instruct the main agent which subagent to call
  *   - Displaying status (for /sdd-status, which needs no LLM involvement)
  */
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
 import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";

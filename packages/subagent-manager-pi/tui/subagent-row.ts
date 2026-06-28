@@ -1,5 +1,5 @@
-import { type Component, Container, Text, TruncatedText } from "@mariozechner/pi-tui";
-import type { AgentToolResult, Theme, ToolRenderResultOptions } from "@mariozechner/pi-coding-agent";
+import { type Component, Container, Text, TruncatedText } from "@earendil-works/pi-tui";
+import type { AgentToolResult, Theme, ToolRenderResultOptions } from "@earendil-works/pi-coding-agent";
 import type { RunStatus } from "../../subagent-manager-core/events.ts";
 import {
 	buildExpandedBodyLines,

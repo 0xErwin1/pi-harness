@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getState } from "./store.ts";
 import { selectTasksByStatus } from "./selectors.ts";
 import type { Task } from "./types.ts";

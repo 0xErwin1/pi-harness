@@ -23,14 +23,14 @@
  * entirely, remove this file from `extensions/` (it is auto-discovered there) or
  * drop it from the `"pi".extensions` entry in `package.json`.
  */
-import { type Component, wrapTextWithAnsi } from "@mariozechner/pi-tui";
+import { type Component, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 	Theme,
 	ToolDefinition,
 	ToolRenderResultOptions,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import {
 	createBashToolDefinition,
 	createEditToolDefinition,
@@ -39,8 +39,8 @@ import {
 	createLsToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
-} from "@mariozechner/pi-coding-agent";
-import type { TSchema } from "@sinclair/typebox";
+} from "@earendil-works/pi-coding-agent";
+import type { TSchema } from "typebox";
 import {
 	diffBlockLines,
 	formatToolArgs,
@@ -336,7 +336,7 @@ export function overrideToolRendering<TParams extends TSchema, TDetails, TState>
 
 /**
  * The seven SDK tool-definition factories, bundled so they can be injected for
- * deterministic testing. Defaults to the real `@mariozechner/pi-coding-agent`
+ * deterministic testing. Defaults to the real `@earendil-works/pi-coding-agent`
  * factories.
  */
 export interface ToolDefinitionFactories {

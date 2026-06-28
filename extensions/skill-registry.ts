@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, normalize, relative, sep } from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const REGISTRY_REL_PATH = ".agent/skill-registry.md";
 const CACHE_REL_PATH = ".agent/.skill-registry.cache.json";

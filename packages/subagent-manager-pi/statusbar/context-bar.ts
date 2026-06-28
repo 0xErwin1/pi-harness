@@ -1,4 +1,4 @@
-import type { ThemeColor } from "@mariozechner/pi-coding-agent";
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { IconSet } from "../icons/types.ts";
 import { getIcons } from "../icons/config.ts";
 

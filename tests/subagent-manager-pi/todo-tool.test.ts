@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerTodoTool } from "../../packages/subagent-manager-pi/todo/tool.ts";
 import { registerTodosCommand } from "../../packages/subagent-manager-pi/todo/command.ts";
 import { __resetState, replaceState } from "../../packages/subagent-manager-pi/todo/store.ts";

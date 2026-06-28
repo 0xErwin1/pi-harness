@@ -3,8 +3,8 @@ import {
 	matchesKey,
 	type TUI,
 	truncateToWidth,
-} from "@mariozechner/pi-tui";
-import type { ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-tui";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { RunSnapshot, RunStatus } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
 import {
