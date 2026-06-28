@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 #
-# Symlink pi-harness assets into ~/.pi/agent/ (per-file, non-destructive).
+# Symlink pi-harness assets into ~/.pi/agent/ (non-destructive).
 #
 # Harness-owned surfaces are linked: extensions/, packages/, agents/, and
-# assets/chains/. Skills are intentionally left untouched — they are managed by
-# the upstream-ai-sync flow, not by this repo.
+# assets/chains/. extensions/ and packages/ are linked as whole directories so a
+# newly added file is picked up with no re-link (only a Pi /reload). agents/ and
+# assets/chains/ stay per-file because that target dir is shared with assets this
+# repo does not own. Skills are intentionally left untouched — they are managed
+# by the upstream-ai-sync flow, not by this repo.
 #
-# An existing real file at a target path is backed up to <path>.bak before
+# An existing real file/dir at a target path is backed up to <path>.bak before
 # being replaced. An existing symlink is replaced silently.
 #
 set -euo pipefail
@@ -30,10 +33,9 @@ link_file() {
 	echo "linked:    ${dst} -> ${src}"
 }
 
-for f in "${REPO_DIR}"/extensions/*.ts; do
-	[ -e "$f" ] || continue
-	link_file "$f" "${PI_AGENT}/extensions/$(basename "$f")"
-done
+if [ -d "${REPO_DIR}/extensions" ]; then
+	link_file "${REPO_DIR}/extensions" "${PI_AGENT}/extensions"
+fi
 
 if [ -d "${REPO_DIR}/packages" ]; then
 	link_file "${REPO_DIR}/packages" "${PI_AGENT}/packages"
