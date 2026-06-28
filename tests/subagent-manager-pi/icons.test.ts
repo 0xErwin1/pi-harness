@@ -33,6 +33,9 @@ const ICON_ROLES: ReadonlyArray<Exclude<keyof IconSet, "spinner">> = [
 	"treeLast",
 	"treeVertical",
 	"treeSub",
+	"branch",
+	"barFull",
+	"barEmpty",
 ] as const;
 
 const MODES: readonly IconMode[] = ["nerdfont", "unicode", "ascii"] as const;
@@ -73,6 +76,31 @@ test("nerdfont catalog uses expected NF glyphs for key roles", () => {
 	assert.equal(nf.treeBranch, "├─");
 	assert.equal(nf.treeLast, "└─");
 	assert.equal(nf.treeVertical, "│");
+});
+
+test("statusbar bar/branch roles use the expected glyphs per mode", () => {
+	assert.equal(ICON_CATALOG.nerdfont.barFull, "█");
+	assert.equal(ICON_CATALOG.nerdfont.barEmpty, "░");
+	assert.equal(ICON_CATALOG.nerdfont.branch, "");
+
+	assert.equal(ICON_CATALOG.unicode.branch, "⎇");
+	assert.equal(ICON_CATALOG.unicode.barFull, "█");
+
+	assert.equal(ICON_CATALOG.ascii.branch, "br");
+	assert.equal(ICON_CATALOG.ascii.barFull, "#");
+	assert.equal(ICON_CATALOG.ascii.barEmpty, "-");
+});
+
+test("no statusbar glyph carries a U+FE0F emoji variation selector", () => {
+	const VARIATION_SELECTOR = "\\uFE0F";
+	for (const mode of MODES) {
+		for (const role of ["branch", "barFull", "barEmpty"] as const) {
+			assert.ok(
+				!ICON_CATALOG[mode][role].includes(VARIATION_SELECTOR),
+				`${mode}.${role} must not contain U+FE0F`,
+			);
+		}
+	}
 });
 
 test("unicode catalog uses plain unicode for key roles", () => {

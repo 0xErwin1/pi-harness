@@ -20,5 +20,8 @@ export interface IconSet {
 	treeLast: string;
 	treeVertical: string;
 	treeSub: string;
+	branch: string;
+	barFull: string;
+	barEmpty: string;
 	spinner: string[];
 }

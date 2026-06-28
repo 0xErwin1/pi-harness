@@ -28,6 +28,9 @@ export const ICON_CATALOG: Record<IconMode, IconSet> = {
 		treeLast: "└─",
 		treeVertical: "│",
 		treeSub: "└",
+		branch: "",	// nf-pl-branch U+E0A0
+		barFull: "█",	// full block U+2588
+		barEmpty: "░",	// light shade U+2591
 		spinner: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
 	},
 
@@ -51,6 +54,9 @@ export const ICON_CATALOG: Record<IconMode, IconSet> = {
 		treeLast: "└─",
 		treeVertical: "│",
 		treeSub: "└",
+		branch: "⎇",	// U+2387 alternative key symbol
+		barFull: "█",	// full block U+2588
+		barEmpty: "░",	// light shade U+2591
 		spinner: ["✳", "✴", "✵", "✶", "✷", "✸", "✹", "✺", "✻", "✼", "✽"],
 	},
 
@@ -74,6 +80,9 @@ export const ICON_CATALOG: Record<IconMode, IconSet> = {
 		treeLast: "`-",
 		treeVertical: "|",
 		treeSub: "`",
+		branch: "br",
+		barFull: "#",
+		barEmpty: "-",
 		spinner: ["-", "\\", "|", "/"],
 	},
 };
