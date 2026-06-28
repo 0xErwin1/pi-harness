@@ -40,14 +40,27 @@ export interface FooterRenderInput {
 
 const MIN_PADDING = 2;
 
+/**
+ * Emoji and pictographic characters (plus the U+FE0F variation selector) that other
+ * extensions may embed in their status text (e.g. a brain glyph). The harness never
+ * renders emoji, so they are stripped from third-party status text before display.
+ * Text-presentation dingbats such as `·` and `✓` are intentionally left untouched.
+ */
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{26FF}\u{2B00}-\u{2BFF}\u{FE0F}]/gu;
+
 function paint(theme: ThemeLike | undefined, role: ThemeColor, text: string): string {
 	return theme ? theme.fg(role, text) : text;
 }
 
-/** Collapses control characters so a status never breaks the single-line layout. */
+/**
+ * Normalizes third-party status text for the single-line footer: control characters
+ * become spaces, emoji/pictographs are removed (the harness never shows emoji), and
+ * runs of whitespace collapse so a stray glyph never breaks the layout.
+ */
 function sanitizeStatusText(text: string): string {
 	return text
 		.replace(/[\r\n\t]/g, " ")
+		.replace(EMOJI_RE, "")
 		.replace(/ +/g, " ")
 		.trim();
 }

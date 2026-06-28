@@ -82,6 +82,16 @@ test("extension statuses are preserved on the last line, sorted by key", () => {
 	assert.equal(lines[lines.length - 1], "a-status z-status");
 });
 
+test("emoji and variation selectors are stripped from third-party status text", () => {
+	const lines = composeFooterLines(
+		baseInput({ statuses: new Map([["engram", "🧠 ignis · ✓ loaded"], ["mcp", "MCP: 0/4 servers"]]) }),
+		120,
+	);
+	const last = lines[lines.length - 1];
+	assert.ok(!/[\u{1F000}-\u{1FAFF}\u{FE0F}]/u.test(last!), "no emoji or VS16 survives");
+	assert.equal(last, "ignis · ✓ loaded MCP: 0/4 servers");
+});
+
 test("narrow width truncates the right side and keeps the line within width", () => {
 	const width = 40;
 	const lines = composeFooterLines(baseInput(), width);
