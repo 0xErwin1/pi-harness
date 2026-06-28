@@ -673,12 +673,15 @@ export function resolveViewportOffset(scrollOffset: number, maxScroll: number, f
  * edit diffs, and status transitions. When `prompt` is provided it is prepended as
  * a `[prompt]` block.
  *
- * Each tool call becomes one line, or several when it is too wide and wraps; a
- * following `run.tool_result` is correlated to its call (by `toolCallId` when
- * present, else by adjacency to the most recent unmatched call) and its summary is
- * folded into that line, with an edit's diff rendered as a following block. Lines
- * carry internal kind markers that the styling layer strips, so the visible line
- * starts with the verb — no glyph.
+ * Each tool call becomes one line, or several when it is too wide and wraps. The
+ * call display prefers `toolCallFull` (the COMPLETE, uncapped args) over the
+ * summarized `toolCall`, so the overlay shows every argument wrapped across lines
+ * with no `…`; it falls back to `toolCall`, then `target`, then the bare name when
+ * the fuller forms are absent. A following `run.tool_result` is correlated to its
+ * call (by `toolCallId` when present, else by adjacency to the most recent
+ * unmatched call) and its summary is folded into that line, with an edit's diff
+ * rendered as a following block. Lines carry internal kind markers that the styling
+ * layer strips, so the visible line starts with the verb — no glyph.
  */
 export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: string): string[] {
 	const items: LineItem[] = [];
@@ -713,7 +716,8 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 			case "run.progress": {
 				const tool = toolNameFromProgress(event.message);
 				if (tool) {
-					const rawDisplay = event.toolCall ?? (event.target ? `${tool} ${event.target}` : tool);
+					const rawDisplay =
+						event.toolCallFull ?? event.toolCall ?? (event.target ? `${tool} ${event.target}` : tool);
 					const display = stripControlChars(rawDisplay);
 					const { verb, args } = splitToolDisplay(display, tool);
 					const item: ToolItem = { kind: "tool", verb, args, status: "dim", matched: false, count: 1 };

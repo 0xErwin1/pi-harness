@@ -65,6 +65,15 @@ export interface RunProgressEvent extends RunEventBase {
 	 * present; absent for non-tool progress.
 	 */
 	toolCall?: string;
+	/**
+	 * Optional COMPLETE, uncapped variant of `toolCall`: every key and the full
+	 * value of each argument, with no per-value truncation and no trailing `, …`.
+	 * Whitespace is collapsed so the viewer can wrap it across lines. The overlay
+	 * conversation viewer renders this (so it shows the entire args), while the
+	 * collapsed inline row keeps using the summarized `toolCall`. Absent for
+	 * non-tool progress.
+	 */
+	toolCallFull?: string;
 }
 
 /**

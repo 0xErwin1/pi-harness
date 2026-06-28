@@ -265,6 +265,45 @@ test("process-runner: an MCP tool_execution_start emits a progress event with th
 		'engram_mem_save (query: "auth bug root cause", project: "pi-harness")',
 		"the MCP tool call must show its key args with the prefixed name preserved",
 	);
+	assert.equal(
+		toolProgress.toolCallFull,
+		'engram_mem_save (query: "auth bug root cause", project: "pi-harness")',
+		"with short args the full form equals the summarized form",
+	);
+});
+
+test("process-runner: a tool_execution_start emits BOTH the summarized toolCall and the full toolCallFull", async () => {
+	const store = new InMemoryRunStore();
+	const ctx = makeContext(store);
+
+	const previousBin = process.env.PI_HARNESS_PI_BIN;
+	process.env.PI_HARNESS_PI_BIN = fakePiBin;
+	process.env.PI_TOOL_MCP_FULL = "1";
+
+	try {
+		await runPiProcessProvider(ctx);
+	} finally {
+		process.env.PI_HARNESS_PI_BIN = previousBin;
+		delete process.env.PI_TOOL_MCP_FULL;
+	}
+
+	const toolProgress = store.eventsFor("r1")
+		.filter((e): e is RunProgressEvent => e.type === "run.progress")
+		.find((e) => e.message.startsWith("tool:"));
+
+	assert.ok(toolProgress !== undefined, "a tool progress event must be emitted");
+
+	assert.ok(toolProgress.toolCall !== undefined, "the summarized toolCall must be present");
+	assert.ok(toolProgress.toolCall.includes(", …)"), "the summarized form caps its key list");
+	assert.ok(toolProgress.toolCall.includes("…"), "the summarized form truncates the over-long value");
+
+	assert.ok(toolProgress.toolCallFull !== undefined, "the full toolCallFull must be present alongside toolCall");
+	assert.ok(!toolProgress.toolCallFull.includes("…"), "the full form must contain no ellipsis");
+	assert.ok(toolProgress.toolCallFull.includes("topic_key:"), "the full form must show every key");
+	assert.ok(
+		toolProgress.toolCallFull.includes("Proposed LSP references hardening and resolver fix across modules and packages"),
+		"the full form must carry the complete, untruncated value",
+	);
 });
 
 test("process-runner: a thinking block emits a separate kind:'thinking' run.output, excluded from result and turns", async () => {

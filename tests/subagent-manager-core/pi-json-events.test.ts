@@ -333,6 +333,63 @@ test("formatToolCall: always returns at least the tool name", () => {
 	assert.equal(formatToolCall("mystery", { nested: { deep: 1 } }), "mystery");
 });
 
+test("formatToolCall: full mode shows ALL keys and FULL values with no ellipsis anywhere", () => {
+	const longTitle = "Proposed LSP references hardening and resolver fix across modules and packages";
+	const args = {
+		project: "ignis",
+		scope: "project",
+		type: "architecture",
+		title: longTitle,
+		topic_key: "sdd/x/proposal",
+		extra: "more",
+	};
+
+	const result = formatToolCall("engram_mem_save", args, { full: true });
+
+	assert.ok(!result.includes("…"), `full mode must not truncate anything, got: ${result}`);
+	assert.ok(result.includes(longTitle), "the over-long value must appear untruncated");
+	for (const key of ["project", "scope", "type", "title", "topic_key", "extra"]) {
+		assert.ok(result.includes(`${key}:`), `key ${key} must be shown in full mode`);
+	}
+	assert.ok(!result.includes(", …)"), "full mode must not append a trailing key ellipsis");
+});
+
+test("formatToolCall: full mode keeps the (key: \"value\") shape and quotes strings", () => {
+	const result = formatToolCall("engram_mem_save", { query: "auth bug", project: "pi-harness" }, { full: true });
+	assert.equal(result, 'engram_mem_save (query: "auth bug", project: "pi-harness")');
+});
+
+test("formatToolCall: full mode collapses internal whitespace into a single logical line", () => {
+	const result = formatToolCall("engram_mem_save", { content: "line one\n  line two\tand   three" }, { full: true });
+	assert.equal(result, 'engram_mem_save (content: "line one line two and three")');
+});
+
+test("formatToolCall: full mode for a built-in tool shows the complete path (no per-value cap)", () => {
+	const longPath = "a".repeat(100);
+	const result = formatToolCall("read", { path: longPath }, { full: true });
+	assert.equal(result, `read ${longPath}`);
+	assert.ok(!result.includes("…"));
+});
+
+test("formatToolCall: default mode still summarizes (40-char cap + key cap) — regression guard", () => {
+	const longTitle = "x".repeat(100);
+	const args = { a: "1", b: "2", c: "3", d: "4", e: "5", title: longTitle };
+
+	const result = formatToolCall("big_tool", args);
+	assert.ok(result.includes(", …)"), `default mode still caps the key list, got: ${result}`);
+	assert.ok(!result.includes("e:"), "keys beyond the cap are not shown by default");
+
+	const valueResult = formatToolCall("read", { path: longTitle });
+	const value = valueResult.slice("read ".length);
+	assert.equal(value.length, TOOL_CALL_VALUE_MAX, "the value alone is still capped by default");
+	assert.ok(value.endsWith("…"), "an over-long value still ends with an ellipsis by default");
+});
+
+test("formatToolCall: explicit full:false matches the default summarized behavior", () => {
+	const args = { a: "1", b: "2", c: "3", d: "4", e: "5" };
+	assert.equal(formatToolCall("big_tool", args, { full: false }), formatToolCall("big_tool", args));
+});
+
 // ---------------------------------------------------------------------------
 // toolResultOf
 // ---------------------------------------------------------------------------

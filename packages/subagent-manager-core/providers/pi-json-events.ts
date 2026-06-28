@@ -131,22 +131,27 @@ export const TOOL_CALL_VALUE_MAX = 40;
 /** How many key/value pairs a generic (e.g. MCP) tool shows before a trailing `…`. */
 const TOOL_CALL_MAX_KEYS = 4;
 
-/** Collapses internal whitespace and truncates a single value to the per-value cap. */
-function compactValue(value: string, max = TOOL_CALL_VALUE_MAX): string {
+/**
+ * Collapses internal whitespace and, unless `full` is set, truncates a single
+ * value to the per-value cap. In `full` mode the whitespace collapse is kept (so a
+ * multi-line value becomes one logical string the viewer can wrap) but no cap is
+ * applied and no ellipsis is added.
+ */
+function compactValue(value: string, full = false): string {
 	const collapsed = value.trim().replace(/\s+/g, " ");
-	if (collapsed.length <= max) return collapsed;
-	if (max <= 1) return "…";
-	return `${collapsed.slice(0, max - 1)}…`;
+	if (full || collapsed.length <= TOOL_CALL_VALUE_MAX) return collapsed;
+	if (TOOL_CALL_VALUE_MAX <= 1) return "…";
+	return `${collapsed.slice(0, TOOL_CALL_VALUE_MAX - 1)}…`;
 }
 
 /** Picks the first present primary argument (path / command / pattern) as a bare value. */
-function primaryValue(fields: Record<string, unknown>, keys: string[]): string | undefined {
+function primaryValue(fields: Record<string, unknown>, keys: string[], full = false): string | undefined {
 	for (const key of keys) {
 		const value = fields[key];
-		if (typeof value === "string" && value.trim().length > 0) return compactValue(value);
+		if (typeof value === "string" && value.trim().length > 0) return compactValue(value, full);
 		if (Array.isArray(value) && value.length > 0) {
 			const items = value.filter((x) => typeof x === "string" || typeof x === "number").map(String);
-			if (items.length > 0) return `{${compactValue(items.join(","))}}`;
+			if (items.length > 0) return `{${compactValue(items.join(","), full)}}`;
 		}
 	}
 	return undefined;
@@ -166,36 +171,40 @@ function lineRange(fields: Record<string, unknown>): string {
 }
 
 /** Renders one scalar argument value for the generic `(key: value)` form (strings quoted). */
-function renderScalar(value: unknown): string | undefined {
+function renderScalar(value: unknown, full = false): string | undefined {
 	if (typeof value === "string") {
 		const trimmed = value.trim();
 		if (trimmed.length === 0) return undefined;
-		return `"${compactValue(trimmed)}"`;
+		return `"${compactValue(trimmed, full)}"`;
 	}
 	if (typeof value === "number" || typeof value === "boolean") return String(value);
 	if (Array.isArray(value)) {
 		const items = value.filter((x) => typeof x === "string" || typeof x === "number").map(String);
 		if (items.length === 0) return undefined;
-		return `{${compactValue(items.join(","))}}`;
+		return `{${compactValue(items.join(","), full)}}`;
 	}
 	return undefined;
 }
 
-/** Formats a generic/MCP tool as `<name> (key: "value", …)`, capped at a few keys. */
-function formatGenericCall(name: string, fields: Record<string, unknown>): string {
+/**
+ * Formats a generic/MCP tool as `<name> (key: "value", …)`. By default the key
+ * list is capped at `TOOL_CALL_MAX_KEYS` with a trailing `, …`; in `full` mode all
+ * keys are shown and no trailing ellipsis is added.
+ */
+function formatGenericCall(name: string, fields: Record<string, unknown>, full = false): string {
 	const shown: string[] = [];
 	let total = 0;
 
 	for (const [key, value] of Object.entries(fields)) {
-		const rendered = renderScalar(value);
+		const rendered = renderScalar(value, full);
 		if (rendered === undefined) continue;
 		total += 1;
-		if (shown.length < TOOL_CALL_MAX_KEYS) shown.push(`${key}: ${rendered}`);
+		if (full || shown.length < TOOL_CALL_MAX_KEYS) shown.push(`${key}: ${rendered}`);
 	}
 
 	if (shown.length === 0) return name;
 
-	const more = total > shown.length ? ", …" : "";
+	const more = !full && total > shown.length ? ", …" : "";
 	return `${name} (${shown.join(", ")}${more})`;
 }
 
@@ -209,38 +218,46 @@ function formatGenericCall(name: string, fields: Record<string, unknown>): strin
  * (including MCP/plugin tools) keeps its name VERBATIM — the MCP/plugin prefix is
  * preserved — and shows its key arguments as `(key: "value", …)`.
  *
- * Long values are truncated PER VALUE (not the whole line) so the call's shape
- * stays legible. Always returns at least the tool name, even with no usable args.
+ * By default long values are truncated PER VALUE (not the whole line) and generic
+ * tools show only their first few keys, so the call's shape stays legible in the
+ * compact collapsed row. With `opts.full` set, NO per-value cap is applied and ALL
+ * keys are shown (no trailing `, …`) — the whitespace collapse and the quoting /
+ * `(key: "value")` / built-in `read <path>` shapes are kept, only the caps removed.
+ * The full form exists so the conversation viewer can wrap and show the complete
+ * arguments while the inline row keeps the summarized single-line form. Always
+ * returns at least the tool name, even with no usable args. Backward-compatible:
+ * existing callers that omit `opts` get the summarized behavior unchanged.
  */
-export function formatToolCall(toolName: string, args: unknown): string {
+export function formatToolCall(toolName: string, args: unknown, opts?: { full?: boolean }): string {
+	const full = opts?.full ?? false;
 	const name = toolName.trim();
 	const fields = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
 
 	switch (name.toLowerCase()) {
 		case "read": {
-			const path = primaryValue(fields, ["file_path", "path"]);
+			const path = primaryValue(fields, ["file_path", "path"], full);
 			return path ? `${name} ${path}${lineRange(fields)}` : name;
 		}
 		case "edit":
 		case "write":
 		case "ls": {
-			const path = primaryValue(fields, ["file_path", "path"]);
+			const path = primaryValue(fields, ["file_path", "path"], full);
 			return path ? `${name} ${path}` : name;
 		}
 		case "bash": {
-			const command = primaryValue(fields, ["command", "cmd"]);
+			const command = primaryValue(fields, ["command", "cmd"], full);
 			return command ? `${name} ${command}` : name;
 		}
 		case "find": {
-			const pattern = primaryValue(fields, ["pattern", "glob", "query"]);
+			const pattern = primaryValue(fields, ["pattern", "glob", "query"], full);
 			return pattern ? `${name} ${pattern}` : name;
 		}
 		case "grep": {
-			const pattern = primaryValue(fields, ["pattern", "query"]);
+			const pattern = primaryValue(fields, ["pattern", "query"], full);
 			return pattern ? `${name} /${pattern}/` : name;
 		}
 		default:
-			return formatGenericCall(name, fields);
+			return formatGenericCall(name, fields, full);
 	}
 }
 

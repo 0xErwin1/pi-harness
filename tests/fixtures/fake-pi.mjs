@@ -14,6 +14,10 @@
  *   PI_TOOL_MCP         — when set, emits a tool_execution_start for an MCP-style tool with
  *                         multi-field args before a final message_end (for rich tool-call
  *                         formatting tests)
+ *   PI_TOOL_MCP_FULL    — when set, emits a tool_execution_start for an MCP-style tool whose
+ *                         args have more than four keys and an over-long value, so the
+ *                         summarized `toolCall` and the complete `toolCallFull` differ
+ *                         (for full-args viewer plumbing tests)
  *   PI_TOOL_WITH_RESULT — when set, emits tool_execution_start + tool_execution_end (with result)
  *                         before a final message_end (for run.tool_result emission tests)
  *   PI_THINKING         — when set, emits a message_end whose assistant content carries
@@ -96,6 +100,30 @@ if (process.env.PI_IGNORE_SIGTERM) {
 				type: "tool_execution_start",
 				toolName: "engram_mem_save",
 				args: { query: "auth bug root cause", project: "pi-harness" },
+			}) + "\n",
+		);
+		process.stdout.write(
+			JSON.stringify({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "done" }],
+				},
+			}) + "\n",
+		);
+		process.exit(0);
+	} else if (process.env.PI_TOOL_MCP_FULL) {
+		process.stdout.write(
+			JSON.stringify({
+				type: "tool_execution_start",
+				toolName: "engram_mem_save",
+				args: {
+					project: "ignis",
+					scope: "project",
+					type: "architecture",
+					title: "Proposed LSP references hardening and resolver fix across modules and packages",
+					topic_key: "sdd/x/proposal",
+				},
 			}) + "\n",
 		);
 		process.stdout.write(

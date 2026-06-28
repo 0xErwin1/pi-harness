@@ -80,6 +80,18 @@ function toolWithCall(name: string, toolCall: string): RunEvent {
 	};
 }
 
+function toolWithCallFull(name: string, toolCall: string, toolCallFull: string): RunEvent {
+	return {
+		id: `e${eventSeq++}`,
+		runId: "r1",
+		type: "run.progress",
+		message: `tool: ${name}`,
+		toolCall,
+		toolCallFull,
+		at: new Date().toISOString(),
+	};
+}
+
 function assistant(text: string, turn: number): RunEvent {
 	return { id: `e${eventSeq++}`, runId: "r1", type: "run.output", chunk: text, role: "assistant", text, turn, at: new Date().toISOString() };
 }
@@ -1043,6 +1055,32 @@ test("eventsToBodyLines: a tool call wider than the viewport wraps into indented
 	for (let i = 0; i < 14; i++) {
 		assert.ok(recovered.includes(`seg${i}`), `arg fragment seg${i} must survive wrapping, got: ${recovered}`);
 	}
+});
+
+test("eventsToBodyLines: the viewer renders toolCallFull (complete args) wrapped, never the summarized toolCall", () => {
+	const summarized =
+		'engram_mem_save (project: "ignis", scope: "project", type: "architecture", title: "Proposed LSP refe…", …)';
+	const fullArgs = Array.from({ length: 14 }, (_, i) => `key${i}: "value${i}"`).join(", ");
+	const full = `engram_mem_save (${fullArgs})`;
+
+	const toolLines = eventsToBodyLines([toolWithCallFull("engram_mem_save", summarized, full)], 24).filter(isToolLine);
+
+	assert.ok(toolLines.length > 1, `the full args must wrap across multiple lines, got ${toolLines.length}`);
+
+	for (const l of toolLines) {
+		assert.ok(!stripMarkers(l).includes("…"), `no wrapped line may contain an ellipsis: ${JSON.stringify(stripMarkers(l))}`);
+	}
+
+	const recovered = toolLines.map(stripMarkers).join(" ");
+	for (let i = 0; i < 14; i++) {
+		assert.ok(recovered.includes(`key${i}`), `full arg key${i} must survive wrapping, got: ${recovered}`);
+	}
+	assert.ok(!recovered.includes("Proposed LSP refe"), "the summarized (truncated) form must not be used by the viewer");
+});
+
+test("eventsToBodyLines: the viewer falls back to toolCall when toolCallFull is absent", () => {
+	const [line] = eventsToBodyLines([toolWithCall("read", "read src/foo.ts")], 80);
+	assert.equal(styleToolLine(line, STYLER), "<b><accent>read</accent></b> <muted>src/foo.ts</muted>");
 });
 
 test("eventsToBodyLines: a wrapped tool call keeps its ` · summary` attached and status-coloured", () => {
