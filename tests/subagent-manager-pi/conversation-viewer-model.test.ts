@@ -16,8 +16,8 @@ import type { RunEvent, RunSnapshot } from "../../packages/subagent-manager-core
 
 /**
  * Deterministic styler double: `fg` wraps text in `<color>…</color>` and `bold`
- * in `<b>…</b>`, so the styled output of a body line is fully assertable without a
- * real theme. The verb is bold, the args accent, the summary dim/success/error.
+ * in `<b><accent>…</accent></b>`, so the styled output of a body line is fully assertable without a
+ * real theme. The verb is bold+accent, the args muted, the summary dim/success/error.
  */
 const STYLER = {
 	fg: (color: string, text: string): string => `<${color}>${text}</${color}>`,
@@ -265,7 +265,7 @@ test("buildViewerModel: works without snapshot (no elapsed shown)", () => {
 test("eventsToBodyLines: a tool line renders `<verb> <args>` with NO glyph prefix", () => {
 	const [line] = eventsToBodyLines([toolWithTarget("read", "src/foo.ts")], 80);
 
-	assert.equal(styleTranscriptLine(line, STYLER), "<b>read</b> <accent>src/foo.ts</accent>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>read</accent></b> <muted>src/foo.ts</muted>");
 	assert.ok(isToolLine(line), "the line must be classified as a tool line");
 	assert.ok(!stripMarkers(line).includes("▸"), "the tool glyph prefix must be gone");
 	assert.ok(!line.includes("[tool]"), "the literal [tool] prefix must be gone");
@@ -274,7 +274,7 @@ test("eventsToBodyLines: a tool line renders `<verb> <args>` with NO glyph prefi
 test("eventsToBodyLines: a tool with no args renders just the bold verb", () => {
 	const [line] = eventsToBodyLines([tool("bash")], 80);
 
-	assert.equal(styleTranscriptLine(line, STYLER), "<b>bash</b>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b>");
 });
 
 test("eventsToBodyLines: a tool line uses the richer toolCall verbatim (verb bold, args accent)", () => {
@@ -285,14 +285,14 @@ test("eventsToBodyLines: a tool line uses the richer toolCall verbatim (verb bol
 
 	assert.equal(
 		styleTranscriptLine(line, STYLER),
-		'<b>engram_mem_save</b> <accent>(query: "auth bug", project: "pi-harness")</accent>',
+		'<b><accent>engram_mem_save</accent></b> <muted>(query: "auth bug", project: "pi-harness")</muted>',
 	);
 });
 
 test("eventsToBodyLines: bash keeps the `$ <cmd>` arg style", () => {
 	const [line] = eventsToBodyLines([toolWithTarget("bash", "pnpm test")], 80);
 
-	assert.equal(styleTranscriptLine(line, STYLER), "<b>bash</b> <accent>$ pnpm test</accent>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b> <muted>$ pnpm test</muted>");
 });
 
 test("eventsToBodyLines: identical toolCall lines collapse with a ×N count", () => {
@@ -334,24 +334,27 @@ test("eventsToBodyLines: distinct tool targets are NOT collapsed (no information
 	assert.ok(!toolLines.some((l) => stripMarkers(l).includes("×")), "distinct lines must not be counted");
 });
 
-test("eventsToBodyLines: a long tool arg is truncated to width", () => {
-	const longTarget = "x".repeat(200);
-	const [line] = eventsToBodyLines([toolWithTarget("read", longTarget)], 40);
-	const visible = stripMarkers(line);
+test("eventsToBodyLines: a long tool call wraps to width instead of truncating", () => {
+	const longTarget = Array.from({ length: 16 }, (_, i) => `seg${i}`).join(" ");
+	const lines = eventsToBodyLines([toolWithTarget("read", longTarget)], 40);
+	const toolLines = lines.filter(isToolLine);
 
-	assert.ok(isToolLine(line), "tool line must exist");
-	assert.ok(visible.length <= 40, `tool line must fit width, got ${visible.length}`);
-	assert.ok(visible.endsWith("…"), "truncated line must end with an ellipsis");
+	assert.ok(toolLines.length > 1, `a long tool call must wrap into multiple lines, got ${toolLines.length}`);
+	for (const l of toolLines) {
+		const visible = stripMarkers(l);
+		assert.ok(!visible.includes("…"), `wrapped tool lines must never be truncated: ${JSON.stringify(visible)}`);
+		assert.ok(visible.length <= 40, `each wrapped line must fit width, got ${visible.length}`);
+	}
 });
 
 test("styleToolLine: verb bold, args accent", () => {
 	const [line] = eventsToBodyLines([toolWithTarget("read", "src/foo.ts")], 80);
-	assert.equal(styleToolLine(line, STYLER), "<b>read</b> <accent>src/foo.ts</accent>");
+	assert.equal(styleToolLine(line, STYLER), "<b><accent>read</accent></b> <muted>src/foo.ts</muted>");
 });
 
 test("styleToolLine: a no-args tool styles only the bold verb", () => {
 	const [line] = eventsToBodyLines([tool("bash")], 80);
-	assert.equal(styleToolLine(line, STYLER), "<b>bash</b>");
+	assert.equal(styleToolLine(line, STYLER), "<b><accent>bash</accent></b>");
 });
 
 test("styleToolLine: returns undefined for a non-tool line so the caller can fall through", () => {
@@ -363,7 +366,7 @@ test("styleToolLine: returns undefined for a non-tool line so the caller can fal
 
 test("read result renders a dim `N lines` summary", () => {
 	const [line] = eventsToBodyLines([tool("read"), toolResult("read", { resultText: "a\nb\nc" })], 80);
-	assert.equal(styleTranscriptLine(line, STYLER), "<b>read</b> · <dim>3 lines</dim>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>read</accent></b> · <dim>3 lines</dim>");
 });
 
 test("read result uses details.truncation line counts, and the `out/total` form when truncated", () => {
@@ -371,13 +374,13 @@ test("read result uses details.truncation line counts, and the `out/total` form 
 		[tool("read"), toolResult("read", { resultText: "ignored", details: { truncation: { outputLines: 14 } } })],
 		80,
 	)[0];
-	assert.equal(styleTranscriptLine(exact, STYLER), "<b>read</b> · <dim>14 lines</dim>");
+	assert.equal(styleTranscriptLine(exact, STYLER), "<b><accent>read</accent></b> · <dim>14 lines</dim>");
 
 	const truncated = eventsToBodyLines(
 		[tool("read"), toolResult("read", { details: { truncation: { truncated: true, outputLines: 50, totalLines: 200 } } })],
 		80,
 	)[0];
-	assert.equal(styleTranscriptLine(truncated, STYLER), "<b>read</b> · <dim>50/200 lines</dim>");
+	assert.equal(styleTranscriptLine(truncated, STYLER), "<b><accent>read</accent></b> · <dim>50/200 lines</dim>");
 });
 
 test("bash result shows `exit 0 · N lines` coloured success", () => {
@@ -385,7 +388,7 @@ test("bash result shows `exit 0 · N lines` coloured success", () => {
 		[toolWithTarget("bash", "pnpm test"), toolResult("bash", { resultText: "line1\nline2\nexit code: 0" })],
 		80,
 	);
-	assert.equal(styleTranscriptLine(line, STYLER), "<b>bash</b> <accent>$ pnpm test</accent> · <success>exit 0 · 3 lines</success>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b> <muted>$ pnpm test</muted> · <success>exit 0 · 3 lines</success>");
 });
 
 test("bash nonzero exit colours the summary error", () => {
@@ -393,7 +396,7 @@ test("bash nonzero exit colours the summary error", () => {
 		[toolWithTarget("bash", "false"), toolResult("bash", { resultText: "boom\nexit code: 1" })],
 		80,
 	);
-	assert.equal(styleTranscriptLine(line, STYLER), "<b>bash</b> <accent>$ false</accent> · <error>exit 1 · 2 lines</error>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b> <muted>$ false</muted> · <error>exit 1 · 2 lines</error>");
 });
 
 test("grep result shows `N matches`, singular for one", () => {
@@ -401,13 +404,13 @@ test("grep result shows `N matches`, singular for one", () => {
 		[toolWithCall("grep", "grep /foo/"), toolResult("grep", { resultText: "a.ts:1: foo\nb.ts:2: foo" })],
 		80,
 	)[0];
-	assert.equal(styleTranscriptLine(many, STYLER), "<b>grep</b> <accent>/foo/</accent> · <dim>2 matches</dim>");
+	assert.equal(styleTranscriptLine(many, STYLER), "<b><accent>grep</accent></b> <muted>/foo/</muted> · <dim>2 matches</dim>");
 
 	const one = eventsToBodyLines(
 		[toolWithCall("grep", "grep /foo/"), toolResult("grep", { resultText: "a.ts:1: foo" })],
 		80,
 	)[0];
-	assert.equal(styleTranscriptLine(one, STYLER), "<b>grep</b> <accent>/foo/</accent> · <dim>1 match</dim>");
+	assert.equal(styleTranscriptLine(one, STYLER), "<b><accent>grep</accent></b> <muted>/foo/</muted> · <dim>1 match</dim>");
 });
 
 test("find / ls result shows `N results`", () => {
@@ -415,13 +418,13 @@ test("find / ls result shows `N results`", () => {
 		[toolWithCall("find", "find {*.ts}"), toolResult("find", { resultText: "a.ts\nb.ts\nc.ts" })],
 		80,
 	)[0];
-	assert.equal(styleTranscriptLine(find, STYLER), "<b>find</b> <accent>{*.ts}</accent> · <dim>3 results</dim>");
+	assert.equal(styleTranscriptLine(find, STYLER), "<b><accent>find</accent></b> <muted>{*.ts}</muted> · <dim>3 results</dim>");
 
 	const ls = eventsToBodyLines(
 		[toolWithTarget("ls", "src"), toolResult("ls", { resultText: "only" })],
 		80,
 	)[0];
-	assert.equal(styleTranscriptLine(ls, STYLER), "<b>ls</b> <accent>src</accent> · <dim>1 result</dim>");
+	assert.equal(styleTranscriptLine(ls, STYLER), "<b><accent>ls</accent></b> <muted>src</muted> · <dim>1 result</dim>");
 });
 
 test("write result shows `N lines`", () => {
@@ -429,7 +432,7 @@ test("write result shows `N lines`", () => {
 		[toolWithTarget("write", "out.txt"), toolResult("write", { resultText: "x\ny" })],
 		80,
 	);
-	assert.equal(styleTranscriptLine(line, STYLER), "<b>write</b> <accent>out.txt</accent> · <dim>2 lines</dim>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>write</accent></b> <muted>out.txt</muted> · <dim>2 lines</dim>");
 });
 
 test("an unknown tool omits the summary, but shows `error` when it errored", () => {
@@ -437,18 +440,18 @@ test("an unknown tool omits the summary, but shows `error` when it errored", () 
 		[toolWithCall("custom_tool", "custom_tool (x: 1)"), toolResult("custom_tool", { resultText: "whatever" })],
 		80,
 	)[0];
-	assert.equal(styleTranscriptLine(ok, STYLER), "<b>custom_tool</b> <accent>(x: 1)</accent>");
+	assert.equal(styleTranscriptLine(ok, STYLER), "<b><accent>custom_tool</accent></b> <muted>(x: 1)</muted>");
 
 	const errored = eventsToBodyLines(
 		[toolWithCall("custom_tool", "custom_tool (x: 1)"), toolResult("custom_tool", { isError: true })],
 		80,
 	)[0];
-	assert.equal(styleTranscriptLine(errored, STYLER), "<b>custom_tool</b> <accent>(x: 1)</accent> · <error>error</error>");
+	assert.equal(styleTranscriptLine(errored, STYLER), "<b><accent>custom_tool</accent></b> <muted>(x: 1)</muted> · <error>error</error>");
 });
 
 test("an errored known tool still shows its summary but in error colour", () => {
 	const [line] = eventsToBodyLines([tool("read"), toolResult("read", { resultText: "nope", isError: true })], 80);
-	assert.equal(styleTranscriptLine(line, STYLER), "<b>read</b> · <error>1 lines</error>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>read</accent></b> · <error>1 lines</error>");
 });
 
 // ── edit diff rendering ─────────────────────────────────────────────────────────
@@ -459,7 +462,7 @@ test("edit result shows `+A -R` and renders the diff block with coloured +/- lin
 		(l) => styleTranscriptLine(l, STYLER),
 	);
 
-	assert.equal(styled[0], "<b>edit</b> <accent>crates/x.rs</accent> · <dim>+2 -1</dim>");
+	assert.equal(styled[0], "<b><accent>edit</accent></b> <muted>crates/x.rs</muted> · <dim>+2 -1</dim>");
 	assert.ok(styled.includes("<dim>@@ -1,3 +1,3 @@</dim>"), "hunk header dim");
 	assert.ok(styled.includes("<dim> context</dim>"), "context line dim");
 	assert.ok(styled.includes("<error>-old line</error>"), "removed line error");
@@ -487,7 +490,7 @@ test("the collapsed-row body line for an edit carries the +A -R summary, never t
 	// own summary stays compact so the inline row shows just `+A -R`.
 	const diff = "@@ -1 +1 @@\n-x\n+y";
 	const [toolLine] = eventsToBodyLines([toolWithTarget("edit", "f.ts"), toolResult("edit", { details: { diff } })], 80);
-	assert.equal(styleTranscriptLine(toolLine, STYLER), "<b>edit</b> <accent>f.ts</accent> · <dim>+1 -1</dim>");
+	assert.equal(styleTranscriptLine(toolLine, STYLER), "<b><accent>edit</accent></b> <muted>f.ts</muted> · <dim>+1 -1</dim>");
 });
 
 // ── result/call correlation ─────────────────────────────────────────────────────
@@ -496,8 +499,8 @@ test("a result attaches to the most recent tool call by adjacency when no toolCa
 	const events = [tool("read"), tool("bash"), toolResult("bash", { resultText: "exit code: 0" })];
 	const styled = eventsToBodyLines(events, 80).filter(isToolLine).map((l) => styleTranscriptLine(l, STYLER));
 
-	assert.ok(styled.includes("<b>read</b>"), "the earlier read keeps no summary");
-	assert.ok(styled.some((l) => l.startsWith("<b>bash</b>") && l.includes("exit 0")), "the adjacent bash gets the result");
+	assert.ok(styled.includes("<b><accent>read</accent></b>"), "the earlier read keeps no summary");
+	assert.ok(styled.some((l) => l.startsWith("<b><accent>bash</accent></b>") && l.includes("exit 0")), "the adjacent bash gets the result");
 });
 
 test("matchResultToCall: exact toolCallId match wins over adjacency", () => {
@@ -830,4 +833,267 @@ test("buildViewerModel: no crash when snapshot is absent (no prompt available)",
 			now: BASE_NOW,
 		}),
 	);
+});
+
+// ── C0 control-char sanitization (defense-in-depth, W1) ────────────────────────
+
+/**
+ * Returns true if the string contains a raw C0 control character (U+0000–U+001F,
+ * excluding tab) or U+007F. After the styling layer runs, the output must not
+ * carry any such byte — all structural markers are stripped by the stylers and
+ * child-sourced C0 must be removed before encoding.
+ */
+function hasRawControlChars(text: string): boolean {
+	for (const char of text) {
+		const code = char.charCodeAt(0);
+		if (code === 0x09) continue; // tab is allowed
+		if (code <= 0x1f || code === 0x7f) return true;
+	}
+	return false;
+}
+
+test("C0 defense: assistant line starting with TOOL_MARK is not misclassified as a tool line", () => {
+	const events = [assistant("injected-marker rest of text", 1)];
+	const lines = eventsToBodyLines(events, 80);
+
+	const contentLine = lines.find((l) => l.includes("injected-marker"));
+	assert.ok(contentLine !== undefined, "the assistant content must appear in body lines");
+
+	assert.ok(!isToolLine(contentLine!), "a line whose source started with TOOL_MARK must not be classified as a tool line");
+
+	const styled = styleTranscriptLine(contentLine!, STYLER);
+	assert.ok(!hasRawControlChars(styled), `styled output must have no raw C0 chars, got: ${JSON.stringify(styled)}`);
+});
+
+test("C0 defense: assistant line starting with SUM_DIM leaks no raw control char to TUI", () => {
+	const events = [assistant("summary-looking text", 1)];
+	const lines = eventsToBodyLines(events, 80);
+
+	const contentLine = lines.find((l) => l.includes("summary-looking"));
+	assert.ok(contentLine !== undefined, "content must appear in body lines");
+
+	const styled = styleTranscriptLine(contentLine!, STYLER);
+	assert.ok(!hasRawControlChars(styled), `styled output must contain no raw C0, got: ${JSON.stringify(styled)}`);
+});
+
+test("C0 defense: diff line starting with DIFF_MARK produces no raw control char after styling", () => {
+	const diff = "--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\ninjected-diff-marker content\n+normal add";
+	const events = [toolWithTarget("edit", "x.ts"), toolResult("edit", { details: { diff } })];
+	const lines = eventsToBodyLines(events, 80);
+
+	const diffLines = lines.filter(isDiffLine);
+	assert.ok(diffLines.length > 0, "diff lines must be present");
+
+	for (const line of diffLines) {
+		const styled = styleDiffLine(line, STYLER)!;
+		assert.ok(!hasRawControlChars(styled), `styled diff must have no raw C0: ${JSON.stringify(styled)}`);
+	}
+
+	const addLine = diffLines.find((l) => l.includes("normal add"));
+	assert.ok(addLine !== undefined, "+normal add must survive");
+	assert.equal(styleDiffLine(addLine!, STYLER), "<success>+normal add</success>", "normal add must be success-colored");
+});
+
+test("C0 defense: embedded DIFF_MARK in diff line content is stripped, line is still success-colored", () => {
+	const diff = "--- a/f.ts\n+++ b/f.ts\n@@ -1 +1 @@\n+contentwith-embedded-diff-mark";
+	const events = [toolWithTarget("edit", "f.ts"), toolResult("edit", { details: { diff } })];
+	const lines = eventsToBodyLines(events, 80);
+
+	const addLine = lines.find((l) => isDiffLine(l) && l.includes("content") && l.includes("embedded-diff-mark"));
+	assert.ok(addLine !== undefined, "add line with embedded marker must appear");
+
+	const styled = styleDiffLine(addLine!, STYLER)!;
+	assert.ok(!hasRawControlChars(styled), `no raw C0 in embedded case: ${JSON.stringify(styled)}`);
+	assert.ok(styled.startsWith("<success>"), "must be success-colored since original line starts with +");
+});
+
+test("C0 defense: tool target containing TOOL_MARK produces no raw control char in styled output", () => {
+	const events = [toolWithTarget("read", "injected/path/file.ts")];
+	const lines = eventsToBodyLines(events, 80);
+
+	const toolLine = lines.find(isToolLine);
+	assert.ok(toolLine !== undefined, "tool line must exist");
+
+	const styled = styleToolLine(toolLine!, STYLER)!;
+	assert.ok(!hasRawControlChars(styled), `styled tool line must have no raw C0: ${JSON.stringify(styled)}`);
+	assert.ok(styled.includes("injected/path/file.ts"), "path content must survive after stripping the leading C0");
+});
+
+test("C0 defense: tab inside assistant text is preserved after sanitization", () => {
+	const events = [assistant("code with\ttab indentation", 1)];
+	const lines = eventsToBodyLines(events, 80);
+
+	const contentLine = lines.find((l) => l.includes("code with"));
+	assert.ok(contentLine !== undefined, "content must appear");
+	assert.ok(contentLine!.includes("\t"), "tab must be preserved in the body line");
+
+	const styled = styleTranscriptLine(contentLine!, STYLER);
+	assert.ok(styled.includes("\t"), "tab must survive styling");
+});
+
+test("C0 defense: tab inside a diff line is preserved after sanitization", () => {
+	const diff = "--- a/f.ts\n+++ b/f.ts\n@@ -1 +1 @@\n+\tindented code line";
+	const events = [toolWithTarget("edit", "f.ts"), toolResult("edit", { details: { diff } })];
+	const lines = eventsToBodyLines(events, 80);
+
+	const addLine = lines.find((l) => isDiffLine(l) && l.includes("\t"));
+	assert.ok(addLine !== undefined, "tab-indented diff line must be preserved");
+	assert.equal(styleDiffLine(addLine!, STYLER), "<success>+\tindented code line</success>");
+});
+
+test("C0 defense: normal content without control chars renders byte-identically to baseline", () => {
+	const events = [assistant("normal assistant output without any controls", 1)];
+	const lines = eventsToBodyLines(events, 80);
+
+	const contentLine = lines.find((l) => l.includes("normal assistant output"));
+	assert.ok(contentLine !== undefined, "content must appear");
+	assert.ok(
+		contentLine!.includes("normal assistant output without any controls"),
+		"full clean content must be unchanged — no accidental stripping",
+	);
+});
+
+// ── ANSI escape sequence stripping (regression fix — W1 ESC-only stripping left residue) ──
+
+test("ANSI: thinking event with 24-bit SGR sequences renders with no [39m, [38;2, or ESC residue", () => {
+	const events = [thinking("\x1b[38;2;138;190;183mThinking:\x1b[39m **x**")];
+	const lines = eventsToBodyLines(events, 80);
+
+	const bodyLines = lines.filter((l) => l.startsWith("│ "));
+	assert.ok(bodyLines.length > 0, "thinking block must produce body lines");
+
+	for (const line of bodyLines) {
+		assert.ok(!line.includes("[39m"), `body line must not contain [39m residue: ${JSON.stringify(line)}`);
+		assert.ok(!line.includes("[38;2"), `body line must not contain [38;2 residue: ${JSON.stringify(line)}`);
+		assert.ok(!line.includes("\x1b"), `body line must not contain bare ESC byte: ${JSON.stringify(line)}`);
+	}
+	assert.ok(bodyLines.some((l) => l.includes("Thinking:")), "clean Thinking: text must be present in body");
+});
+
+test("ANSI: assistant text line with trailing SGR sequence renders without residue", () => {
+	const events = [assistant("text\x1b[39m", 1)];
+	const lines = eventsToBodyLines(events, 80);
+
+	const contentLine = lines.find((l) => l.startsWith("text"));
+	assert.ok(contentLine !== undefined, "content line must appear in body lines");
+	assert.ok(!contentLine!.includes("[39m"), "no [39m residue in assistant line");
+	assert.ok(!contentLine!.includes("\x1b"), "no bare ESC byte in assistant line");
+	assert.equal(contentLine, "text", "text must be clean after ANSI stripping");
+});
+
+test("ANSI: a lone ESC byte (not part of a CSI sequence) is removed", () => {
+	const events = [assistant("before\x1bafter", 1)];
+	const lines = eventsToBodyLines(events, 80);
+
+	const contentLine = lines.find((l) => l.includes("before") || l.includes("after"));
+	assert.ok(contentLine !== undefined, "content must appear in body lines");
+	assert.ok(!contentLine!.includes("\x1b"), "lone ESC byte must be stripped");
+	assert.ok(contentLine!.includes("beforeafter"), "surrounding text around lone ESC must be preserved");
+});
+
+test("ANSI: tab inside ANSI-decorated content is preserved after sequence stripping", () => {
+	const events = [assistant("\x1b[32mcode:\x1b[0m\there", 1)];
+	const lines = eventsToBodyLines(events, 80);
+
+	const contentLine = lines.find((l) => l.includes("code:"));
+	assert.ok(contentLine !== undefined, "content must appear in body lines");
+	assert.ok(contentLine!.includes("\t"), "tab must be preserved after ANSI stripping");
+	assert.ok(!contentLine!.includes("\x1b"), "no ESC residue in ANSI-decorated content");
+	assert.ok(!contentLine!.includes("[32m"), "no partial [32m sequence residue");
+	assert.ok(!contentLine!.includes("[0m"), "no partial [0m sequence residue");
+});
+
+test("ANSI: normal content without control chars or sequences renders byte-identically (no accidental stripping)", () => {
+	const events = [assistant("plain content, no controls", 1)];
+	const lines = eventsToBodyLines(events, 80);
+
+	const contentLine = lines.find((l) => l.includes("plain content"));
+	assert.ok(contentLine !== undefined, "content must appear");
+	assert.equal(contentLine, "plain content, no controls", "clean content must be unchanged by the fix");
+});
+
+// ── tool-call wrapping (long calls wrap, never truncate) ───────────────────────
+
+test("eventsToBodyLines: a tool call wider than the viewport wraps into indented continuation lines", () => {
+	const longArgs = Array.from({ length: 14 }, (_, i) => `seg${i}`).join(" ");
+	const toolLines = eventsToBodyLines([toolWithCall("read", `read ${longArgs}`)], 24).filter(isToolLine);
+
+	assert.ok(toolLines.length > 1, `a wide tool call must wrap, got ${toolLines.length} lines`);
+
+	// First line leads with the bold-accent verb; no ellipsis anywhere.
+	const head = styleTranscriptLine(toolLines[0], STYLER);
+	assert.ok(head.startsWith("<b><accent>read</accent></b>"), `head line must lead with the bold-accent verb, got ${head}`);
+
+	for (const l of toolLines) {
+		const visible = stripMarkers(l);
+		assert.ok(!visible.includes("…"), `no wrapped line may be truncated: ${JSON.stringify(visible)}`);
+		assert.ok(visible.length <= 24, `each wrapped line must fit the width, got ${visible.length}`);
+	}
+
+	// Continuation lines are indented and carry the args (muted) styling, never the verb.
+	for (const l of toolLines.slice(1)) {
+		assert.ok(stripMarkers(l).startsWith("  "), `continuation line must be indented: ${JSON.stringify(stripMarkers(l))}`);
+		const styled = styleTranscriptLine(l, STYLER);
+		assert.ok(styled.includes("<muted>"), `continuation must use the muted args colour: ${styled}`);
+		assert.ok(!styled.includes("<b>"), `continuation must not repeat the bold verb: ${styled}`);
+	}
+
+	// The full args text is recoverable across the wrapped lines.
+	const recovered = toolLines.map(stripMarkers).join(" ");
+	for (let i = 0; i < 14; i++) {
+		assert.ok(recovered.includes(`seg${i}`), `arg fragment seg${i} must survive wrapping, got: ${recovered}`);
+	}
+});
+
+test("eventsToBodyLines: a wrapped tool call keeps its ` · summary` attached and status-coloured", () => {
+	const longArgs = Array.from({ length: 14 }, (_, i) => `seg${i}`).join(" ");
+	const toolLines = eventsToBodyLines(
+		[toolWithCall("read", `read ${longArgs}`), toolResult("read", { resultText: "a\nb\nc" })],
+		24,
+	).filter(isToolLine);
+
+	assert.ok(toolLines.length > 1, "the tool call must wrap");
+
+	const styled = toolLines.map((l) => styleTranscriptLine(l, STYLER));
+	const carryingSummary = styled.filter((s) => s.includes("· <dim>3 lines</dim>"));
+	assert.equal(carryingSummary.length, 1, `exactly one wrapped line must carry the summary, got: ${JSON.stringify(styled)}`);
+});
+
+test("styleToolLine: every tool kind renders verb bold+accent and args in a distinct muted colour", () => {
+	const cases: Array<{ event: RunEvent; verb: string; args: string }> = [
+		{ event: toolWithTarget("read", "src/foo.ts"), verb: "read", args: "src/foo.ts" },
+		{ event: toolWithTarget("bash", "pnpm test"), verb: "bash", args: "$ pnpm test" },
+		{ event: toolWithCall("engram_mem_save", 'engram_mem_save (project: "ignis", title: "x")'), verb: "engram_mem_save", args: '(project: "ignis", title: "x")' },
+		{ event: toolWithCall("todo", "todo (write 3 items)"), verb: "todo", args: "(write 3 items)" },
+	];
+
+	for (const { event, verb, args } of cases) {
+		const [line] = eventsToBodyLines([event], 200);
+		const styled = styleTranscriptLine(line, STYLER);
+
+		assert.ok(isToolLine(line), `${verb} must be classified as a tool line`);
+		assert.equal(
+			styled,
+			`<b><accent>${verb}</accent></b> <muted>${args}</muted>`,
+			`${verb} must render verb bold+accent and args muted`,
+		);
+
+		// Visibly distinct from a plain assistant body line of the same text.
+		const plain = styleTranscriptLine(`${verb} ${args}`, STYLER);
+		assert.notEqual(styled, plain, `${verb} tool line must look different from plain assistant text`);
+		assert.equal(plain, `<text>${verb} ${args}</text>`, "the plain assistant line must use the default text colour");
+	}
+});
+
+test("eventsToBodyLines: wrapped tool calls leak no marker or raw control char after styling", () => {
+	const longArgs = Array.from({ length: 14 }, (_, i) => `seg${i}`).join(" ");
+	const lines = eventsToBodyLines(
+		[toolWithCall("engram_mem_save", `engram_mem_save ${longArgs}`), toolResult("engram_mem_save", { resultText: "x\ny" })],
+		24,
+	);
+
+	for (const l of lines) {
+		const styled = styleTranscriptLine(l, STYLER);
+		assert.ok(!hasRawControlChars(styled), `styled wrapped line must have no raw C0: ${JSON.stringify(styled)}`);
+	}
 });

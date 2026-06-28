@@ -225,8 +225,9 @@ export class ConversationViewer implements Component {
 	/**
 	 * Applies a semantic colour to one body line so assistant text, tool activity,
 	 * result summaries, edit diffs, and status transitions stand apart. Tool lines
-	 * get mixed colouring (bold verb, accent args, status-coloured summary) and diff
-	 * lines colour by their `+`/`-` change kind, both via `styleTranscriptLine`;
+	 * get mixed colouring (bold-accent verb, muted args, status-coloured summary,
+	 * with wrapped continuation lines kept in the muted args colour) and diff lines
+	 * colour by their `+`/`-` change kind, both via `styleTranscriptLine`;
 	 * free-flowing text keeps the default colour. The outer `row` handles padding
 	 * and width truncation.
 	 */

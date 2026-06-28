@@ -27,6 +27,35 @@ const SUM_DIM = "\u0002";
 const SUM_OK = "\u0003";
 const SUM_ERR = "\u0004";
 const DIFF_MARK = "\u0005";
+/**
+ * Marks a wrapped tool-call continuation line. A long `<verb> <args>` no longer
+ * truncates: `encodeToolItem` wraps it across lines, the first carrying `TOOL_MARK`
+ * (bold-accent verb + the leading args) and each overflow line carrying this marker
+ * so the styler renders it as indented, args-coloured text WITHOUT re-emitting the
+ * verb. Like the other markers it is a C0 control that cannot occur in real content.
+ */
+const TOOL_CONT_MARK = "\u0006";
+
+/**
+ * Strips ANSI/CSI escape sequences and C0 control characters from a single line
+ * of child-sourced text before it enters the encoding pipeline. Child processes
+ * (e.g. `pi --mode json`) emit ANSI color codes in thinking and assistant text;
+ * stripping them as complete units prevents leftover bracket residue like `[39m`
+ * or `[38;2;138;190;183m` that appears when only the leading ESC byte is removed.
+ * The viewer recolors lines itself via semantic markers, so child color codes
+ * carry no value and must be removed cleanly. Order matters: ANSI sequences are
+ * removed first (as a unit), then remaining C0 controls are stripped — this
+ * ensures a lone ESC (not part of any sequence) is also caught by the second
+ * pass. Tab (U+0009) is preserved because it carries meaning in code and diffs.
+ * Prevents marker-collision (bytes identical to TOOL_MARK / DIFF_MARK / SUM_*
+ * are used structurally by the encoder) and blocks raw control chars from leaking
+ * to the TUI.
+ */
+function stripControlChars(text: string): string {
+	return text
+		.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+		.replace(/[\x00-\x08\x0a-\x1f\x7f]/g, "");
+}
 
 type SummaryStatus = "dim" | "success" | "error";
 
@@ -98,16 +127,22 @@ function truncateByLength(text: string, max: number): string {
 
 /**
  * Splits a rendered tool line into its styled parts and strips the internal kind
- * marker: a bold verb, accent args, and a status-coloured ` · summary`. Detection
- * is structural — the line carries a `TOOL_MARK` prefix and an optional summary
- * marker that also names the summary's colour — so no glyph is needed and real
- * tool output can never be mistaken for a tool line. Returns `undefined` for any
- * line that is not a tool line so callers fall through to their default colouring.
+ * marker. A head line (`TOOL_MARK`) renders a bold-accent verb, muted args, and a
+ * status-coloured ` · summary`; a wrapped continuation line (`TOOL_CONT_MARK`)
+ * renders only the indented, muted args (no verb), keeping any trailing summary.
+ * Detection is structural — the line carries one of those prefixes plus an optional
+ * summary marker that also names the summary's colour — so no glyph is needed and
+ * real tool output can never be mistaken for a tool line. The verb is bold + accent
+ * and the args muted so a tool call reads as visibly distinct from plain assistant
+ * text. Returns `undefined` for any non-tool line so callers fall through to their
+ * default colouring.
  */
 export function styleToolLine(line: string, styler: TranscriptStyler): string | undefined {
-	if (!line.startsWith(TOOL_MARK)) return undefined;
+	const isHead = line.startsWith(TOOL_MARK);
+	const isCont = line.startsWith(TOOL_CONT_MARK);
+	if (!isHead && !isCont) return undefined;
 
-	const body = line.slice(TOOL_MARK.length);
+	const body = line.slice(1);
 
 	let callPart = body;
 	let summary: string | undefined;
@@ -122,12 +157,18 @@ export function styleToolLine(line: string, styler: TranscriptStyler): string | 
 		}
 	}
 
-	const spaceAt = callPart.indexOf(" ");
-	const verb = spaceAt < 0 ? callPart : callPart.slice(0, spaceAt);
-	const args = spaceAt < 0 ? "" : callPart.slice(spaceAt + 1);
+	let out: string;
+	if (isHead) {
+		const spaceAt = callPart.indexOf(" ");
+		const verb = spaceAt < 0 ? callPart : callPart.slice(0, spaceAt);
+		const args = spaceAt < 0 ? "" : callPart.slice(spaceAt + 1);
 
-	let out = styler.bold(verb);
-	if (args.length > 0) out += ` ${styler.fg("accent", args)}`;
+		out = styler.bold(styler.fg("accent", verb));
+		if (args.length > 0) out += ` ${styler.fg("muted", args)}`;
+	} else {
+		out = callPart.length > 0 ? styler.fg("muted", callPart) : "";
+	}
+
 	if (summary !== undefined && summary.length > 0) out += ` · ${styler.fg(STATUS_COLOR[status], summary)}`;
 	return out;
 }
@@ -487,18 +528,32 @@ function toolItemKey(item: ToolItem): string {
 }
 
 /**
- * Encodes one line item into a marked, width-fitted string. Tool lines keep their
- * verb/args/summary regions intact when they fit; when too wide they degrade to a
- * single truncated tool line (verb still bold). Diff lines carry the diff marker;
- * plain text passes through truncated.
+ * Encodes one line item into one or more marked, width-fitted strings. A tool line
+ * that fits stays a single head line; a too-wide tool line wraps across a head line
+ * plus indented continuation lines (never truncated). Diff lines carry the diff
+ * marker; plain text passes through truncated. Always returns at least one string.
  */
-function encodeItem(item: LineItem, width: number): string {
-	if (item.kind === "text") return width > 0 ? truncateByLength(item.text, width) : item.text;
-	if (item.kind === "diff") return `${DIFF_MARK}${width > 0 ? truncateByLength(item.text, width) : item.text}`;
+function encodeItem(item: LineItem, width: number): string[] {
+	if (item.kind === "text") return [width > 0 ? truncateByLength(item.text, width) : item.text];
+	if (item.kind === "diff") return [`${DIFF_MARK}${width > 0 ? truncateByLength(item.text, width) : item.text}`];
 	return encodeToolItem(item, width);
 }
 
-function encodeToolItem(item: ToolItem, width: number): string {
+/** Minimum text room a continuation line keeps; below it the args indent collapses to a small gutter. */
+const MIN_CONT_WIDTH = 8;
+
+/**
+ * Resolves the continuation indent so wrapped args align under the args column
+ * (`verb.length + 1`). When the verb is long enough that aligning would starve the
+ * continuation of usable width, the indent collapses to a small fixed gutter.
+ */
+function computeToolIndent(verb: string, width: number): number {
+	const aligned = verb.length + 1;
+	if (aligned + MIN_CONT_WIDTH <= width) return aligned;
+	return Math.min(2, Math.max(0, width - 1));
+}
+
+function encodeToolItem(item: ToolItem, width: number): string[] {
 	const countSuffix = item.count > 1 ? ` ×${item.count}` : "";
 	const call = item.verb + (item.args ? ` ${item.args}` : "") + countSuffix;
 	const hasSummary = item.summary !== undefined && item.summary.length > 0;
@@ -507,11 +562,54 @@ function encodeToolItem(item: ToolItem, width: number): string {
 
 	if (width <= 0 || visibleLength <= width) {
 		const summaryPart = hasSummary ? `${STATUS_MARK[item.status]}${summary}` : "";
-		return `${TOOL_MARK}${call}${summaryPart}`;
+		return [`${TOOL_MARK}${call}${summaryPart}`];
 	}
 
-	const full = call + (hasSummary ? ` · ${summary}` : "");
-	return `${TOOL_MARK}${truncateByLength(full, width)}`;
+	return wrapToolItem(item, width);
+}
+
+/**
+ * Wraps a too-wide tool call across multiple marked lines instead of truncating it,
+ * so the full call stays readable in the scrollable viewer. The head line carries
+ * `TOOL_MARK` with the bold-accent verb and the first slice of args; each overflow
+ * slice becomes a `TOOL_CONT_MARK` line indented under the args column and styled in
+ * the args (muted) colour, with no repeated verb. The status-coloured ` · summary`
+ * stays attached after the args — appended to the last line when it fits, otherwise
+ * placed on its own trailing continuation line. Each wrapped line gets its own
+ * leading marker (and the summary marker lands on exactly one line), so the styling
+ * layer recolours every line consistently and no marker leaks into the output.
+ */
+function wrapToolItem(item: ToolItem, width: number): string[] {
+	const countSuffix = item.count > 1 ? ` ×${item.count}` : "";
+	const argsRegion = item.args ? `${item.args}${countSuffix}` : countSuffix.trimStart();
+
+	const indent = computeToolIndent(item.verb, width);
+	const contentWidth = Math.max(1, width - indent);
+	const chunks = argsRegion.length > 0 ? wrapText(argsRegion, contentWidth) : [];
+
+	const lines: string[] = [];
+	const firstChunk = chunks[0] ?? "";
+	lines.push(`${TOOL_MARK}${item.verb}${firstChunk ? ` ${firstChunk}` : ""}`);
+	let lastVisible = item.verb.length + (firstChunk ? 1 + firstChunk.length : 0);
+
+	for (let i = 1; i < chunks.length; i++) {
+		const chunk = chunks[i];
+		lines.push(`${TOOL_CONT_MARK}${" ".repeat(indent)}${chunk}`);
+		lastVisible = indent + chunk.length;
+	}
+
+	const hasSummary = item.summary !== undefined && item.summary.length > 0;
+	if (hasSummary) {
+		const summary = item.summary ?? "";
+		const summaryMark = STATUS_MARK[item.status];
+		if (lastVisible + 3 + summary.length <= width) {
+			lines[lines.length - 1] += `${summaryMark}${summary}`;
+		} else {
+			lines.push(`${TOOL_CONT_MARK}${" ".repeat(indent)}${summaryMark}${summary}`);
+		}
+	}
+
+	return lines;
 }
 
 /**
@@ -529,10 +627,10 @@ function finalizeItems(items: LineItem[], width: number): string[] {
 		}
 		collapsed.push(item.kind === "tool" ? { ...item } : item);
 	}
-	return collapsed.map((item) => encodeItem(item, width));
+	return collapsed.flatMap((item) => encodeItem(item, width));
 }
 
-export type TranscriptColor = "accent" | "success" | "error" | "warning" | "dim" | "text";
+export type TranscriptColor = "accent" | "success" | "error" | "warning" | "muted" | "dim" | "text";
 
 /**
  * Maps a transcript line to a semantic colour so the viewer can give assistant
@@ -575,11 +673,12 @@ export function resolveViewportOffset(scrollOffset: number, maxScroll: number, f
  * edit diffs, and status transitions. When `prompt` is provided it is prepended as
  * a `[prompt]` block.
  *
- * Each tool call becomes one line; a following `run.tool_result` is correlated to
- * its call (by `toolCallId` when present, else by adjacency to the most recent
- * unmatched call) and its summary is folded into that line, with an edit's diff
- * rendered as a following block. Lines carry internal kind markers that the
- * styling layer strips, so the visible line starts with the verb — no glyph.
+ * Each tool call becomes one line, or several when it is too wide and wraps; a
+ * following `run.tool_result` is correlated to its call (by `toolCallId` when
+ * present, else by adjacency to the most recent unmatched call) and its summary is
+ * folded into that line, with an edit's diff rendered as a following block. Lines
+ * carry internal kind markers that the styling layer strips, so the visible line
+ * starts with the verb — no glyph.
  */
 export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: string): string[] {
 	const items: LineItem[] = [];
@@ -595,7 +694,7 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 
 	const flushThinking = () => {
 		if (thinkingRun.length === 0) return;
-		for (const line of renderThinkingBlock(thinkingRun, width)) pushText(line);
+		for (const line of renderThinkingBlock(thinkingRun, width)) pushText(stripControlChars(line));
 		thinkingRun = [];
 	};
 
@@ -614,7 +713,8 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 			case "run.progress": {
 				const tool = toolNameFromProgress(event.message);
 				if (tool) {
-					const display = event.toolCall ?? (event.target ? `${tool} ${event.target}` : tool);
+					const rawDisplay = event.toolCall ?? (event.target ? `${tool} ${event.target}` : tool);
+					const display = stripControlChars(rawDisplay);
 					const { verb, args } = splitToolDisplay(display, tool);
 					const item: ToolItem = { kind: "tool", verb, args, status: "dim", matched: false, count: 1 };
 					items.push(item);
@@ -627,7 +727,7 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 			case "run.output":
 				if (event.role === "assistant" && event.text) {
 					pushText("[Assistant]");
-					for (const line of wrapText(event.text, width)) pushText(line);
+					for (const line of wrapText(event.text, width)) pushText(stripControlChars(line));
 				}
 				break;
 			case "run.tool_result": {
@@ -635,12 +735,20 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 				if (idx !== undefined) {
 					const item = toolItems[idx];
 					item.matched = true;
-					item.summary = deriveToolSummary(event.toolName, event);
-					item.status = deriveSummaryStatus(event.toolName, event);
+					const resultInfo: ToolResultInfo = {
+						resultText:
+							event.resultText !== undefined
+								? event.resultText.split("\n").map(stripControlChars).join("\n")
+								: undefined,
+						details: event.details,
+						isError: event.isError,
+					};
+					item.summary = deriveToolSummary(event.toolName, resultInfo);
+					item.status = deriveSummaryStatus(event.toolName, resultInfo);
 
 					const diff = diffOf(event.details);
 					if (diff !== undefined) {
-						for (const line of diffBlockLines(diff)) items.push({ kind: "diff", text: line });
+						for (const line of diffBlockLines(diff)) items.push({ kind: "diff", text: stripControlChars(line) });
 					}
 				}
 				break;
