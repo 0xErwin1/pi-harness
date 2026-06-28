@@ -245,20 +245,63 @@ function renderExpanded(
 	const header = `${icon} ${theme.bold(model.agent || "subagent")} ${theme.fg("dim", "·")} ${theme.fg("dim", `${model.status} · ${formatElapsed(model.elapsedMs)}`)}`;
 	container.addChild(new TruncatedText(header));
 
-	const bodyLines = buildExpandedBodyLines(access, runIds, 0);
-
-	if (bodyLines.length === 0) {
-		container.addChild(new Text(""));
-		container.addChild(new TruncatedText(theme.fg("dim", "(no activity yet)")));
-		return container;
-	}
-
-	container.addChild(new Text(""));
-	for (const line of bodyLines) {
-		container.addChild(renderExpandedLine(line, theme));
-	}
+	container.addChild(buildExpandedBody(access, runIds, theme));
 
 	return container;
+}
+
+/**
+ * Builds the expanded transcript body as a DEFERRED component.
+ *
+ * Line-building is postponed to `render(width)` because the real draw width is only
+ * known at draw time. Re-running `buildExpandedBodyLines` at that width lets
+ * `eventsToBodyLines` wrap tool calls and thinking blocks exactly as the conversation
+ * viewer overlay does, instead of collapsing them to a width-0 single line that the
+ * old per-line `TruncatedText` children then chopped with an ellipsis. The leading
+ * blank line and the empty-state placeholder are produced here too so the whole body
+ * reflects the same draw width. A non-positive width degrades to unwrapped, untruncated
+ * styled lines rather than crashing.
+ */
+export function buildExpandedBody(access: SubagentRowAccess, runIds: string[], theme: Theme): Component {
+	return {
+		invalidate(): void {},
+		render(width: number): string[] {
+			if (width <= 0) {
+				const rawLines = buildExpandedBodyLines(access, runIds, 0);
+				if (rawLines.length === 0) return ["", theme.fg("dim", "(no activity yet)")];
+				return ["", ...rawLines.map((line) => styleExpandedLine(line, theme))];
+			}
+
+			const rawLines = buildExpandedBodyLines(access, runIds, width);
+			if (rawLines.length === 0) return ["", theme.fg("dim", "(no activity yet)")];
+
+			return ["", ...rawLines.flatMap((line) => renderExpandedLine(line, theme).render(width))];
+		},
+	};
+}
+
+/**
+ * Applies the shared transcript colouring to one already-wrapped line and returns the
+ * styled string (the same classification `renderExpandedLine` uses, without the
+ * component wrapper). Used by the deferred body's degenerate non-positive-width path,
+ * where no draw width is available to wrap or truncate against.
+ */
+function styleExpandedLine(line: string, theme: Theme): string {
+	if (line.length === 0) return "";
+
+	const styler: TranscriptStyler = {
+		fg: (color, text) => theme.fg(color, text),
+		bold: (text) => theme.bold(text),
+	};
+
+	const styledTool = styleToolLine(line, styler);
+	if (styledTool !== undefined) return styledTool;
+
+	const styledDiff = styleDiffLine(line, styler);
+	if (styledDiff !== undefined) return styledDiff;
+
+	const color = transcriptLineColor(line);
+	return color === "text" ? line : theme.fg(color, line);
 }
 
 /**

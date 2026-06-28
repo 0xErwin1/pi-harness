@@ -2,10 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
 	buildCollapsedLine,
+	buildExpandedBody,
 	collapsedSpinnerFrame,
 	resolveRowCounts,
 } from "../../packages/subagent-manager-pi/tui/subagent-row.ts";
-import type { SubagentRowModel } from "../../packages/subagent-manager-pi/tui/subagent-row-model.ts";
+import type {
+	SubagentRowAccess,
+	SubagentRowModel,
+} from "../../packages/subagent-manager-pi/tui/subagent-row-model.ts";
+import { eventsToBodyLines } from "../../packages/subagent-manager-pi/tui/conversation-viewer-model.ts";
+import type { RunEvent } from "../../packages/subagent-manager-core/events.ts";
+import type { Theme } from "@mariozechner/pi-coding-agent";
 import { ICON_CATALOG } from "../../packages/subagent-manager-pi/icons/catalog.ts";
 
 function makeModel(overrides: Partial<SubagentRowModel> = {}): SubagentRowModel {
@@ -120,4 +127,142 @@ test("buildCollapsedLine: formats sub-second and multi-minute elapsed", () => {
 		{ turns: 0, tools: 0 },
 	);
 	assert.ok(multiMinute.includes("2m5s · "), multiMinute);
+});
+
+// ── inline EXPANDED transcript: deferred draw-time wrapping (matches overlay) ──
+
+/**
+ * Identity theme double: `fg`/`bold` return the text unchanged, so the styled
+ * output of a body line is its visible text and can be substring/width-asserted
+ * without an ANSI parser. Cast to Theme — only `fg`/`bold` are exercised here.
+ */
+const IDENTITY_THEME = {
+	fg: (_color: string, text: string): string => text,
+	bold: (text: string): string => text,
+} as unknown as Theme;
+
+let rowEventSeq = 0;
+
+function rowToolWithCall(name: string, toolCall: string): RunEvent {
+	return {
+		id: `re${rowEventSeq++}`,
+		runId: "r1",
+		type: "run.progress",
+		message: `tool: ${name}`,
+		toolCall,
+		at: new Date().toISOString(),
+	};
+}
+
+function rowThinking(text: string): RunEvent {
+	return {
+		id: `re${rowEventSeq++}`,
+		runId: "r1",
+		type: "run.output",
+		chunk: text,
+		kind: "thinking",
+		text,
+		turn: 1,
+		at: new Date().toISOString(),
+	};
+}
+
+/** Access double whose `events` accessor returns a fixed event stream for run `r1`. */
+function makeAccess(events: RunEvent[]): SubagentRowAccess {
+	return {
+		snapshot: () => undefined,
+		messages: () => [],
+		events: () => events,
+	};
+}
+
+/** Strips the transcript control-char markers so a rendered line's visible width is measurable. */
+function stripBodyMarkers(line: string): string {
+	return line.replace(/[-]/g, "");
+}
+
+test("buildExpandedBody: a long tool call wraps into MULTIPLE lines at a narrow width, no ellipsis", () => {
+	const longArgs = Array.from({ length: 16 }, (_, i) => `seg${i}`).join(" ");
+	const access = makeAccess([rowToolWithCall("read", `read ${longArgs}`)]);
+
+	const lines = buildExpandedBody(access, ["r1"], IDENTITY_THEME).render(24);
+
+	const contentLines = lines.filter((l) => l.trim().length > 0);
+	assert.ok(contentLines.length > 1, `a wide tool call must wrap at draw time, got ${contentLines.length}`);
+
+	for (const l of contentLines) {
+		const visible = stripBodyMarkers(l);
+		assert.ok(!visible.includes("…"), `wrapped lines must never be truncated: ${JSON.stringify(visible)}`);
+		assert.ok(visible.length <= 24, `each wrapped line must fit the width, got ${visible.length}`);
+	}
+
+	const recovered = contentLines.map(stripBodyMarkers).join(" ");
+	for (let i = 0; i < 16; i++) {
+		assert.ok(recovered.includes(`seg${i}`), `arg fragment seg${i} must survive wrapping, got: ${recovered}`);
+	}
+});
+
+test("buildExpandedBody: a long thinking body wraps into MULTIPLE lines at a narrow width, full text recoverable", () => {
+	const longThought = "reasoning ".repeat(30).trim();
+	const access = makeAccess([rowThinking(longThought)]);
+
+	const lines = buildExpandedBody(access, ["r1"], IDENTITY_THEME).render(40);
+
+	const bodyLines = lines.filter((l) => l.startsWith("│ "));
+	assert.ok(bodyLines.length > 1, `a long thought must wrap into multiple body lines, got ${bodyLines.length}`);
+	for (const l of bodyLines) {
+		assert.ok(!l.includes("…"), `thinking body must never be truncated: ${JSON.stringify(l)}`);
+		assert.ok(l.length <= 40, `each wrapped body line must fit the width, got ${l.length}`);
+	}
+	assert.ok(bodyLines.some((l) => l.includes("reasoning")), "the reasoning text must survive wrapping");
+});
+
+test("buildExpandedBody: defers to draw width — narrow render yields more lines than wide render", () => {
+	const longArgs = Array.from({ length: 16 }, (_, i) => `seg${i}`).join(" ");
+	const access = makeAccess([rowToolWithCall("read", `read ${longArgs}`)]);
+	const body = buildExpandedBody(access, ["r1"], IDENTITY_THEME);
+
+	const narrow = body.render(24).filter((l) => l.trim().length > 0);
+	const wide = body.render(200).filter((l) => l.trim().length > 0);
+
+	assert.ok(narrow.length > wide.length, `narrow width must produce more wrapped lines (${narrow.length}) than wide (${wide.length})`);
+});
+
+test("buildExpandedBody: at the real width the body matches the overlay's eventsToBodyLines output", () => {
+	const longArgs = Array.from({ length: 16 }, (_, i) => `seg${i}`).join(" ");
+	const events = [rowToolWithCall("read", `read ${longArgs}`), rowThinking("reasoning ".repeat(20).trim())];
+	const access = makeAccess(events);
+
+	const width = 30;
+	const rtrim = (l: string): string => l.replace(/\s+$/, "");
+	const bodyLines = buildExpandedBody(access, ["r1"], IDENTITY_THEME)
+		.render(width)
+		.map(rtrim)
+		.filter((l) => l.length > 0);
+
+	const overlayLines = eventsToBodyLines(events, width)
+		.map(stripBodyMarkers)
+		.map(rtrim)
+		.filter((l) => l.length > 0);
+
+	assert.deepEqual(bodyLines, overlayLines, "the inline expanded body must wrap exactly like the overlay viewer (padding aside)");
+});
+
+test("buildExpandedBody: no activity yields a '(no activity yet)' line, never a crash", () => {
+	const access = makeAccess([]);
+
+	const lines = buildExpandedBody(access, ["r1"], IDENTITY_THEME).render(40);
+
+	assert.ok(lines.some((l) => l.includes("(no activity yet)")), `empty transcript must render the placeholder, got: ${JSON.stringify(lines)}`);
+});
+
+test("buildExpandedBody: a non-positive width degrades to unwrapped lines without crashing", () => {
+	const longArgs = Array.from({ length: 16 }, (_, i) => `seg${i}`).join(" ");
+	const access = makeAccess([rowToolWithCall("read", `read ${longArgs}`)]);
+
+	assert.doesNotThrow(() => {
+		const lines = buildExpandedBody(access, ["r1"], IDENTITY_THEME).render(0);
+		const recovered = lines.map(stripBodyMarkers).join(" ");
+		assert.ok(recovered.includes("seg0") && recovered.includes("seg15"), "full args must survive at width 0");
+	});
 });

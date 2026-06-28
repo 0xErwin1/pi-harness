@@ -23,7 +23,7 @@
  * entirely, remove this file from `extensions/` (it is auto-discovered there) or
  * drop it from the `"pi".extensions` entry in `package.json`.
  */
-import { type Component, Container, TruncatedText } from "@mariozechner/pi-tui";
+import { type Component, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
@@ -239,12 +239,42 @@ function themeStyler(theme: Theme): ToolLineStyler {
 	};
 }
 
-function linesToComponent(lines: string[]): Component {
-	if (lines.length === 1) return new TruncatedText(lines[0]);
+/**
+ * Builds a DEFERRED render component that word-wraps its styled lines to the real
+ * draw width.
+ *
+ * The draw width is only known at draw time (`render(width)`), so both the line
+ * building and the wrapping are postponed to then: each styled line is wrapped with
+ * `wrapTextWithAnsi`, which word-wraps while preserving the ANSI colour across the
+ * breaks, so long calls/results flow onto continuation lines instead of being chopped
+ * with an ellipsis. A non-positive width degrades to the unwrapped lines.
+ *
+ * DEFENSIVE: this renderer is installed globally over Pi's built-ins, so a formatting
+ * bug must never escape and break tool execution. If building or wrapping throws, it
+ * falls back to a minimal `<verb> <args>` line (wrapped when a width is available,
+ * plain otherwise).
+ */
+function deferredWrappedLines(buildLines: () => string[], fallback: () => string): Component {
+	const wrap = (line: string, width: number): string[] => {
+		if (width <= 0) return [line];
+		return wrapTextWithAnsi(line, width);
+	};
 
-	const container = new Container();
-	for (const line of lines) container.addChild(new TruncatedText(line));
-	return container;
+	return {
+		invalidate(): void {},
+		render(width: number): string[] {
+			try {
+				return buildLines().flatMap((line) => wrap(line, width));
+			} catch {
+				const line = fallback();
+				try {
+					return wrap(line, width);
+				} catch {
+					return [line];
+				}
+			}
+		},
+	};
 }
 
 /**
@@ -262,24 +292,24 @@ export function overrideToolRendering<TParams extends TSchema, TDetails, TState>
 	pi.registerTool<TParams, TDetails, TState>({
 		...definition,
 		renderShell: "self",
-		renderCall: (args, theme) => {
-			try {
-				return new TruncatedText(buildToolCallLine(toolName, args, themeStyler(theme)));
-			} catch {
-				return new TruncatedText(minimalLine(toolName, args));
-			}
-		},
-		renderResult: (result: AgentToolResult<TDetails>, options: ToolRenderResultOptions, theme, context) => {
-			const lines = safeBuildToolResultLines(
-				toolName,
-				context.args,
-				result,
-				context.isError,
-				options.expanded,
-				themeStyler(theme),
-			);
-			return linesToComponent(lines);
-		},
+		renderCall: (args, theme) =>
+			deferredWrappedLines(
+				() => [buildToolCallLine(toolName, args, themeStyler(theme))],
+				() => minimalLine(toolName, args),
+			),
+		renderResult: (result: AgentToolResult<TDetails>, options: ToolRenderResultOptions, theme, context) =>
+			deferredWrappedLines(
+				() =>
+					safeBuildToolResultLines(
+						toolName,
+						context.args,
+						result,
+						context.isError,
+						options.expanded,
+						themeStyler(theme),
+					),
+				() => minimalLine(toolName, context.args),
+			),
 	});
 }
 
