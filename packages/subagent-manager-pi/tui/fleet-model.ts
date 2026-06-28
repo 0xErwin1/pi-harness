@@ -229,7 +229,7 @@ function mergeNode(
 		tools,
 		tokens,
 		staleRunning,
-		children: node.children.map((child) => mergeNode(child, ctx, liveByAgentId, activityById)),
+		children: [],
 	};
 }
 
@@ -260,14 +260,18 @@ function synthLocalNode(
 }
 
 /**
- * Merges the file-backed forest with the live in-memory snapshots.
+ * Merges the file-backed forest with the live in-memory snapshots into one tree.
  *
- * For every node, file meta is authoritative for structure (depth, parent
- * links). For LOCAL nodes the live snapshot overrides liveness fields (status,
- * activity, tokens, tools, timestamps) because the file lags slightly behind the
- * in-memory store. Live local runs the sink has not flushed yet are synthesised
- * as roots so a freshly-started agent appears immediately. Roots are returned
- * sorted by start time; children keep the reader's start-time order.
+ * Both sources contribute nodes: every file node (flattened) plus every live local
+ * snapshot the file sink has not flushed yet. Each node is then linked under its
+ * `parentAgentId` whenever that parent is known from EITHER source. This is what
+ * keeps nesting correct in flight: a child must never be orphaned to the root just
+ * because, at this instant, its parent is represented only by a live snapshot (which
+ * carries no children) or only by a file node. For LOCAL nodes the live snapshot
+ * overrides liveness fields (status, activity, tokens, tools, timestamps) because the
+ * file lags slightly behind the in-memory store. Roots and children are returned
+ * sorted by start time. A node whose parent is unknown (or which would point at
+ * itself) is a root.
  */
 export function mergeForest(
 	roots: AgentNode[],
@@ -275,22 +279,39 @@ export function mergeForest(
 	liveByAgentId: Map<string, RunSnapshot>,
 	activityById: Map<string, string>,
 ): FleetNode[] {
-	const present = new Set<string>();
-	const collect = (node: AgentNode): void => {
-		present.add(node.agentId);
-		node.children.forEach(collect);
-	};
-	roots.forEach(collect);
+	const byId = new Map<string, FleetNode>();
 
-	const merged = roots.map((root) => mergeNode(root, ctx, liveByAgentId, activityById));
+	const collectFileNodes = (node: AgentNode): void => {
+		if (!byId.has(node.agentId)) {
+			byId.set(node.agentId, mergeNode(node, ctx, liveByAgentId, activityById));
+		}
+		node.children.forEach(collectFileNodes);
+	};
+	roots.forEach(collectFileNodes);
 
 	for (const [agentId, snap] of liveByAgentId) {
-		if (present.has(agentId)) continue;
-		merged.push(synthLocalNode(agentId, snap, ctx, activityById));
+		if (!byId.has(agentId)) byId.set(agentId, synthLocalNode(agentId, snap, ctx, activityById));
 	}
 
-	merged.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-	return merged;
+	for (const node of byId.values()) node.children = [];
+
+	const treeRoots: FleetNode[] = [];
+	for (const node of byId.values()) {
+		const parent = node.parentAgentId ? byId.get(node.parentAgentId) : undefined;
+		if (parent && parent !== node) parent.children.push(node);
+		else treeRoots.push(node);
+	}
+
+	const byStartedAt = (a: FleetNode, b: FleetNode) => a.startedAt.localeCompare(b.startedAt);
+	const sortChildren = (node: FleetNode): void => {
+		node.children.sort(byStartedAt);
+		node.children.forEach(sortChildren);
+	};
+
+	treeRoots.sort(byStartedAt);
+	treeRoots.forEach(sortChildren);
+
+	return treeRoots;
 }
 
 /**

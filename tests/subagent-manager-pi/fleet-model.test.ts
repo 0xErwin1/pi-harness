@@ -367,6 +367,49 @@ test("mergeForest: roots are sorted by start time", () => {
 	assert.deepEqual(merged.map((n) => n.agentId), ["P-early", "P-late"]);
 });
 
+test("mergeForest: a file child nests under a parent present only as a live snapshot (no orphan)", () => {
+	// The transient nesting bug: the parent run is live in the in-memory store but its
+	// file meta has not been scanned yet, while the child's file meta already points at
+	// it. The child must adopt the live parent instead of being orphaned to the root.
+	const childFile = makeAgentNode("Q-c1", { depth: 2, parentAgentId: "P-r1", status: "running" });
+	const parentLive = makeSnapshot("r1", { status: "running" });
+
+	const merged = mergeForest([childFile], LOCAL_CTX, new Map([["P-r1", parentLive]]), new Map());
+
+	assert.equal(merged.length, 1, "only the parent is a root");
+	assert.equal(merged[0].agentId, "P-r1");
+	assert.deepEqual(merged[0].children.map((n) => n.agentId), ["Q-c1"], "the file child nests under the live parent");
+});
+
+test("mergeForest: links a child to its parent even when both arrive as flat file roots", () => {
+	const parent = makeAgentNode("P-r1");
+	const child = makeAgentNode("Q-c1", { depth: 2, parentAgentId: "P-r1" });
+
+	const merged = mergeForest([parent, child], LOCAL_CTX, new Map(), new Map());
+
+	assert.equal(merged.length, 1);
+	assert.equal(merged[0].agentId, "P-r1");
+	assert.deepEqual(merged[0].children.map((n) => n.agentId), ["Q-c1"]);
+});
+
+test("mergeForest: a child whose parent is unknown stays a root", () => {
+	const orphan = makeAgentNode("Q-c1", { parentAgentId: "missing" });
+
+	const merged = mergeForest([orphan], LOCAL_CTX, new Map(), new Map());
+
+	assert.deepEqual(merged.map((n) => n.agentId), ["Q-c1"]);
+	assert.equal(merged[0].children.length, 0);
+});
+
+test("mergeForest: a node referencing itself as parent is treated as a root (no self-cycle)", () => {
+	const selfRef = makeAgentNode("P-r1", { parentAgentId: "P-r1" });
+
+	const merged = mergeForest([selfRef], LOCAL_CTX, new Map(), new Map());
+
+	assert.equal(merged.length, 1);
+	assert.equal(merged[0].children.length, 0);
+});
+
 test("isFleetNodeVisible: active nodes are always visible", () => {
 	assert.equal(isFleetNodeVisible(makeNode("a", { status: "running" }), BASE_NOW), true);
 	assert.equal(isFleetNodeVisible(makeNode("a", { status: "needs-attention" }), BASE_NOW), true);
