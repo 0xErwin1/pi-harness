@@ -109,7 +109,7 @@ interface AgentRoutingEntry {
 	thinking?: ThinkingLevel;
 }
 
-type AgentModelConfig = Record<string, AgentRoutingEntry>;
+export type AgentModelConfig = Record<string, AgentRoutingEntry>;
 type AgentSource = "project" | "user" | "builtin";
 
 interface AgentEntry {
@@ -185,7 +185,7 @@ function normalizeRoutingEntry(value: unknown): AgentRoutingEntry | undefined {
 	return { model, thinking };
 }
 
-function readModelConfig(cwd: string): AgentModelConfig {
+export function readModelConfig(cwd: string): AgentModelConfig {
 	const path = modelConfigPath(cwd);
 	if (!existsSync(path)) return {};
 
@@ -435,7 +435,7 @@ interface OverlayComponent {
 	invalidate(): void;
 }
 
-type ModelPanelResult =
+export type ModelPanelResult =
 	| { type: "save"; config: AgentModelConfig }
 	| { type: "custom"; agent: string | "all"; config: AgentModelConfig }
 	| { type: "cancel" };
@@ -453,7 +453,7 @@ const SET_ALL_AGENTS = "Set all agents";
  * The component mutates an internal `draft` config and reports the outcome
  * through the `done` callback as a `ModelPanelResult`.
  */
-class ModelPanel implements OverlayComponent {
+export class ModelPanel implements OverlayComponent {
 	private cursor = 0;
 	private mode: "agents" | "models" | "effort" = "agents";
 	private selectedRow = SET_ALL_AGENTS;
@@ -500,11 +500,11 @@ class ModelPanel implements OverlayComponent {
 	private handleAgentInput(data: string): void {
 		const maxCursor = this.rows.length + 1;
 
-		if (matchesKey(data, "ctrl+c") || matchesKey(data, "escape")) {
+		if (matchesKey(data, "ctrl+c")) {
 			this.done({ type: "cancel" });
 			return;
 		}
-		if (matchesKey(data, "ctrl+s")) {
+		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+s")) {
 			this.done({ type: "save", config: this.draft });
 			return;
 		}
@@ -698,15 +698,17 @@ class ModelPanel implements OverlayComponent {
 
 		lines.push("");
 		lines.push(
-			line(`${this.cursor === this.rows.length ? ">" : " "} Continue`),
+			line(`${this.cursor === this.rows.length ? ">" : " "} Continue (save)`),
 		);
 		lines.push(
-			line(`${this.cursor === this.rows.length + 1 ? ">" : " "} < Back`),
+			line(
+				`${this.cursor === this.rows.length + 1 ? ">" : " "} Cancel (discard)`,
+			),
 		);
 		lines.push("");
 		lines.push(
 			line(
-				"j/k: navigate • enter: change model / confirm • e: change effort • i: inherit all • c: custom model • ctrl+s: save • esc: back",
+				"j/k move • enter edit • e effort • i inherit • c custom • esc/ctrl+s save • ctrl+c discard",
 			),
 		);
 
@@ -905,8 +907,34 @@ function readDefaultModelId(): string | undefined {
 	return undefined;
 }
 
+/**
+ * Resolves the model/thinking an agent should run with, preferring the
+ * per-agent values saved via `/sdd:models` and falling back to the session
+ * default model. `thinking` has no session default, so it is left undefined
+ * when unconfigured.
+ */
+export function resolveAgentRouting(
+	config: AgentModelConfig,
+	agentName: string,
+	defaultModel: string | undefined,
+): { model: string | undefined; thinking: ThinkingLevel | undefined } {
+	const entry = config[agentName];
+	return {
+		model: entry?.model ?? defaultModel,
+		thinking: entry?.thinking,
+	};
+}
+
+/**
+ * Builds the manager registry. Discovered agents honor the per-agent model and
+ * thinking saved via `/sdd:models` (read from `.pi/harness/models.json`),
+ * falling back to the session default model. The builtin generic agents
+ * (general-purpose / Explore / Plan) are not part of the panel's discoverable
+ * list, so they intentionally stay on the session default.
+ */
 function createManagerRegistry(cwd: string): AgentSpec[] {
 	const defaultModel = readDefaultModelId();
+	const config = readModelConfig(cwd);
 	const genericAgents: AgentSpec[] = [
 		{
 			name: "general-purpose",
@@ -940,16 +968,20 @@ function createManagerRegistry(cwd: string): AgentSpec[] {
 		},
 	];
 
-	const discoveredAgents: AgentSpec[] = listDiscoverableAgents(cwd).map((agent): AgentSpec => ({
-		name: agent.name,
-		description: agent.description ?? `${agent.source} agent ${agent.name}`,
-		promptRef: agent.filePath ?? agent.name,
-		policyMode: agent.name.startsWith("review-") || agent.name === "sdd-verify" ? "reviewer" : "writer",
-		model: defaultModel,
-		execution: "auto",
-		inheritProjectContext: true,
-		inheritSkills: false,
-	}));
+	const discoveredAgents: AgentSpec[] = listDiscoverableAgents(cwd).map((agent): AgentSpec => {
+		const routing = resolveAgentRouting(config, agent.name, defaultModel);
+		return {
+			name: agent.name,
+			description: agent.description ?? `${agent.source} agent ${agent.name}`,
+			promptRef: agent.filePath ?? agent.name,
+			policyMode: agent.name.startsWith("review-") || agent.name === "sdd-verify" ? "reviewer" : "writer",
+			model: routing.model,
+			thinking: routing.thinking,
+			execution: "auto",
+			inheritProjectContext: true,
+			inheritSkills: false,
+		};
+	});
 
 	return [...genericAgents, ...discoveredAgents];
 }
