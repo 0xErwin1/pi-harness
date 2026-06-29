@@ -29,6 +29,7 @@ import {
 	stripOsc133,
 	reapplyOsc133,
 	applyUserMarker,
+	clampLineWidths,
 	thinkingLineCount,
 	summarizeThinking,
 	collapseThinkingLines,
@@ -119,10 +120,10 @@ export default function messageRenderer(pi: ExtensionAPI): void {
 			UserMessageComponent,
 			"render",
 			SYM_U,
-			safeRenderWrapper((lines, _self, _width) => {
+			safeRenderWrapper((lines, _self, width) => {
 				const { body, markers } = stripOsc133(lines);
 				const marked = applyUserMarker(body, accentStyler);
-				return reapplyOsc133(marked, markers);
+				return reapplyOsc133(clampLineWidths(marked, width), markers);
 			}),
 		);
 
@@ -130,7 +131,7 @@ export default function messageRenderer(pi: ExtensionAPI): void {
 			AssistantMessageComponent,
 			"render",
 			SYM_A,
-			safeRenderWrapper((lines, self, _width) => {
+			safeRenderWrapper((lines, self, width) => {
 				const { body, markers } = stripOsc133(lines);
 
 				// lastMessage is TypeScript-private on AssistantMessageComponent but is
@@ -142,7 +143,7 @@ export default function messageRenderer(pi: ExtensionAPI): void {
 
 				const transformed = collapseThinkingLines(body, isThinkingLine, thinkingViewState.collapsed, summary);
 
-				return reapplyOsc133(transformed, markers);
+				return reapplyOsc133(clampLineWidths(transformed, width), markers);
 			}),
 		);
 	});
