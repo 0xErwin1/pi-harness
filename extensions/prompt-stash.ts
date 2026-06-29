@@ -24,6 +24,20 @@ function projectOf(cwd: string): string {
 }
 
 /**
+ * Whether this pi process is a spawned subagent rather than the user's session.
+ * The subagent runner sets PI_HARNESS_PARENT_AGENT_ID and a non-zero
+ * PI_HARNESS_SUBAGENT_DEPTH on every child. Subagents share the same prompt
+ * database, so without this guard their delegation prompts would pollute the
+ * user's history.
+ */
+function isSubagentProcess(): boolean {
+	return (
+		process.env.PI_HARNESS_PARENT_AGENT_ID !== undefined ||
+		Number.parseInt(process.env.PI_HARNESS_SUBAGENT_DEPTH ?? "0", 10) > 0
+	);
+}
+
+/**
  * Shows the stash browser as a focused overlay and, when the user picks an entry,
  * loads its text into the editor. No-op outside the TUI, where custom overlays
  * and the editor are unavailable.
@@ -48,7 +62,7 @@ async function openPopup(ctx: ExtensionContext, initialTab: StashTab): Promise<v
 
 export default function promptStash(pi: ExtensionAPI): void {
 	pi.on("input", (event, ctx) => {
-		if (event.source === "interactive" && !event.text.startsWith("/")) {
+		if (event.source === "interactive" && !event.text.startsWith("/") && !isSubagentProcess()) {
 			try {
 				const cwd = ctx.sessionManager.getCwd();
 				getPromptDb().addHistory({

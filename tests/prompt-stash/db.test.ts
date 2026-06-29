@@ -150,6 +150,18 @@ test("addHistory: skips a prompt identical to the immediately previous one, and 
 	db.close();
 });
 
+test("removeHistory: deletes a single entry by id", () => {
+	const db = freshDb();
+	const a = db.addHistory({ sessionId: "s1", text: "keep" });
+	const b = db.addHistory({ sessionId: "s1", text: "drop" });
+
+	assert.equal(db.removeHistory(b!.id), true);
+	assert.equal(db.removeHistory(b!.id), false, "already gone");
+	assert.deepEqual(db.listHistory().map((e) => e.text), ["keep"]);
+	assert.ok(a, "first insert returned an entry");
+	db.close();
+});
+
 test("addHistory: consecutive-dedup can be disabled", () => {
 	const db = freshDb();
 	db.addHistory({ sessionId: "s1", text: "x" }, { dedupConsecutive: false });

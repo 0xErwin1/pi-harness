@@ -37,8 +37,9 @@ test("normal mode: vim and arrow navigation map to move/page/top/bottom", () => 
 	assert.deepEqual(classifyPopupKey(KEY.ctrlU, false), { kind: "page", dir: -1 });
 });
 
-test("normal mode: action keys map to select/delete/switchTab/filterStart/close", () => {
+test("normal mode: action keys map to select/toggleMark/delete/switchTab/filterStart/close", () => {
 	assert.deepEqual(classifyPopupKey(KEY.enter, false), { kind: "select" });
+	assert.deepEqual(classifyPopupKey(" ", false), { kind: "toggleMark" }, "Space marks a row");
 	assert.deepEqual(classifyPopupKey("d", false), { kind: "delete" });
 	assert.deepEqual(classifyPopupKey(KEY.tab, false), { kind: "switchTab" });
 	assert.deepEqual(classifyPopupKey("/", false), { kind: "filterStart" });

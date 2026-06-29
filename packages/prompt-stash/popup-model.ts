@@ -14,6 +14,7 @@ export type PopupAction =
 	| { kind: "top" }
 	| { kind: "bottom" }
 	| { kind: "select" }
+	| { kind: "toggleMark" }
 	| { kind: "delete" }
 	| { kind: "switchTab" }
 	| { kind: "close" }
@@ -36,11 +37,12 @@ function printableChar(data: string): string | undefined {
 /**
  * Maps a raw terminal key to a popup action, vim-style. In normal mode `j`/`k`
  * and the arrows move the selection, `g`/`G` jump to the ends, `Ctrl-d`/`Ctrl-u`
- * page, `Enter` loads the selected entry, `d` deletes it, `Tab` switches tab, `/`
- * opens the filter, and `Esc`/`q` close. In filter mode printable keys extend the
- * query, `Backspace` shortens it, the arrows still move the selection, and
- * `Enter`/`Esc` close the filter (the query is kept) — so typing a literal `j` or
- * `q` filters instead of navigating.
+ * page, `Space` marks/unmarks a row for a combined load, `Enter` loads the marked
+ * rows joined (or the selected row when nothing is marked), `d` deletes it, `Tab`
+ * switches tab, `/` opens the filter, and `Esc`/`q` close. In filter mode printable
+ * keys extend the query (so `Space` types a space and `j`/`q` filter), `Backspace`
+ * shortens it, the arrows still move the selection, and `Enter`/`Esc` close the
+ * filter (the query is kept).
  */
 export function classifyPopupKey(data: string, filterMode: boolean): PopupAction | undefined {
 	if (filterMode) {
@@ -55,6 +57,7 @@ export function classifyPopupKey(data: string, filterMode: boolean): PopupAction
 
 	if (matchesKey(data, "escape") || matchesKey(data, "q")) return { kind: "close" };
 	if (matchesKey(data, "enter")) return { kind: "select" };
+	if (matchesKey(data, "space")) return { kind: "toggleMark" };
 	if (matchesKey(data, "up") || matchesKey(data, "k")) return { kind: "move", rows: -1 };
 	if (matchesKey(data, "down") || matchesKey(data, "j")) return { kind: "move", rows: 1 };
 	if (matchesKey(data, "shift+g")) return { kind: "bottom" };

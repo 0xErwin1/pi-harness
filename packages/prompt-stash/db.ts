@@ -205,6 +205,11 @@ export class PromptDb {
 		return rows.map(toHistory);
 	}
 
+	/** Removes a single history entry by id. Returns true when a row was deleted. */
+	removeHistory(id: number): boolean {
+		return this.db.prepare("DELETE FROM history WHERE id = ?").run(id).changes > 0;
+	}
+
 	close(): void {
 		this.db.close();
 	}

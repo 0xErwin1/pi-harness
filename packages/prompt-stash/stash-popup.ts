@@ -42,6 +42,9 @@ export class StashPopup implements Component {
 	private filterMode = false;
 	private lastViewportHeight = MIN_VIEWPORT;
 
+	/** Rows marked with Space, in pick order, to be loaded joined as one prompt. */
+	private readonly marked: Array<{ id: number; text: string }> = [];
+
 	constructor(
 		private readonly tui: TUI,
 		private readonly theme: Theme,
@@ -88,9 +91,23 @@ export class StashPopup implements Component {
 				return;
 
 			case "select": {
+				if (this.marked.length > 0) {
+					this.done(this.marked.map((m) => m.text).join("\n\n"));
+					return;
+				}
 				const row = rows[this.selected];
 				this.done(row ? row.text : undefined);
 				return;
+			}
+
+			case "toggleMark": {
+				const row = rows[this.selected];
+				if (row) {
+					const at = this.marked.findIndex((m) => m.id === row.id);
+					if (at === -1) this.marked.push({ id: row.id, text: row.text });
+					else this.marked.splice(at, 1);
+				}
+				break;
 			}
 
 			case "move":
@@ -112,16 +129,18 @@ export class StashPopup implements Component {
 				break;
 
 			case "delete": {
-				if (this.tab !== "stash") break;
 				const row = rows[this.selected];
 				if (row) {
 					try {
-						this.db().removeStash(row.id);
+						if (this.tab === "stash") this.db().removeStash(row.id);
+						else this.db().removeHistory(row.id);
 					} catch {
 						// A failed delete (e.g. transient lock) must not crash the input
 						// path; the row simply stays and the user can retry.
 						break;
 					}
+					const markAt = this.marked.findIndex((m) => m.id === row.id);
+					if (markAt !== -1) this.marked.splice(markAt, 1);
 					this.selected = clampIndex(this.selected, len - 1);
 				}
 				break;
@@ -133,6 +152,7 @@ export class StashPopup implements Component {
 				this.scrollOffset = 0;
 				this.filter = "";
 				this.filterMode = false;
+				this.marked.length = 0;
 				break;
 
 			case "filterStart":
@@ -217,20 +237,25 @@ export class StashPopup implements Component {
 
 	private renderRow(entry: Row, selected: boolean, innerW: number): string {
 		const th = this.theme;
-		const marker = selected ? th.fg("accent", "› ") : "  ";
+		const markIdx = this.marked.findIndex((m) => m.id === entry.id);
+		const marked = markIdx !== -1;
+
+		const cursor = selected ? th.fg("accent", "›") : " ";
+		const mark = marked ? th.fg("success", markIdx < 9 ? String(markIdx + 1) : "•") : " ";
 		const meta = entry.meta ? ` ${th.fg("dim", `· ${entry.meta}`)}` : "";
 
 		const body = oneLine(entry.text);
-		const text = selected ? th.fg("accent", body) : body;
+		const text = selected ? th.fg("accent", body) : marked ? th.fg("success", body) : body;
 
-		return truncateToWidth(`${marker}${text}${meta}`, innerW);
+		return truncateToWidth(`${cursor}${mark} ${text}${meta}`, innerW);
 	}
 
 	private renderFooter(total: number, innerW: number): string {
 		const th = this.theme;
+		const load = this.marked.length > 0 ? `Enter load ${this.marked.length} joined` : "Enter load";
 		const hint = this.filterMode
 			? th.fg("dim", "type to filter · Enter/Esc done")
-			: th.fg("dim", "jk move · Enter load · d delete · Tab switch · / filter · Esc close");
+			: th.fg("dim", `jk move · Space mark · ${load} · d delete · Tab switch · / filter · Esc`);
 		const pos = total > 0 ? th.fg("dim", `${this.selected + 1}/${total}`) : "";
 
 		const gap = Math.max(1, innerW - visibleWidth(pos) - visibleWidth(hint));
