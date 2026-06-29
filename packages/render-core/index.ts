@@ -25,3 +25,5 @@ export { formatMcpCall, formatMcpResult } from "./formatters/mcp.ts";
 export type { SpinnerState } from "./formatters/bash-spinner.ts";
 export { nextSpinner, buildBashCallLine } from "./formatters/bash-spinner.ts";
 export { projectPendingEdit } from "./formatters/pending-diff.ts";
+export type { DiffRowKind, DiffSpan, DiffRow, DiffRowsOptions } from "./formatters/diff.ts";
+export { buildDiffRows, diffBodyTexts, styleDiffBodyLine } from "./formatters/diff.ts";
