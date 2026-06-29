@@ -28,6 +28,10 @@ export interface FleetRow {
 	elapsedMs: number;
 	tools: number;
 	tokens: number;
+	/** Model id for the run, sourced from the live snapshot; absent for nested file-backed nodes. */
+	model?: string;
+	/** Thinking level for the run, sourced from the live snapshot; absent for nested file-backed nodes. */
+	thinking?: string;
 	/** True when a file-backed node is still marked running but its process is gone. */
 	staleRunning: boolean;
 	selected: boolean;
@@ -63,6 +67,8 @@ export interface FleetNode {
 	updatedAt: string;
 	tools: number;
 	tokens: number;
+	model?: string;
+	thinking?: string;
 	staleRunning: boolean;
 	children: FleetNode[];
 }
@@ -228,6 +234,8 @@ function mergeNode(
 		updatedAt: live?.updatedAt ?? node.updatedAt,
 		tools,
 		tokens,
+		...(live?.model ? { model: live.model } : {}),
+		...(live?.thinking ? { thinking: live.thinking } : {}),
 		staleRunning,
 		children: [],
 	};
@@ -254,6 +262,8 @@ function synthLocalNode(
 		updatedAt: snap.updatedAt,
 		tools: snap.toolCount ?? 0,
 		tokens: snap.tokens ?? 0,
+		...(snap.model ? { model: snap.model } : {}),
+		...(snap.thinking ? { thinking: snap.thinking } : {}),
 		staleRunning: false,
 		children: [],
 	};
@@ -381,6 +391,8 @@ export function buildFleetModel(
 		elapsedMs: now - Date.parse(node.startedAt),
 		tools: node.tools,
 		tokens: node.tokens,
+		...(node.model ? { model: node.model } : {}),
+		...(node.thinking ? { thinking: node.thinking } : {}),
 		staleRunning: node.staleRunning,
 		selected: start + index === selectedIndex,
 	}));

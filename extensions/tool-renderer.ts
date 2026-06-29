@@ -43,6 +43,7 @@ import {
 	createWriteToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
+import { buildRenderStyler } from "../packages/visual-hierarchy/theme-capture.ts";
 import {
 	diffBlockLines,
 	formatToolArgs,
@@ -278,12 +279,11 @@ function themeStyler(theme: Theme): ToolLineStyler {
 /**
  * Adapts a pi-coding-agent `Theme` to a render-core `RenderStyler` so that
  * render-core formatters can be called with real theme colours on the main thread.
+ * Delegates to the shared `buildRenderStyler` so the render-core colour roles
+ * (including `thinking`) map through one place instead of casting.
  */
 function renderStyler(theme: Theme): RenderStyler {
-	return {
-		fg: (color, text) => theme.fg(color, text),
-		bold: (text) => theme.bold(text),
-	};
+	return buildRenderStyler(theme);
 }
 
 /** pi-tui WidthOps wired into render-core's structural width-safety choke point. */

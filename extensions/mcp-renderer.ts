@@ -1,10 +1,13 @@
 /**
- * MCP tool overlay extension (S2).
+ * Tool rendering overlay extension (S2).
  *
  * Installs an idempotent prototype patch on `ToolExecutionComponent.prototype.render`
- * so that MCP tool rows render as a compact `<server> · <tool>` one-liner when
- * COLLAPSED (default). When the user presses ctrl+o (expanded=true) the patch
- * falls through to the original render, showing the full native output.
+ * that does two things:
+ *   1. MCP tool rows render as a compact `<server> · <tool>` one-liner when COLLAPSED
+ *      (default); ctrl+o (expanded=true) falls through to the full native output.
+ *   2. EVERY tool (MCP or native) has pi's opaque background panel stripped, so tool
+ *      rows render transparently like assistant text — letting a terminal wallpaper
+ *      show through instead of the dark/green/red card pi draws around tool results.
  *
  * Tool classification uses a `mcpToolNames: Set<string>` built from
  * `pi.getAllTools()`: any tool whose name starts with `mcp__` is MCP. The set is
@@ -87,6 +90,25 @@ function extractResultText(result: { content?: unknown[] } | undefined): string 
 	return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
+/**
+ * Background-setting SGR sequences pi's `ToolExecutionComponent` emits to fill the
+ * tool result panel (`theme.bg("toolPendingBg"/"toolSuccessBg"/"toolErrorBg")`):
+ * 24-bit (`48;2;r;g;b`), 256-color (`48;5;n`), the 16 standard/bright bg codes, and
+ * the bg reset (`49`). Removing only these leaves every foreground colour intact.
+ */
+const TOOL_BG_SGR = /\x1b\[(?:48;2;\d+;\d+;\d+|48;5;\d+|4[0-7]|10[0-7]|49)m/g;
+
+/**
+ * Strips the tool panel's background fill so a tool row renders transparently —
+ * matching assistant text and letting a terminal wallpaper show through — instead
+ * of the opaque dark/green/red card pi draws around every tool. Only background SGR
+ * codes are removed; visible width is unchanged (the codes are zero-width), so the
+ * result stays render-safe.
+ */
+function stripToolBackground(lines: string[]): string[] {
+	return lines.map((line) => line.replace(TOOL_BG_SGR, ""));
+}
+
 /** pi-tui WidthOps implementation threaded into the `RenderCtx`. */
 const PI_TUI_WIDTH: WidthOps = { visibleWidth, truncateToWidth };
 
@@ -128,22 +150,26 @@ function installPatch(): void {
 		safeRenderWrapper((baseline, self, width) => {
 			const comp = self as Partial<McpComponentShape>;
 
-			if (typeof comp.toolName !== "string") return baseline;
-			if (!mcpToolNames.has(comp.toolName)) return baseline;
+			// MCP tools (collapsed) → compact one-liner; its formatter output carries no
+			// background, so the opaque card is gone for free.
+			if (
+				typeof comp.toolName === "string" &&
+				mcpToolNames.has(comp.toolName) &&
+				comp.expanded !== true
+			) {
+				const ctx = makeRenderCtx(width);
 
-			if (comp.expanded === true) return baseline;
+				const lines =
+					comp.result !== undefined
+						? formatMcpResult(comp.toolName, extractResultText(comp.result), false, ctx)
+						: formatMcpCall(comp.toolName, comp.args, ctx);
 
-			const ctx = makeRenderCtx(width);
-
-			let lines: string[];
-			if (comp.result !== undefined) {
-				const text = extractResultText(comp.result);
-				lines = formatMcpResult(comp.toolName, text, false, ctx);
-			} else {
-				lines = formatMcpCall(comp.toolName, comp.args, ctx);
+				return clampLineWidths(lines, width);
 			}
 
-			return clampLineWidths(lines, width);
+			// Every other tool (read/bash/edit/todo/…) keeps pi's native rendering, minus
+			// the background fill — so tool rows read transparently like assistant text.
+			return stripToolBackground(baseline);
 		}),
 	);
 }

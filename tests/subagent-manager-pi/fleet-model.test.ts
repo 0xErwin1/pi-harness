@@ -571,3 +571,30 @@ test("fleetActivityFromEvent: an assistant output yields its first line", () => 
 
 	assert.equal(fleetActivityFromEvent(event), "Here is the summary");
 });
+
+test("buildFleetModel: propagates a node's model and thinking onto the FleetRow", () => {
+	const node = makeNode("a", { model: "opencode-go/glm-5.2", thinking: "high" });
+
+	const { rows } = buildFleetModel([node], -1, BASE_NOW, 5);
+
+	assert.equal(rows[0].model, "opencode-go/glm-5.2");
+	assert.equal(rows[0].thinking, "high");
+});
+
+test("buildFleetModel: leaves model and thinking absent when the node has none (nested file-backed node)", () => {
+	const { rows } = buildFleetModel([makeNode("a")], -1, BASE_NOW, 5);
+
+	assert.equal(rows[0].model, undefined);
+	assert.equal(rows[0].thinking, undefined);
+});
+
+test("mergeForest: a live local snapshot carries its model and thinking onto the synthesised node", () => {
+	const snap = makeSnapshot("r1", { model: "anthropic/claude-opus-4-8", thinking: "medium" });
+	const liveByAgentId = new Map<string, RunSnapshot>([["P-r1", snap]]);
+
+	const merged = mergeForest([], LOCAL_CTX, liveByAgentId, new Map());
+
+	assert.equal(merged.length, 1);
+	assert.equal(merged[0].model, "anthropic/claude-opus-4-8");
+	assert.equal(merged[0].thinking, "medium");
+});

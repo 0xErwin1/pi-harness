@@ -35,20 +35,49 @@ import type { RenderColor } from "../render-core/styler.ts";
 const PLAIN_STYLER: RenderStyler = {
 	fg: (_color, text) => text,
 	bold: (text) => text,
+	italic: (text) => text,
+};
+
+/**
+ * Maps each render-core colour role to a pi `ThemeColor`. Most are identity
+ * (the role names overlap), except `thinking`, which resolves to pi's dedicated
+ * `thinkingText` colour so reasoning blocks pick up the theme's reasoning tint.
+ */
+const RENDER_COLOR_TO_THEME: Record<RenderColor, ThemeColor> = {
+	accent: "accent",
+	success: "success",
+	error: "error",
+	dim: "dim",
+	muted: "muted",
+	warning: "warning",
+	text: "text",
+	thinking: "thinkingText",
 };
 
 let currentStyler: RenderStyler = PLAIN_STYLER;
+
+/**
+ * Builds a `RenderStyler` backed by a pi `Theme`, mapping each render-core colour
+ * role through `RENDER_COLOR_TO_THEME` and wiring `bold`/`italic` to the theme.
+ * Shared by the captured singleton and by main-thread consumers that hold a
+ * `Theme` directly (e.g. `tool-renderer`), so both resolve `thinking` to the same
+ * `thinkingText` tint instead of casting and crashing on the unknown role.
+ */
+export function buildRenderStyler(theme: Theme): RenderStyler {
+	return {
+		fg: (color: RenderColor, text: string): string =>
+			theme.fg(RENDER_COLOR_TO_THEME[color], text),
+		bold: (text: string): string => theme.bold(text),
+		italic: (text: string): string => theme.italic(text),
+	};
+}
 
 /**
  * Captures the active `Theme` and pre-builds a `RenderStyler` that delegates to
  * it. Call from every participating extension's `session_start` handler.
  */
 export function captureTheme(theme: Theme): void {
-	currentStyler = {
-		fg: (color: RenderColor, text: string): string =>
-			theme.fg(color as ThemeColor, text),
-		bold: (text: string): string => theme.bold(text),
-	};
+	currentStyler = buildRenderStyler(theme);
 }
 
 /**

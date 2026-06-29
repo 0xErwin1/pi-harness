@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-	buildCollapsedLine,
+	buildCollapsedRowParts,
 	buildExpandedBody,
 	collapsedSpinnerFrame,
 	resolveRowCounts,
@@ -47,61 +47,63 @@ test("resolveRowCounts: a zero count in details is honored over the model", () =
 	assert.deepEqual(counts, { turns: 0, tools: 0 });
 });
 
-test("buildCollapsedLine: composes agent, status, elapsed, tokens, tools, current activity", () => {
-	const line = buildCollapsedLine(makeModel({ tokens: 1234 }), { turns: 2, tools: 3 });
-	assert.equal(line, "Explore · running · 5s · 1.2k tok · 3 tools · looking at the store");
+test("buildCollapsedRowParts: header carries agent/status/elapsed, meta carries usage, activity is separate", () => {
+	const parts = buildCollapsedRowParts(makeModel({ tokens: 1234 }), { turns: 2, tools: 3 });
+	assert.equal(parts.header, "Explore · running · 5s");
+	assert.equal(parts.meta, "1.2k tok · 3 tools");
+	assert.equal(parts.activity, "looking at the store");
 });
 
-test("buildCollapsedLine: prepends a dim-eligible `<model> · thinking: <level>` segment when known", () => {
-	const line = buildCollapsedLine(
+test("buildCollapsedRowParts: meta leads with a labeled `model: <model> · thinking: <level>` when known", () => {
+	const parts = buildCollapsedRowParts(
 		makeModel({ model: "anthropic/claude-haiku-4-5", thinking: "high", tokens: 0 }),
 		{ turns: 0, tools: 3 },
 	);
 	assert.ok(
-		line.startsWith("claude-haiku-4-5 · thinking: high · Explore · running"),
-		`model/effort segment must lead the row, got: ${line}`,
+		parts.meta.startsWith("model: claude-haiku-4-5 · thinking: high · "),
+		`meta must lead with the labeled model/effort, got: ${parts.meta}`,
 	);
+	assert.equal(parts.header, "Explore · running · 5s", "routing data never bleeds into the header");
 });
 
-test("buildCollapsedLine: omits the model/effort segment when unknown", () => {
-	const line = buildCollapsedLine(makeModel(), { turns: 0, tools: 3 });
-	assert.ok(!line.includes("thinking:"), `no model/effort segment when unknown, got: ${line}`);
-	assert.ok(line.startsWith("Explore · running"), `row must start with the agent, got: ${line}`);
+test("buildCollapsedRowParts: omits the model/effort prefix when unknown", () => {
+	const parts = buildCollapsedRowParts(makeModel(), { turns: 0, tools: 3 });
+	assert.ok(!parts.meta.includes("thinking:"), `no model/effort prefix when unknown, got: ${parts.meta}`);
+	assert.ok(!parts.meta.startsWith("model:"), `meta must not show an empty model label, got: ${parts.meta}`);
+	assert.equal(parts.header, "Explore · running · 5s", `header must start with the agent, got: ${parts.header}`);
 });
 
-test("buildCollapsedLine: drops turns and never shows the old Nt/M counts", () => {
-	const line = buildCollapsedLine(makeModel(), { turns: 9, tools: 3 });
-	assert.ok(!line.includes("9t"), `turns count must not appear, got: ${line}`);
-	assert.ok(!/\dt\//.test(line), `the old Nt/M shape must be gone, got: ${line}`);
+test("buildCollapsedRowParts: drops turns and never shows the old Nt/M counts", () => {
+	const parts = buildCollapsedRowParts(makeModel(), { turns: 9, tools: 3 });
+	const joined = `${parts.header} ${parts.meta}`;
+	assert.ok(!joined.includes("9t"), `turns count must not appear, got: ${joined}`);
+	assert.ok(!/\dt\//.test(joined), `the old Nt/M shape must be gone, got: ${joined}`);
 });
 
-test("buildCollapsedLine: shows tokens compactly and a bare count under 1k", () => {
-	const small = buildCollapsedLine(makeModel({ tokens: 850 }), { turns: 0, tools: 0 });
-	assert.ok(small.includes("850 tok"), small);
+test("buildCollapsedRowParts: shows tokens compactly and a bare count under 1k", () => {
+	const small = buildCollapsedRowParts(makeModel({ tokens: 850 }), { turns: 0, tools: 0 });
+	assert.ok(small.meta.includes("850 tok"), small.meta);
 
-	const large = buildCollapsedLine(makeModel({ tokens: 42_000 }), { turns: 0, tools: 0 });
-	assert.ok(large.includes("42.0k tok"), large);
+	const large = buildCollapsedRowParts(makeModel({ tokens: 42_000 }), { turns: 0, tools: 0 });
+	assert.ok(large.meta.includes("42.0k tok"), large.meta);
 });
 
-test("buildCollapsedLine: omits an empty agent and current-activity segment but keeps status", () => {
-	const model = makeModel({ agent: "", currentActivity: "" });
-	const line = buildCollapsedLine(model, { turns: 0, tools: 0 });
-	assert.equal(line, "running · 5s · 0 tok · 0 tools");
+test("buildCollapsedRowParts: omits an empty agent and activity but keeps status", () => {
+	const parts = buildCollapsedRowParts(makeModel({ agent: "", currentActivity: "" }), { turns: 0, tools: 0 });
+	assert.equal(parts.header, "running · 5s");
+	assert.equal(parts.meta, "0 tok · 0 tools");
+	assert.equal(parts.activity, undefined);
 });
 
-test("buildCollapsedLine: an unresolved row reads 'starting', never a frozen 'queued'", () => {
-	const model = makeModel({
-		agent: "",
-		status: "starting",
-		currentActivity: "starting…",
-		elapsedMs: 0,
-		tokens: 0,
-	});
+test("buildCollapsedRowParts: an unresolved row reads 'starting', never a frozen 'queued'", () => {
+	const parts = buildCollapsedRowParts(
+		makeModel({ agent: "", status: "starting", currentActivity: "starting…", elapsedMs: 0, tokens: 0 }),
+		{ turns: 0, tools: 0 },
+	);
 
-	const line = buildCollapsedLine(model, { turns: 0, tools: 0 });
-
-	assert.equal(line, "starting · 0ms · 0 tok · 0 tools · starting…");
-	assert.ok(!line.startsWith("queued"), "an in-flight row must not present as a frozen queued run");
+	assert.equal(parts.header, "starting · 0ms");
+	assert.equal(parts.activity, "starting…");
+	assert.ok(!parts.header.startsWith("queued"), "an in-flight row must not present as a frozen queued run");
 });
 
 test("collapsedSpinnerFrame: draws the active frame from the icon registry spinner", () => {
@@ -115,18 +117,18 @@ test("collapsedSpinnerFrame: draws the active frame from the icon registry spinn
 	assert.notEqual(collapsedSpinnerFrame(ICON_CATALOG.ascii.spinner, 0), unicode[0]);
 });
 
-test("buildCollapsedLine: formats sub-second and multi-minute elapsed", () => {
-	const subSecond = buildCollapsedLine(
+test("buildCollapsedRowParts: formats sub-second and multi-minute elapsed", () => {
+	const subSecond = buildCollapsedRowParts(
 		makeModel({ agent: "", currentActivity: "", elapsedMs: 250 }),
 		{ turns: 0, tools: 0 },
 	);
-	assert.ok(subSecond.includes("250ms · "), subSecond);
+	assert.ok(subSecond.header.endsWith("250ms"), subSecond.header);
 
-	const multiMinute = buildCollapsedLine(
+	const multiMinute = buildCollapsedRowParts(
 		makeModel({ agent: "", currentActivity: "", elapsedMs: 125000 }),
 		{ turns: 0, tools: 0 },
 	);
-	assert.ok(multiMinute.includes("2m5s · "), multiMinute);
+	assert.ok(multiMinute.header.endsWith("2m5s"), multiMinute.header);
 });
 
 // ── inline EXPANDED transcript: deferred draw-time wrapping (matches overlay) ──

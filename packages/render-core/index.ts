@@ -28,4 +28,4 @@ export { projectPendingEdit } from "./formatters/pending-diff.ts";
 export type { DiffRowKind, DiffSpan, DiffRow, DiffRowsOptions } from "./formatters/diff.ts";
 export { buildDiffRows, diffBodyTexts, styleDiffBodyLine } from "./formatters/diff.ts";
 export { applyUserMarker } from "./formatters/user-message.ts";
-export { splitThinkingTitle, renderThinkingBlock } from "./formatters/thinking.ts";
+export { splitThinkingTitle, renderThinkingBlock, THINKING_HEADER, THINKING_BODY_PREFIX } from "./formatters/thinking.ts";

@@ -16,8 +16,10 @@
 
 import { LineBuffer, type RenderCtx } from "../width.ts";
 
-const THINKING_HEADER = "Thinking";
-const THINKING_BODY_PREFIX = "│ ";
+/** Header label for a thinking block. Shared so both consumers stay byte-identical. */
+export const THINKING_HEADER = "Thinking";
+/** Dim gutter prefix for each wrapped thinking body line. Shared across consumers. */
+export const THINKING_BODY_PREFIX = "│ ";
 
 /**
  * Splits a thinking text into an optional display title and the remaining body.
@@ -58,15 +60,44 @@ export function splitThinkingTitle(text: string): { title?: string; body: string
 }
 
 /**
+ * Word-wraps a raw (ANSI-free) line to at most `width` columns, breaking on the
+ * last space within the window and hard-breaking a word longer than the window.
+ * Used to wrap thinking body text BEFORE styling, so a long single-line thought
+ * flows across multiple gutter lines instead of being truncated to one.
+ */
+function wrapRaw(text: string, width: number): string[] {
+	if (width <= 0) return [text];
+
+	const out: string[] = [];
+	let remaining = text;
+
+	while (remaining.length > width) {
+		const space = remaining.lastIndexOf(" ", width);
+		if (space > 0) {
+			out.push(remaining.slice(0, space));
+			remaining = remaining.slice(space + 1);
+		} else {
+			out.push(remaining.slice(0, width));
+			remaining = remaining.slice(width);
+		}
+	}
+
+	if (remaining.length > 0) out.push(remaining);
+	return out;
+}
+
+/**
  * Renders one or more consecutive thinking texts as a single grouped block.
  *
- * The block consists of a dim `Thinking`/`Thinking: <title>` header line and
- * zero or more dim `│ <content>` body lines. Multiple texts are joined with a
- * newline before splitting, so adjacent thinking segments in the same message
- * collapse into one coherent block.
+ * Header: the `Thinking:` label in the reasoning tint, italicised, followed by the
+ * bold title (`Thinking: <title>`), or a bare italicised `Thinking` when the text
+ * carries no title. Body: the reasoning prose in the muted colour, flush (no
+ * gutter), word-wrapped to width so a long unbroken thought spans several lines
+ * instead of being truncated. Multiple texts are joined with a newline before
+ * splitting, so adjacent thinking segments collapse into one coherent block.
  *
- * Blank body lines are omitted. Every line passes through `LineBuffer`, so no
- * emitted line can exceed `ctx.maxWidth`. An empty or whitespace-only combined
+ * Blank body lines are omitted. Every line still passes through `LineBuffer`, so
+ * no emitted line can exceed `ctx.maxWidth`. An empty or whitespace-only combined
  * text returns an empty array.
  */
 export function renderThinkingBlock(texts: string[], ctx: RenderCtx): string[] {
@@ -77,12 +108,16 @@ export function renderThinkingBlock(texts: string[], ctx: RenderCtx): string[] {
 
 	const lb = new LineBuffer(ctx);
 
-	const header = title ? `${THINKING_HEADER}: ${title}` : THINKING_HEADER;
-	lb.push(ctx.styler.fg("dim", header));
+	const italicize = (text: string): string => (ctx.styler.italic ? ctx.styler.italic(text) : text);
+	const label = italicize(ctx.styler.fg("thinking", title ? `${THINKING_HEADER}:` : THINKING_HEADER));
+	lb.push(title ? `${label} ${ctx.styler.bold(title)}` : label);
 
+	const bodyWidth = Math.max(1, ctx.maxWidth);
 	for (const line of body.split("\n")) {
 		if (line.trim().length === 0) continue;
-		lb.push(ctx.styler.fg("dim", `${THINKING_BODY_PREFIX}${line}`));
+		for (const wrapped of wrapRaw(line, bodyWidth)) {
+			lb.push(ctx.styler.fg("muted", wrapped));
+		}
 	}
 
 	return lb.done();

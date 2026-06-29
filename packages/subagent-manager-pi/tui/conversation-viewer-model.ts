@@ -1,7 +1,14 @@
 import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
 import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/events.ts";
 import { outputBlockLines, parseDiffStat } from "../tool-format/index.ts";
-import { buildDiffRows, diffBodyTexts, styleDiffBodyLine } from "../../render-core/index.ts";
+import {
+	buildDiffRows,
+	diffBodyTexts,
+	splitThinkingTitle,
+	styleDiffBodyLine,
+	THINKING_BODY_PREFIX,
+	THINKING_HEADER,
+} from "../../render-core/index.ts";
 import type { RenderStyler } from "../../render-core/index.ts";
 
 export interface ViewerModel {
@@ -233,17 +240,6 @@ export function styleTranscriptLine(line: string, styler: TranscriptStyler): str
 }
 
 /**
- * Markers for a grouped thinking block. Pi's native thread renders reasoning as a
- * dim header followed by a wrapped paragraph, NOT a per-line tag; these reproduce
- * that. The body gutter uses the box-drawing vertical (kept under the de-emoji
- * scheme) so a continuation line reads like a quoted sidebar and is classifiable
- * as dim without a visible `[thinking]` tag. Markers and `transcriptLineColor`
- * must stay in sync.
- */
-const THINKING_HEADER = "Thinking";
-const THINKING_BODY_PREFIX = "│ ";
-
-/**
  * Formats a token total compactly: a bare count under 1k, then `k`/`M` with one
  * decimal so the collapsed row and overlay header stay short.
  */
@@ -289,38 +285,11 @@ export function formatInvocationSubline(model?: string, thinking?: string): stri
 }
 
 /**
- * Splits a thinking text into an optional title and the remaining body. The model
- * sometimes leads its reasoning with its own title — either a markdown bold
- * (`**Weighing options**`) or a `Thinking:` prefix. When present that title is
- * lifted into the block header (so the rendered header never doubles up as
- * `Thinking: Thinking:`); otherwise the whole text is the body and a plain
- * `Thinking` header is used.
- */
-function splitThinkingTitle(text: string): { title?: string; body: string } {
-	const trimmed = text.trim();
-
-	const bold = trimmed.match(/^\*\*(.+?)\*\*\s*/);
-	if (bold) {
-		return { title: bold[1].trim() || undefined, body: trimmed.slice(bold[0].length).trim() };
-	}
-
-	if (/^Thinking:/i.test(trimmed)) {
-		const afterLabel = trimmed.replace(/^Thinking:\s*/i, "");
-		const newlineAt = afterLabel.indexOf("\n");
-		if (newlineAt >= 0) {
-			return { title: afterLabel.slice(0, newlineAt).trim() || undefined, body: afterLabel.slice(newlineAt + 1).trim() };
-		}
-		return { title: afterLabel.trim() || undefined, body: "" };
-	}
-
-	return { body: trimmed };
-}
-
-/**
  * Renders one or more consecutive thinking texts as a single grouped block: a dim
  * `Thinking`/`Thinking: <title>` header followed by the reasoning body wrapped to
  * width under a dim gutter. Empty bodies (title-only thinking) yield just the
- * header.
+ * header. The title/body split and the header/gutter constants are imported from
+ * render-core, so this viewer block is byte-identical to the main thread's.
  */
 function renderThinkingBlock(texts: string[], width: number): string[] {
 	const combined = texts.join("\n").trim();

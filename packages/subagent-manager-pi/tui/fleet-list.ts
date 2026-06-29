@@ -27,6 +27,7 @@ import {
 	type FleetNode,
 	type FleetRow,
 } from "./fleet-model.ts";
+import { formatModelEffort } from "./conversation-viewer-model.ts";
 import { isConversationViewerOpen, showConversationViewer, type ViewerRuntime } from "./conversation-viewer.ts";
 import { createFileBackedViewerRuntime } from "./file-backed-viewer.ts";
 import { getIcons } from "../icons/config.ts";
@@ -398,14 +399,15 @@ export class FleetList implements Component {
 	}
 
 	/**
-	 * The branch line for an agent: `<marker> <indent><connector> <indicator> <agent>  <task> · <elapsed>`.
+	 * The branch line for an agent: `<marker> <indent><connector> <indicator> <agent>  <task> · <model> · thinking: <level> · <elapsed>`.
 	 * The connector block is indented by `(depth - 1) * INDENT` columns so children
 	 * sit under their parent. All glyphs come from the icon registry: the selection
 	 * marker, the tree connector (`treeBranch`/`treeLast`, closing the tree on the
 	 * last visible branch), and the indicator — the live spinner while the run is
 	 * active, the terminal marker (`agentDone`/`agentFailed`/`agentInterrupted`)
 	 * while it lingers, or `agentStale` when a file-backed running node's process
-	 * is gone.
+	 * is gone. The dim trailing cluster carries the run's model and thinking effort
+	 * (when known — local runs only) ahead of the elapsed time.
 	 */
 	private renderRowMain(row: FleetRow, lastBranch: boolean, width: number, icons: IconSet): string {
 		const th = this.theme;
@@ -416,9 +418,12 @@ export class FleetList implements Component {
 		const indicator = th.fg(statusColor(row.staleRunning ? "interrupted" : row.status), indicatorText);
 		const agent = th.fg("accent", row.agent);
 		const task = row.task ? `  ${row.task}` : "";
-		const elapsed = th.fg("dim", `· ${formatElapsed(row.elapsedMs)}`);
 
-		return truncateToWidth(`${marker} ${indent}${connector} ${indicator} ${agent}${task} ${elapsed}`, width);
+		const routing = formatModelEffort(row.model, row.thinking);
+		const trailing = routing ? `${routing} · ${formatElapsed(row.elapsedMs)}` : formatElapsed(row.elapsedMs);
+		const trailingStyled = th.fg("dim", `· ${trailing}`);
+
+		return truncateToWidth(`${marker} ${indent}${connector} ${indicator} ${agent}${task} ${trailingStyled}`, width);
 	}
 
 	/**

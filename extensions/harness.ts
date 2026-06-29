@@ -39,7 +39,6 @@ import {
 	replayFromBranch,
 	renderSubagentCall,
 	renderSubagentResult,
-	saveBuiltinAgentRoutingOverride,
 	selectMostRecentRunId,
 	showConversationViewer,
 	TOOL_NAME as TODO_TOOL_NAME,
@@ -157,8 +156,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function modelConfigPath(cwd: string): string {
-	return join(cwd, ".pi", "harness", "models.json");
+/**
+ * Resolves the harness model-config file. The config is GLOBAL: production callers
+ * pass the user's home directory, so the file lives at `~/.pi/harness/models.json`
+ * and the same per-agent model/thinking assignments apply across every project.
+ * The base directory is a parameter (not hardcoded) so tests can redirect it to a
+ * temp dir.
+ */
+function modelConfigPath(baseDir: string): string {
+	return join(baseDir, ".pi", "harness", "models.json");
 }
 
 function isThinkingLevel(value: unknown): value is ThinkingLevel {
@@ -198,8 +204,8 @@ function normalizeRoutingEntry(value: unknown): AgentRoutingEntry | undefined {
 	return { model, thinking };
 }
 
-export function readModelConfig(cwd: string): AgentModelConfig {
-	const path = modelConfigPath(cwd);
+export function readModelConfig(baseDir: string): AgentModelConfig {
+	const path = modelConfigPath(baseDir);
 	if (!existsSync(path)) return {};
 
 	try {
@@ -217,8 +223,8 @@ export function readModelConfig(cwd: string): AgentModelConfig {
 	}
 }
 
-function writeModelConfig(cwd: string, config: AgentModelConfig): void {
-	const path = modelConfigPath(cwd);
+function writeModelConfig(baseDir: string, config: AgentModelConfig): void {
+	const path = modelConfigPath(baseDir);
 	mkdirSync(dirname(path), { recursive: true });
 
 	const cleaned: AgentModelConfig = {};
@@ -234,46 +240,6 @@ function cloneModelConfig(config: AgentModelConfig): AgentModelConfig {
 	return Object.fromEntries(
 		Object.entries(config).map(([name, entry]) => [name, { ...entry }]),
 	);
-}
-
-/**
- * Rewrites the `model:` / `thinking:` keys in an agent file's YAML frontmatter
- * to match `entry`. Existing routing keys are stripped first; new ones are
- * inserted just after `description:` when present. Files without frontmatter
- * are returned unchanged.
- */
-function updateFrontmatterRouting(
-	content: string,
-	entry: AgentRoutingEntry | undefined,
-): string {
-	if (!content.startsWith("---\n")) return content;
-
-	const endIndex = content.indexOf("\n---", 4);
-	if (endIndex === -1) return content;
-
-	const frontmatter = content.slice(4, endIndex);
-	const body = content.slice(endIndex);
-
-	const lines = frontmatter
-		.split("\n")
-		.filter(
-			(line) => !line.startsWith("model:") && !line.startsWith("thinking:"),
-		);
-
-	const toInsert: string[] = [];
-	if (entry?.model) toInsert.push(`model: ${entry.model}`);
-	if (entry?.thinking) toInsert.push(`thinking: ${entry.thinking}`);
-
-	if (toInsert.length > 0) {
-		const descriptionIndex = lines.findIndex((line) =>
-			line.startsWith("description:"),
-		);
-		const insertIndex =
-			descriptionIndex >= 0 ? descriptionIndex + 1 : Math.min(1, lines.length);
-		lines.splice(insertIndex, 0, ...toInsert);
-	}
-
-	return `---\n${lines.join("\n")}${body}`;
 }
 
 function parseAgentName(filePath: string): string | undefined {
@@ -365,64 +331,6 @@ function listDiscoverableAgents(cwd: string): AgentEntry[] {
 		.sort((left, right) => left.name.localeCompare(right.name));
 
 	return [...sddFirst, ...rest];
-}
-
-function projectSettingsPath(cwd: string): string {
-	return join(cwd, ".pi", "settings.json");
-}
-
-/**
- * Applies a routing override for a builtin agent into `.pi/settings.json`
- * under `subagents.agentOverrides`. Builtin agents have no editable file on
- * disk, so their routing is expressed as settings instead. Empty objects are
- * pruned so the settings file does not accumulate dead keys.
- */
-function updateBuiltinModelOverride(
-	cwd: string,
-	name: string,
-	entry: AgentRoutingEntry | undefined,
-): boolean {
-	return saveBuiltinAgentRoutingOverride(cwd, name, entry);
-}
-
-/**
- * Propagates the saved model config to every discoverable agent: builtin
- * agents via settings overrides, file-backed agents via frontmatter rewrites.
- * Returns counts of agents that were changed vs. left untouched.
- */
-function applyModelConfig(
-	cwd: string,
-	config: AgentModelConfig,
-): { updated: number; skipped: number } {
-	let updated = 0;
-	let skipped = 0;
-
-	for (const agent of listDiscoverableAgents(cwd)) {
-		const entry = config[agent.name];
-
-		if (agent.source === "builtin") {
-			if (updateBuiltinModelOverride(cwd, agent.name, entry)) updated += 1;
-			else skipped += 1;
-			continue;
-		}
-
-		if (!agent.filePath || !existsSync(agent.filePath)) {
-			skipped += 1;
-			continue;
-		}
-
-		const original = readFileSync(agent.filePath, "utf8");
-		const next = updateFrontmatterRouting(original, entry);
-		if (next === original) {
-			skipped += 1;
-			continue;
-		}
-
-		writeFileSync(agent.filePath, next);
-		updated += 1;
-	}
-
-	return { updated, skipped };
 }
 
 function describeModelConfig(cwd: string, config: AgentModelConfig): string[] {
@@ -865,9 +773,9 @@ async function showModelPanel(
 }
 
 /**
- * Drives the `sdd:models` command: shows the assignment panel, services any
+ * Drives the `subagent:models` command: shows the assignment panel, services any
  * custom-model input requests by re-opening the panel with the updated draft,
- * and on save persists the config and applies it to all agents.
+ * and on save persists the global config (`~/.pi/harness/models.json`).
  */
 export interface AgentMenuEntry {
 	name: string;
@@ -922,7 +830,7 @@ function readDefaultModelId(): string | undefined {
 
 /**
  * Resolves the model/thinking an agent should run with, preferring the
- * per-agent values saved via `/sdd:models` and falling back to the session
+ * per-agent values saved via `/subagent:models` and falling back to the session
  * default model. `thinking` has no session default, so it is left undefined
  * when unconfigured.
  */
@@ -940,14 +848,15 @@ export function resolveAgentRouting(
 
 /**
  * Builds the manager registry. Discovered agents honor the per-agent model and
- * thinking saved via `/sdd:models` (read from `.pi/harness/models.json`),
+ * thinking saved via `/subagent:models` (read from the GLOBAL
+ * `~/.pi/harness/models.json`, so the assignments apply across every project),
  * falling back to the session default model. The builtin generic agents
  * (general-purpose / Explore / Plan) are not part of the panel's discoverable
  * list, so they intentionally stay on the session default.
  */
 function createManagerRegistry(cwd: string): AgentSpec[] {
 	const defaultModel = readDefaultModelId();
-	const config = readModelConfig(cwd);
+	const config = readModelConfig(homedir());
 	const genericAgents: AgentSpec[] = [
 		{
 			name: "general-purpose",
@@ -1126,7 +1035,7 @@ export async function mapWithConcurrencyLimit<T, R>(
 }
 
 async function handleModelsCommand(ctx: ExtensionContext): Promise<void> {
-	let config = readModelConfig(ctx.cwd);
+	let config = readModelConfig(homedir());
 	let result = await showModelPanel(ctx, config);
 
 	while (result.type === "custom") {
@@ -1170,14 +1079,12 @@ async function handleModelsCommand(ctx: ExtensionContext): Promise<void> {
 
 	if (result.type !== "save") return;
 
-	writeModelConfig(ctx.cwd, result.config);
-	const applyResult = applyModelConfig(ctx.cwd, result.config);
+	writeModelConfig(homedir(), result.config);
 
 	ctx.ui.notify(
 		[
-			"Model config saved.",
-			`Config: ${modelConfigPath(ctx.cwd)}`,
-			`Agents updated: ${applyResult.updated}`,
+			"Model config saved (global — applies to every project).",
+			`Config: ${modelConfigPath(homedir())}`,
 			...describeModelConfig(ctx.cwd, result.config),
 		].join("\n"),
 		"info",
@@ -1245,6 +1152,17 @@ export default function harness(pi: ExtensionAPI): void {
 		renderCall: renderSubagentCall,
 		renderResult: renderSubagentResult((cwd) => getManagerRuntime(cwd)),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			// Only the ROOT session orchestrates. A subagent (depth > 0) is an executor
+			// and must never launch another subagent — that is the recursion where an
+			// SDD phase agent (e.g. sdd-explore) re-spawns its own phase. The depth-cap
+			// (isDepthExceeded) is kept below as a defence-in-depth backstop.
+			if (!isOrchestratorRoot()) {
+				return {
+					content: [{ type: "text", text: `Nested subagents are disabled: a subagent (depth ${currentDepth()}) cannot launch another subagent — only the root session orchestrates. Do the work yourself and return the result.` }],
+					details: {} as SubagentResultDetails,
+				};
+			}
+
 			if (isDepthExceeded()) {
 				return {
 					content: [{ type: "text", text: `Subagent depth limit reached (depth ${currentDepth()} >= max ${maxDepth()}). Nested subagent refused to prevent unbounded recursion.` }],
@@ -1401,7 +1319,7 @@ export default function harness(pi: ExtensionAPI): void {
 		twoColumnHandle?.onSessionReset();
 	});
 
-	pi.registerCommand("sdd:models", {
+	pi.registerCommand("subagent:models", {
 		description: "Configure per-agent models and thinking effort.",
 		handler: async (_args, ctx) => {
 			await handleModelsCommand(ctx);
@@ -1409,16 +1327,16 @@ export default function harness(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("sdd:status", {
-		description: "Show harness model configuration status for this project.",
+		description: "Show harness model configuration status (global config).",
 		handler: async (_args, ctx) => {
-			const modelConfig = readModelConfig(ctx.cwd);
+			const modelConfig = readModelConfig(homedir());
 			const orchestratorPrompt = readOrchestratorPrompt();
 
 			ctx.ui.notify(
 				[
 					"Harness extension is active.",
 					`Orchestrator contract: ${orchestratorPrompt ? "loaded" : "missing"}`,
-					`Model config: ${existsSync(modelConfigPath(ctx.cwd)) ? "present" : "missing"}`,
+					`Model config: ${existsSync(modelConfigPath(homedir())) ? "present" : "missing"}`,
 					...describeModelConfig(ctx.cwd, modelConfig),
 				].join("\n"),
 				"info",

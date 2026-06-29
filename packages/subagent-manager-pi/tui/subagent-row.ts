@@ -112,31 +112,47 @@ export function resolveRowCounts(
 }
 
 /**
- * Composes the collapsed single-line row text (no ANSI) from the row model and
- * resolved counts. Shape: `<model> · thinking: <level> · <agent> · <status> ·
- * <elapsed> · <tokens> tok · <N> tools · <current activity>`. The leading
- * model/effort segment is omitted when unknown; the render layer dims it. Turns
- * are intentionally dropped (they read ~0 during tool use and confuse); tokens and
- * a concise current-activity phrase replace the old turns count and thinking dump.
- * The status glyph and colouring are applied by the component; this stays pure so
- * it is headlessly assertable.
+ * The unstyled text of a collapsed row, split into the labeled lines the render
+ * layer draws as a small block (identity header, routing/usage meta, live
+ * activity). Keeping it pure makes the exact wording headlessly assertable; the
+ * component applies per-segment colouring and the status glyph.
  */
-export function buildCollapsedLine(
+export interface CollapsedRowParts {
+	/** Identity line: `<agent> · <status> · <elapsed>` (agent omitted when empty). */
+	header: string;
+	/** Routing + usage line: `model: <model> · thinking: <level> · <tokens> tok · <N> tools`. */
+	meta: string;
+	/** Current-activity phrase, absent when the row has no live activity. */
+	activity?: string;
+}
+
+/**
+ * Composes the collapsed row as labeled lines (no ANSI) from the row model and
+ * resolved counts. Replaces the old dense one-liner with a header/meta/activity
+ * split so the model, thinking effort, and live activity read cleanly instead of
+ * being crammed into a single truncated line. The `model: … · thinking: …`
+ * prefix is dropped when the model is unknown; turns are intentionally omitted
+ * (they read ~0 during tool use and confuse).
+ */
+export function buildCollapsedRowParts(
 	model: SubagentRowModel,
 	counts: { turns: number; tools: number },
-): string {
-	const parts: string[] = [];
+): CollapsedRowParts {
+	const headerSegments: string[] = [];
+	if (model.agent) headerSegments.push(model.agent);
+	headerSegments.push(model.status);
+	headerSegments.push(formatElapsed(model.elapsedMs));
 
 	const modelEffort = formatModelEffort(model.model, model.thinking);
-	if (modelEffort) parts.push(modelEffort);
-	if (model.agent) parts.push(model.agent);
-	parts.push(model.status);
-	parts.push(formatElapsed(model.elapsedMs));
-	parts.push(`${formatTokens(model.tokens)} tok`);
-	parts.push(`${counts.tools} tools`);
-	if (model.currentActivity) parts.push(model.currentActivity);
+	const usage = `${formatTokens(model.tokens)} tok · ${counts.tools} tools`;
+	const meta = modelEffort ? `model: ${modelEffort} · ${usage}` : usage;
 
-	return parts.join(" · ");
+	const parts: CollapsedRowParts = {
+		header: headerSegments.join(" · "),
+		meta,
+	};
+	if (model.currentActivity) parts.activity = model.currentActivity;
+	return parts;
 }
 
 function runIdsOf(details: SubagentResultDetails | undefined): string[] {
@@ -222,15 +238,24 @@ function renderCollapsed(
 		: statusGlyph(model.status);
 
 	const icon = theme.fg(statusColor(model.status), glyph);
-	const body = buildCollapsedLine(model, counts);
+	const parts = buildCollapsedRowParts(model, counts);
+	const sep = theme.fg("dim", " · ");
 
-	const modelEffort = formatModelEffort(model.model, model.thinking);
-	const coloredBody =
-		modelEffort && body.startsWith(modelEffort)
-			? theme.fg("dim", modelEffort) + theme.fg("text", body.slice(modelEffort.length))
-			: theme.fg("text", body);
+	const headerSegments: string[] = [];
+	if (model.agent) headerSegments.push(theme.fg("accent", model.agent));
+	headerSegments.push(theme.fg(statusColor(model.status), model.status));
+	headerSegments.push(theme.fg("dim", formatElapsed(model.elapsedMs)));
 
-	return new TruncatedText(`${icon} ${coloredBody}`);
+	const container = new Container();
+	container.addChild(new TruncatedText(`${icon} ${headerSegments.join(sep)}`));
+	container.addChild(new TruncatedText(theme.fg("dim", `  ${parts.meta}`)));
+
+	if (parts.activity) {
+		const arrow = getIcons().treeSub;
+		container.addChild(new TruncatedText(theme.fg("dim", `  ${arrow} ${parts.activity}`)));
+	}
+
+	return container;
 }
 
 function renderExpanded(

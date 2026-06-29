@@ -15,14 +15,17 @@ export type RenderColor =
 	| "dim"
 	| "muted"
 	| "warning"
-	| "text";
+	| "text"
+	| "thinking";
 
 /**
- * Theme-agnostic styling surface: `fg` applies a semantic colour, `bold`
- * weights text. Both consumers inject an adapter; tests inject a deterministic
- * double that wraps text in assertable tokens.
+ * Theme-agnostic styling surface: `fg` applies a semantic colour, `bold` weights
+ * text, `italic` slants it. Both consumers inject an adapter; tests inject a
+ * deterministic double that wraps text in assertable tokens. `italic` is optional
+ * so adapters and test doubles that predate it degrade gracefully to plain text.
  */
 export interface RenderStyler {
 	fg(color: RenderColor, text: string): string;
 	bold(text: string): string;
+	italic?(text: string): string;
 }
