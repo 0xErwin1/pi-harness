@@ -14,3 +14,19 @@
 export interface LineStyler {
 	fg(role: "dim" | "accent", text: string): string;
 }
+
+const MARKER_GLYPH  = "❯ ";
+const MARKER_INDENT = "  ";
+
+/**
+ * Prefixes user message lines with a subtle accent left accent (R2).
+ *
+ * First line: accent-styled `❯ ` marker. Subsequent lines: two-space indent
+ * that aligns content with the first line. Line count is unchanged.
+ * OSC 133 markers must be stripped by the caller before this is invoked.
+ */
+export function applyUserMarker(lines: string[], styler: LineStyler): string[] {
+	if (lines.length === 0) return [];
+	const marker = styler.fg("accent", MARKER_GLYPH);
+	return lines.map((line, idx) => (idx === 0 ? marker : MARKER_INDENT) + line);
+}
