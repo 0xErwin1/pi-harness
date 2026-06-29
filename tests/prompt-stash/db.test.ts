@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PromptDb } from "../../packages/prompt-stash/db.ts";
 
 /** A monotonic clock so `createdAt` values are deterministic and strictly ordered. */
@@ -34,6 +37,28 @@ test("saveStash: dedup (default) removes a prior identical entry so the freshest
 
 	assert.deepEqual(db.listStash("s1").map((e) => e.text), ["dup", "keep"], "only one 'dup', now newest");
 	db.close();
+});
+
+test("two connections on the same file: a read does not collide with the other's write", () => {
+	const dir = mkdtempSync(join(tmpdir(), "prompt-stash-"));
+	const file = join(dir, "prompts.db");
+
+	const writer = new PromptDb(file, { now: fakeClock() });
+	const reader = new PromptDb(file, { now: fakeClock() });
+
+	try {
+		writer.saveStash("s1", "draft from writer");
+		// Under WAL + busy_timeout this read sees the committed write and never
+		// throws SQLITE_BUSY ("database is locked"), which previously crashed pi.
+		assert.equal(reader.countStash("s1"), 1);
+
+		reader.addHistory({ sessionId: "s1", text: "from reader" });
+		assert.deepEqual(writer.listHistory().map((e) => e.text), ["from reader"]);
+	} finally {
+		writer.close();
+		reader.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("countStash: counts a session's entries, scoped and live after removal", () => {

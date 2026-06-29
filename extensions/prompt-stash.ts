@@ -61,13 +61,17 @@ async function openPopup(ctx: ExtensionContext, initialTab: StashTab): Promise<v
 export default function promptStash(pi: ExtensionAPI): void {
 	pi.on("input", (event, ctx) => {
 		if (event.source === "interactive" && !event.text.startsWith("/")) {
-			const cwd = ctx.sessionManager.getCwd();
-			getDb().addHistory({
-				sessionId: ctx.sessionManager.getSessionId(),
-				project: projectOf(cwd),
-				cwd,
-				text: event.text,
-			});
+			try {
+				const cwd = ctx.sessionManager.getCwd();
+				getDb().addHistory({
+					sessionId: ctx.sessionManager.getSessionId(),
+					project: projectOf(cwd),
+					cwd,
+					text: event.text,
+				});
+			} catch {
+				// History is best-effort; never let a DB hiccup disturb the prompt.
+			}
 		}
 
 		return { action: "continue" };

@@ -73,6 +73,17 @@ export class PromptDb {
 
 	constructor(path: string, options: { now?: Clock } = {}) {
 		this.db = new DatabaseSync(path);
+
+		// Concurrency hardening: several pi processes (multiple interactive
+		// sessions, helper processes) can open this same file at once. busy_timeout
+		// makes a contended statement wait instead of failing immediately with
+		// SQLITE_BUSY ("database is locked"); WAL lets readers proceed during a
+		// write so a render-time read never collides with a write. busy_timeout is
+		// set first so switching to WAL itself waits out any lock. Both are
+		// best-effort — an in-memory database ignores WAL and stays in memory mode.
+		this.db.exec("PRAGMA busy_timeout = 5000");
+		this.db.exec("PRAGMA journal_mode = WAL");
+
 		this.db.exec(SCHEMA);
 		this.now = options.now ?? (() => new Date().toISOString());
 	}

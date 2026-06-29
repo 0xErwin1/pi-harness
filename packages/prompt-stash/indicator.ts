@@ -20,7 +20,16 @@ export class StashIndicator implements Component {
 	render(width: number): string[] {
 		if (width <= 0) return [];
 
-		const count = this.db().countStash(this.getSessionId());
+		// A throw here is fatal: pi has no error boundary around component.render(),
+		// so any DB hiccup (e.g. a transient lock under concurrent access) would
+		// crash the process. Degrade to showing nothing instead.
+		let count = 0;
+		try {
+			count = this.db().countStash(this.getSessionId());
+		} catch {
+			return [];
+		}
+
 		if (count <= 0) return [];
 
 		const label = `› ${count} stashed`;
