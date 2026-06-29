@@ -1,6 +1,6 @@
 import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
 import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/events.ts";
-import { outputBlockLines } from "../tool-format/index.ts";
+import { outputBlockLines, parseDiffStat, diffBlockLines } from "../tool-format/index.ts";
 
 export interface ViewerModel {
 	headerLines: string[];
@@ -67,9 +67,6 @@ const SUMMARY_MARKS: ReadonlyArray<readonly [string, SummaryStatus]> = [
 	[SUM_ERR, "error"],
 ];
 const STATUS_COLOR: Record<SummaryStatus, TranscriptColor> = { dim: "dim", success: "success", error: "error" };
-
-/** Maximum diff lines rendered inline before a `… +N more` continuation. */
-const DIFF_BLOCK_CAP = 20;
 
 /** Maximum bash output lines rendered inline before a `… +N more` continuation. */
 const OUTPUT_BLOCK_CAP = 20;
@@ -387,40 +384,6 @@ function diffOf(details: unknown): string | undefined {
 	return typeof diff === "string" ? diff : undefined;
 }
 
-/**
- * Counts added/removed lines in a unified diff: lines starting with `+`/`-`,
- * excluding the `+++`/`---` file headers and the `@@` hunk markers.
- */
-function countDiff(diff: string): { adds: number; dels: number } {
-	let adds = 0;
-	let dels = 0;
-	for (const line of diff.split("\n")) {
-		if (line.startsWith("+++") || line.startsWith("---")) continue;
-		if (line.startsWith("+")) adds += 1;
-		else if (line.startsWith("-")) dels += 1;
-	}
-	return { adds, dels };
-}
-
-/**
- * Projects a unified diff to the inline block: drops the `+++`/`---` file headers,
- * keeps hunks and context, caps the body and appends a `… +N more` continuation
- * when the change is longer than the cap.
- */
-function diffBlockLines(diff: string): string[] {
-	const rendered: string[] = [];
-	for (const line of diff.split("\n")) {
-		if (line.startsWith("+++") || line.startsWith("---")) continue;
-		rendered.push(line);
-	}
-	while (rendered.length > 0 && rendered[rendered.length - 1] === "") rendered.pop();
-
-	if (rendered.length <= DIFF_BLOCK_CAP) return rendered;
-
-	const shown = rendered.slice(0, DIFF_BLOCK_CAP);
-	shown.push(`… +${rendered.length - DIFF_BLOCK_CAP} more`);
-	return shown;
-}
 
 interface ToolResultInfo {
 	resultText?: string;
@@ -468,8 +431,8 @@ function baseToolSummary(toolName: string, result: ToolResultInfo): string | und
 		case "edit": {
 			const diff = diffOf(result.details);
 			if (diff === undefined) return undefined;
-			const { adds, dels } = countDiff(diff);
-			return `+${adds} -${dels}`;
+			const { additions, removals } = parseDiffStat(diff);
+			return `+${additions} -${removals}`;
 		}
 		case "write":
 			return `${countLines(result.resultText)} lines`;
@@ -783,7 +746,7 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 
 					const diff = diffOf(event.details);
 					if (diff !== undefined) {
-						for (const line of diffBlockLines(diff)) items.push({ kind: "diff", text: stripControlChars(line) });
+						for (const dl of diffBlockLines(diff)) items.push({ kind: "diff", text: stripControlChars(dl.text) });
 					}
 
 					if (event.toolName.toLowerCase() === "bash" && resultInfo.resultText) {

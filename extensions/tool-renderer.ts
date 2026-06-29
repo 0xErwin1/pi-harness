@@ -60,7 +60,7 @@ import {
 export type ToolRegistrar = Pick<ExtensionAPI, "registerTool">;
 
 /** Semantic colours the styled tool lines use; all are valid theme colours. */
-export type ToolLineColor = "accent" | "success" | "error" | "dim";
+export type ToolLineColor = "accent" | "success" | "error" | "dim" | "muted";
 
 /**
  * Styling surface the pure line builders delegate to so they stay theme-agnostic
@@ -207,7 +207,7 @@ export function buildToolResultLines(
 	}
 
 	let line = styler.bold(verb);
-	if (display.length > 0) line += ` ${styler.fg("accent", display)}`;
+	if (display.length > 0) line += ` ${styler.fg("muted", display)}`;
 	if (summaryText.length > 0) line += ` · ${styler.fg(statusColor(status), summaryText)}`;
 
 	const lines = [line];

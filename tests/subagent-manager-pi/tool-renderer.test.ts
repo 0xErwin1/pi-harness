@@ -71,13 +71,13 @@ test("buildToolCallLine: verb only when there are no display args", () => {
 
 test("buildToolResultLines: read yields '<Verb> <args> · <summary>' with a dim summary", () => {
 	const lines = buildToolResultLines("read", { path: "a.ts" }, textResult("l1\nl2\n"), false, false, STYLER);
-	assert.deepEqual(lines, ["<b>Read</b> <accent>a.ts</accent> · <dim>2 lines</dim>"]);
+	assert.deepEqual(lines, ["<b>Read</b> <muted>a.ts</muted> · <dim>2 lines</dim>"]);
 });
 
 test("buildToolResultLines: bash exit 0 colours the summary success and shows the output", () => {
 	const lines = buildToolResultLines("bash", { command: "x" }, textResult("a\nb\nexit code: 0"), false, false, STYLER);
 	assert.deepEqual(lines, [
-		"<b>Bash</b> <accent>$ x</accent> · <success>exit 0 · 3 lines</success>",
+		"<b>Bash</b> <muted>$ x</muted> · <success>exit 0 · 3 lines</success>",
 		"<dim>a</dim>",
 		"<dim>b</dim>",
 	]);
@@ -86,14 +86,14 @@ test("buildToolResultLines: bash exit 0 colours the summary success and shows th
 test("buildToolResultLines: bash nonzero exit colours the summary error and shows the output", () => {
 	const lines = buildToolResultLines("bash", { command: "x" }, textResult("boom\nexit code: 1"), false, false, STYLER);
 	assert.deepEqual(lines, [
-		"<b>Bash</b> <accent>$ x</accent> · <error>exit 1 · 2 lines</error>",
+		"<b>Bash</b> <muted>$ x</muted> · <error>exit 1 · 2 lines</error>",
 		"<dim>boom</dim>",
 	]);
 });
 
 test("buildToolResultLines: isError overrides the summary colour to error", () => {
 	const lines = buildToolResultLines("read", { path: "a.ts" }, textResult("l1\n"), true, false, STYLER);
-	assert.deepEqual(lines, ["<b>Read</b> <accent>a.ts</accent> · <error>1 lines</error>"]);
+	assert.deepEqual(lines, ["<b>Read</b> <muted>a.ts</muted> · <error>1 lines</error>"]);
 });
 
 test("buildToolResultLines: isError with no summary text shows a bare 'error'", () => {
@@ -105,7 +105,7 @@ test("buildToolResultLines: edit appends the coloured diff block under the summa
 	const diff = "--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n ctx\n-old\n+new";
 	const lines = buildToolResultLines("edit", { path: "x" }, textResult("", { diff }), false, false, STYLER);
 	assert.deepEqual(lines, [
-		"<b>Edit</b> <accent>x</accent> · <dim>+1 -1</dim>",
+		"<b>Edit</b> <muted>x</muted> · <dim>+1 -1</dim>",
 		"<dim>@@ -1,2 +1,3 @@</dim>",
 		"<dim> ctx</dim>",
 		"<error>-old</error>",
@@ -188,7 +188,7 @@ test("safeBuildToolResultLines: fallback for an edit still produces a single pla
 
 test("safeBuildToolResultLines: returns the normal styled lines when nothing throws", () => {
 	const lines = safeBuildToolResultLines("read", { path: "a.ts" }, textResult("l1"), false, false, STYLER);
-	assert.deepEqual(lines, ["<b>Read</b> <accent>a.ts</accent> · <dim>1 lines</dim>"]);
+	assert.deepEqual(lines, ["<b>Read</b> <muted>a.ts</muted> · <dim>1 lines</dim>"]);
 });
 
 // ── registration / execute delegation ───────────────────────────────────────
