@@ -8,27 +8,15 @@
  * cross-session history. All state lives in a single SQLite database under the
  * agent dir, so stashes and history survive restarts.
  */
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { enterOverlay, exitOverlay } from "../packages/shared/overlay-gate.ts";
-import { PromptDb } from "../packages/prompt-stash/db.ts";
+import { getPromptDb } from "../packages/prompt-stash/connection.ts";
 import { StashIndicator } from "../packages/prompt-stash/indicator.ts";
 import { StashPopup } from "../packages/prompt-stash/stash-popup.ts";
 import type { StashTab } from "../packages/prompt-stash/popup-model.ts";
 
-const DB_PATH = join(homedir(), ".pi", "agent", "harness-prompts.db");
-
-let db: PromptDb | undefined;
-
 /** cwds whose above-prompt stash indicator has already been registered. */
 const registeredIndicatorCwds = new Set<string>();
-
-/** Opens the database on first use; one connection is shared for the process. */
-function getDb(): PromptDb {
-	if (!db) db = new PromptDb(DB_PATH);
-	return db;
-}
 
 /** Last path segment of `cwd`, used to tag a history entry with its project. */
 function projectOf(cwd: string): string {
@@ -47,7 +35,7 @@ async function openPopup(ctx: ExtensionContext, initialTab: StashTab): Promise<v
 	enterOverlay();
 	const result = await ctx.ui
 		.custom<string | undefined>(
-			(tui, theme, _keybindings, done) => new StashPopup(tui, theme, done, getDb(), sessionId, initialTab),
+			(tui, theme, _keybindings, done) => new StashPopup(tui, theme, done, getPromptDb, sessionId, initialTab),
 			{
 				overlay: true,
 				overlayOptions: { anchor: "center", width: "80%", maxHeight: "80%" },
@@ -63,7 +51,7 @@ export default function promptStash(pi: ExtensionAPI): void {
 		if (event.source === "interactive" && !event.text.startsWith("/")) {
 			try {
 				const cwd = ctx.sessionManager.getCwd();
-				getDb().addHistory({
+				getPromptDb().addHistory({
 					sessionId: ctx.sessionManager.getSessionId(),
 					project: projectOf(cwd),
 					cwd,
@@ -84,12 +72,12 @@ export default function promptStash(pi: ExtensionAPI): void {
 			const sessionId = ctx.sessionManager.getSessionId();
 
 			if (text.trim().length > 0) {
-				getDb().saveStash(sessionId, text);
+				getPromptDb().saveStash(sessionId, text);
 				ctx.ui.setEditorText("");
 				return;
 			}
 
-			const last = getDb().popLast(sessionId);
+			const last = getPromptDb().popLast(sessionId);
 			if (last) ctx.ui.setEditorText(last.text);
 		},
 	});
@@ -110,7 +98,7 @@ export default function promptStash(pi: ExtensionAPI): void {
 
 		ctx.ui.setWidget(
 			"prompt-stash",
-			(_tui, theme) => new StashIndicator(theme, getDb, () => ctx.sessionManager.getSessionId()),
+			(_tui, theme) => new StashIndicator(theme, getPromptDb, () => ctx.sessionManager.getSessionId()),
 			{ placement: "aboveEditor" },
 		);
 	});

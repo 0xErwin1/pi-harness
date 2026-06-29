@@ -46,24 +46,33 @@ export class StashPopup implements Component {
 		private readonly tui: TUI,
 		private readonly theme: Theme,
 		private readonly done: (result: string | undefined) => void,
-		private readonly db: PromptDb,
+		private readonly db: () => PromptDb,
 		private readonly sessionId: string,
 		initialTab: StashTab = "stash",
 	) {
 		this.tab = initialTab;
 	}
 
-	/** Resolves the current rows from the DB for the active tab and filter. */
+	/**
+	 * Resolves the current rows from the DB for the active tab and filter. Both
+	 * `render` and `handleInput` call this, and a throw in either is fatal to pi
+	 * (no error boundary around component callbacks), so any DB error — e.g. a
+	 * transient lock under concurrent access — degrades to an empty list.
+	 */
 	private rows(): Row[] {
-		if (this.tab === "stash") {
-			return this.db
-				.searchStash(this.sessionId, this.filter)
-				.map((entry) => ({ id: entry.id, text: entry.text, meta: undefined }));
-		}
+		try {
+			if (this.tab === "stash") {
+				return this.db()
+					.searchStash(this.sessionId, this.filter)
+					.map((entry) => ({ id: entry.id, text: entry.text, meta: undefined }));
+			}
 
-		return this.db
-			.listHistory({ query: this.filter })
-			.map((entry) => ({ id: entry.id, text: entry.text, meta: entry.project ?? undefined }));
+			return this.db()
+				.listHistory({ query: this.filter })
+				.map((entry) => ({ id: entry.id, text: entry.text, meta: entry.project ?? undefined }));
+		} catch {
+			return [];
+		}
 	}
 
 	handleInput(data: string): void {
@@ -106,7 +115,13 @@ export class StashPopup implements Component {
 				if (this.tab !== "stash") break;
 				const row = rows[this.selected];
 				if (row) {
-					this.db.removeStash(row.id);
+					try {
+						this.db().removeStash(row.id);
+					} catch {
+						// A failed delete (e.g. transient lock) must not crash the input
+						// path; the row simply stays and the user can retry.
+						break;
+					}
 					this.selected = clampIndex(this.selected, len - 1);
 				}
 				break;
