@@ -21,3 +21,4 @@ export { outputBlockLines } from "./formatters/output-block.ts";
 export { buildToolCallLine } from "./formatters/tool-call.ts";
 export type { ToolResultData } from "./formatters/tool-result.ts";
 export { buildToolResultLines } from "./formatters/tool-result.ts";
+export { formatMcpCall, formatMcpResult } from "./formatters/mcp.ts";
