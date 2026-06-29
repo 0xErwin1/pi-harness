@@ -11,10 +11,10 @@
  * re-scanned (union, not replace) at `session_start` AND `before_agent_start` to
  * catch MCP servers that connect asynchronously after the session opens.
  *
- * Styler note: the `safeRenderWrapper` transform receives only `(baseline, self,
- * width)` — there is no theme parameter at prototype-patch call sites. A plain
- * (no-ANSI) styler is used so the summary is legible in all terminals. Full theme
- * integration requires a higher-level hook and is deferred to S6/S8.
+ * Theme: the `safeRenderWrapper` transform has no `Theme` parameter at its call
+ * site, so the active theme is captured via `captureTheme(ctx.ui.theme)` at
+ * `session_start`. Inside the transform, `currentRenderStyler()` returns the
+ * theme-backed styler (or a plain fallback when no theme is captured yet).
  *
  * TRANSITION NOTE (S2–S7 coexistence): pi-tool-display is STILL active and also
  * handles MCP output (its config has `mcpOutputMode: "hidden"`). Both handlers are
@@ -36,7 +36,7 @@ import {
 import { clampLineWidths } from "../packages/visual-hierarchy/transforms.ts";
 import { formatMcpCall, formatMcpResult, RENDER_DEFAULTS } from "../packages/render-core/index.ts";
 import type { RenderCtx, WidthOps } from "../packages/render-core/width.ts";
-import type { RenderStyler } from "../packages/render-core/styler.ts";
+import { captureTheme, releaseTheme, currentRenderStyler } from "./theme-capture.ts";
 
 /**
  * Stable Symbol slot for the idempotent prototype patch.
@@ -87,23 +87,11 @@ function extractResultText(result: { content?: unknown[] } | undefined): string 
 	return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
-/**
- * Plain (no-ANSI) styler used inside the prototype-patch transform.
- *
- * Theme access requires a parameter not available at prototype-patch call sites.
- * A plain styler keeps the summary legible without ANSI codes; full theme
- * integration is deferred to a later slice or S8's architecture clean-up.
- */
-const PLAIN_STYLER: RenderStyler = {
-	fg: (_color, text) => text,
-	bold: (text) => text,
-};
-
 /** pi-tui WidthOps implementation threaded into the `RenderCtx`. */
 const PI_TUI_WIDTH: WidthOps = { visibleWidth, truncateToWidth };
 
 function makeRenderCtx(width: number): RenderCtx {
-	return { styler: PLAIN_STYLER, width: PI_TUI_WIDTH, maxWidth: width, config: RENDER_DEFAULTS };
+	return { styler: currentRenderStyler(), width: PI_TUI_WIDTH, maxWidth: width, config: RENDER_DEFAULTS };
 }
 
 /**
@@ -161,7 +149,8 @@ function installPatch(): void {
 }
 
 export default function mcpRenderer(pi: ExtensionAPI): void {
-	pi.on("session_start", () => {
+	pi.on("session_start", (_event, ctx) => {
+		captureTheme(ctx.ui.theme);
 		mcpToolNames.clear();
 		scanMcpTools(pi);
 		installPatch();
@@ -175,5 +164,6 @@ export default function mcpRenderer(pi: ExtensionAPI): void {
 		patchHandle?.restore();
 		patchHandle = undefined;
 		mcpToolNames.clear();
+		releaseTheme();
 	});
 }
