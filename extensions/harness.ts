@@ -89,6 +89,19 @@ function readOrchestratorPrompt(): string | undefined {
 	}
 }
 
+/**
+ * Whether this process is the orchestrator root rather than a spawned subagent.
+ *
+ * The orchestrator contract must only shape the root session. A subagent runs at
+ * depth > 0 and is a phase EXECUTOR: it follows its own role prompt (its skill)
+ * and must NOT receive the coordinator contract, otherwise it re-delegates its
+ * own phase to another subagent of the same type (e.g. an `sdd-spec` subagent
+ * spawning another `sdd-spec`).
+ */
+export function isOrchestratorRoot(): boolean {
+	return currentDepth() === 0;
+}
+
 const SDD_AGENT_NAMES = [
 	"sdd-init",
 	"sdd-explore",
@@ -1331,9 +1344,13 @@ export default function harness(pi: ExtensionAPI): void {
 	registerTodoTool(pi);
 	registerTodosCommand(pi);
 
-	// Append the orchestrator contract to the system prompt. The asset is read
+	// Append the orchestrator contract to the system prompt of the ROOT session
+	// only. Subagents (depth > 0) are executors and must not inherit the
+	// coordinator contract, or they re-delegate their own phase. The asset is read
 	// at runtime so a not-yet-created or unreadable file simply skips injection.
 	pi.on("before_agent_start", (event, _ctx) => {
+		if (!isOrchestratorRoot()) return undefined;
+
 		const orchestratorPrompt = readOrchestratorPrompt();
 		if (!orchestratorPrompt) return undefined;
 
