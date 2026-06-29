@@ -23,7 +23,7 @@
  * entirely, remove this file from `extensions/` (it is auto-discovered there) or
  * drop it from the `"pi".extensions` entry in `package.json`.
  */
-import { type Component, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
@@ -49,6 +49,16 @@ import {
 	type DiffLineKind,
 	type ToolSummaryStatus,
 } from "../packages/subagent-manager-pi/tool-format/index.ts";
+import {
+	buildBashCallLine,
+	buildToolResultLines as renderCoreBuildToolResultLines,
+	nextSpinner,
+	RENDER_DEFAULTS,
+	type RenderCtx,
+	type RenderStyler,
+	type SpinnerState,
+	type WidthOps,
+} from "../packages/render-core/index.ts";
 import {
 	imageAutoResize,
 	readPiSettings,
@@ -217,6 +227,7 @@ export function buildToolResultLines(
 	} else if (tool === "bash") {
 		lines.push(...buildToolOutputLines(resultText(result), expanded, styler));
 	}
+
 	return lines;
 }
 
@@ -257,6 +268,134 @@ function themeStyler(theme: Theme): ToolLineStyler {
 	return {
 		fg: (color, text) => theme.fg(color, text),
 		bold: (text) => theme.bold(text),
+	};
+}
+
+/**
+ * Adapts a pi-coding-agent `Theme` to a render-core `RenderStyler` so that
+ * render-core formatters can be called with real theme colours on the main thread.
+ */
+function renderStyler(theme: Theme): RenderStyler {
+	return {
+		fg: (color, text) => theme.fg(color, text),
+		bold: (text) => theme.bold(text),
+	};
+}
+
+/** pi-tui WidthOps wired into render-core's structural width-safety choke point. */
+const PI_TUI_WIDTH: WidthOps = { visibleWidth, truncateToWidth };
+
+/** Builds a render-core RenderCtx for the given theme and draw width. */
+function makeRenderCtx(theme: Theme, maxWidth: number): RenderCtx {
+	return { styler: renderStyler(theme), width: PI_TUI_WIDTH, maxWidth, config: RENDER_DEFAULTS };
+}
+
+/** Animation interval for the bash spinner (10 frames per second). */
+const BASH_SPINNER_INTERVAL_MS = 100;
+
+/** Type guard: checks whether a value looks like a persisted SpinnerState. */
+function isSpinnerState(value: unknown): value is SpinnerState {
+	if (value === null || typeof value !== "object") return false;
+	const v = value as Record<string, unknown>;
+	return typeof v.frame === "number" && typeof v.startedAt === "number";
+}
+
+/**
+ * Component returned by the bash `renderCall`. Carries its own timer ID so it
+ * can be cleared by the next `renderCall` cycle via `context.lastComponent`.
+ */
+interface BashCallComponent extends Component {
+	readonly _timerId: ReturnType<typeof setTimeout> | undefined;
+}
+
+/**
+ * Structural duck type for the properties of `ToolRenderContext` that the bash
+ * spinner logic reads. `ToolRenderContext` is not exported from the SDK barrel,
+ * so we define the subset we need. The real context object satisfies this shape.
+ */
+interface BashCallContext {
+	readonly lastComponent: Component | undefined;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	state: any;
+	readonly isPartial: boolean;
+	readonly invalidate: () => void;
+}
+
+/**
+ * Builds a bash call component with a braille spinner and elapsed timer.
+ *
+ * Implements the S3 invalidate-driven spinner loop:
+ * 1. Clears the timer from the previous component (`context.lastComponent`).
+ * 2. Seeds or recovers `SpinnerState` from `context.state`.
+ * 3. Advances the frame and records elapsed time.
+ * 4. While `context.isPartial` (command still running): schedules a new
+ *    `setTimeout` so `context.invalidate()` fires after BASH_SPINNER_INTERVAL_MS.
+ * 5. On the final render (`!context.isPartial`): does NOT schedule — the timer
+ *    stops, no further invalidations.
+ *
+ * Timer hygiene: the only timer that can outlive a render cycle is the one stored
+ * on the component returned by the CURRENT call; the PREVIOUS component's timer is
+ * always cleared at the top of the NEXT call, before any new timer is started.
+ */
+function createBashCallComponent(args: unknown, theme: Theme, context: BashCallContext): BashCallComponent {
+	const prev = context.lastComponent as BashCallComponent | undefined;
+	if (prev?._timerId !== undefined) {
+		clearTimeout(prev._timerId);
+	}
+
+	const state: SpinnerState = isSpinnerState(context.state)
+		? context.state
+		: { frame: 0, startedAt: Date.now() };
+
+	const now = Date.now();
+	const { frame, state: nextState } = nextSpinner(state, now);
+	const elapsedMs = now - state.startedAt;
+
+	context.state = nextState;
+
+	const command = formatToolArgs("bash", args);
+	const isRunning = context.isPartial;
+	const phase: "running" | "done" = isRunning ? "running" : "done";
+	const capturedTheme = theme;
+
+	let timerId: ReturnType<typeof setTimeout> | undefined;
+	if (isRunning) {
+		timerId = setTimeout(() => context.invalidate(), BASH_SPINNER_INTERVAL_MS);
+	}
+
+	return {
+		_timerId: timerId,
+		invalidate(): void {},
+		render(width: number): string[] {
+			try {
+				return buildBashCallLine(command, phase, frame, elapsedMs, makeRenderCtx(capturedTheme, width));
+			} catch {
+				return [minimalLine("bash", args)];
+			}
+		},
+	};
+}
+
+/**
+ * Builds a deferred render component that passes the draw width into `buildLines`.
+ *
+ * Used for the bash `renderResult` path where render-core's `buildToolResultLines`
+ * needs a `RenderCtx` (including `maxWidth`), which is only known at draw time.
+ * Defensive: any throw in `buildLines` falls back to the fallback string.
+ */
+function deferredRenderCoreLines(
+	buildLines: (width: number) => string[],
+	fallback: () => string,
+): Component {
+	return {
+		invalidate(): void {},
+		render(width: number): string[] {
+			try {
+				return buildLines(width);
+			} catch {
+				return [fallback()];
+			}
+		},
 	};
 }
 
@@ -335,6 +474,54 @@ export function overrideToolRendering<TParams extends TSchema, TDetails, TState>
 }
 
 /**
+ * Registers the bash tool with the spinner-aware renderCall and render-core
+ * result renderer.
+ *
+ * Bash gets its own registration (not via `overrideToolRendering`) for two reasons:
+ *
+ * 1. **Spinner renderCall**: while the command is executing, `renderCall` returns
+ *    a component that shows an animated braille spinner + elapsed timer, advancing
+ *    via `context.invalidate()` on a timer. This requires the third `context`
+ *    parameter that `overrideToolRendering`'s generic `renderCall` does not expose.
+ *
+ * 2. **Muted output gap (S1 WARNING-1)**: the local `buildToolOutputLines` coloured
+ *    bash output `dim`; render-core's `buildToolResultLines` colours it `muted`,
+ *    matching the parity baseline (PAR-03). Using render-core's version here closes
+ *    that gap so live bash output matches the viewer.
+ *
+ * TRANSITION: pi-tool-display still registers bash; last-registered-wins applies.
+ * This renderer is render-safe (throws degrade to a minimal line) and does not
+ * alter bash execution in any way.
+ */
+function registerBashToolRendering<TParams extends TSchema, TDetails, TState>(
+	pi: ToolRegistrar,
+	definition: ToolDefinition<TParams, TDetails, TState>,
+): void {
+	const toolName = definition.name;
+
+	pi.registerTool<TParams, TDetails, TState>({
+		...definition,
+		renderShell: "self",
+		renderCall: (args, theme, context) => createBashCallComponent(args, theme, context),
+		renderResult: (result: AgentToolResult<TDetails>, options: ToolRenderResultOptions, theme, context) =>
+			deferredRenderCoreLines(
+				(width) => {
+					const rt = resultText(result as ToolResultShape);
+					return renderCoreBuildToolResultLines(
+						toolName,
+						context.args,
+						{ resultText: rt, details: result.details },
+						context.isError,
+						options.expanded,
+						makeRenderCtx(theme, width),
+					);
+				},
+				() => minimalLine(toolName, context.args),
+			),
+	});
+}
+
+/**
  * The seven SDK tool-definition factories, bundled so they can be injected for
  * deterministic testing. Defaults to the real `@earendil-works/pi-coding-agent`
  * factories.
@@ -396,7 +583,7 @@ export function registerToolRenderer(pi: ToolRegistrar, options: RegisterToolRen
 	const readOptions = { autoResizeImages: imageAutoResize(settings) };
 
 	overrideToolRendering(pi, factories.read(cwd, readOptions));
-	overrideToolRendering(pi, factories.bash(cwd, bashOptions));
+	registerBashToolRendering(pi, factories.bash(cwd, bashOptions));
 	overrideToolRendering(pi, factories.edit(cwd));
 	overrideToolRendering(pi, factories.write(cwd));
 	overrideToolRendering(pi, factories.grep(cwd));
