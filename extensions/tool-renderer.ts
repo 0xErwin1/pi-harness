@@ -23,6 +23,8 @@
  * entirely, remove this file from `extensions/` (it is auto-discovered there) or
  * drop it from the `"pi".extensions` entry in `package.json`.
  */
+import { readFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { type Component, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type {
 	AgentToolResult,
@@ -52,7 +54,9 @@ import {
 import {
 	buildBashCallLine,
 	buildToolResultLines as renderCoreBuildToolResultLines,
+	LineBuffer,
 	nextSpinner,
+	projectPendingEdit,
 	RENDER_DEFAULTS,
 	type RenderCtx,
 	type RenderStyler,
@@ -322,6 +326,99 @@ interface BashCallContext {
 }
 
 /**
+ * Structural duck type for the `ToolRenderContext` fields the edit/write preview
+ * reads. `ToolRenderContext` is not exported from the SDK barrel; we use the
+ * subset we need so structural subtyping applies at the call site.
+ */
+interface EditCallContext {
+	readonly cwd: string;
+	readonly isPartial: boolean;
+	readonly argsComplete: boolean;
+}
+
+/**
+ * Returns the `path` string from tool args, or `undefined` when absent or not a
+ * string. Both the `edit` and `write` tools have a `path` field at the top level.
+ */
+function getFilePath(args: unknown): string | undefined {
+	if (args === null || typeof args !== "object" || Array.isArray(args)) return undefined;
+	const a = args as Record<string, unknown>;
+	return typeof a.path === "string" ? a.path : undefined;
+}
+
+/**
+ * Reads `filePath` relative to `cwd` (or absolute) and returns the UTF-8
+ * content, or `undefined` on any error (file not found, permission denied, etc.).
+ * Never throws — a missing file degrades to no preview, which is the correct
+ * behavior for a `write` call creating a new file.
+ */
+function safeReadFileSync(cwd: string, filePath: string | undefined): string | undefined {
+	if (!filePath) return undefined;
+	try {
+		const abs = isAbsolute(filePath) ? filePath : join(cwd, filePath);
+		return readFileSync(abs, "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Builds the diff-color role for a DiffBlockLine kind.
+ * Used when mapping `projectPendingEdit` rows to styled strings.
+ */
+function pendingDiffColor(kind: string): "success" | "error" | "dim" {
+	if (kind === "add") return "success";
+	if (kind === "del") return "error";
+	return "dim";
+}
+
+/**
+ * Builds a pending-diff call component for the `edit` and `write` tools.
+ *
+ * When `context.argsComplete && context.isPartial` the component reads the
+ * target file synchronously and projects the pending edit via `projectPendingEdit`,
+ * rendering the resulting diff rows through `LineBuffer` for structural
+ * width-clamping. Falls back to the standard `<Verb> <args>` call line in all
+ * other states (streaming args, post-execution) so the call slot is never empty.
+ *
+ * Render-safety: the entire render body is wrapped so any unexpected error
+ * degrades to a minimal plain line and never propagates out of the renderer.
+ *
+ * TRANSITION: pi-tool-display is still registered for edit/write during S1-S7;
+ * last-registered-wins applies, so one preview may appear from pi-tool-display
+ * and another from this renderer depending on load order. S8 will remove
+ * pi-tool-display, leaving this as the sole renderer.
+ */
+function createEditCallComponent(args: unknown, toolName: string, theme: Theme, context: EditCallContext): Component {
+	return {
+		invalidate(): void {},
+		render(width: number): string[] {
+			try {
+				if (context.argsComplete && context.isPartial) {
+					const filePath = getFilePath(args);
+					const currentContent = safeReadFileSync(context.cwd, filePath);
+					const ctx = makeRenderCtx(theme, width);
+					const rows = projectPendingEdit(args, currentContent, ctx.config.diff.collapsedLines);
+
+					if (rows.length > 0) {
+						const lb = new LineBuffer(ctx);
+						for (const row of rows) {
+							lb.push(ctx.styler.fg(pendingDiffColor(row.kind), row.text));
+						}
+						return lb.done();
+					}
+				}
+
+				const callLine = buildToolCallLine(toolName, args, themeStyler(theme));
+				return width > 0 ? wrapTextWithAnsi(callLine, width) : [callLine];
+			} catch {
+				return [minimalLine(toolName, args)];
+			}
+		},
+	};
+}
+
+/**
  * Builds a bash call component with a braille spinner and elapsed timer.
  *
  * Implements the S3 invalidate-driven spinner loop:
@@ -522,6 +619,44 @@ function registerBashToolRendering<TParams extends TSchema, TDetails, TState>(
 }
 
 /**
+ * Registers an `edit` or `write` tool with a pending-diff `renderCall`.
+ *
+ * While `context.argsComplete && context.isPartial` (args fully streamed, tool
+ * not yet executed), the call component reads the target file synchronously and
+ * renders a projected diff preview via `projectPendingEdit` + `LineBuffer`.
+ * In all other states the standard `<Verb> <args>` call line is shown so the
+ * call slot is never blank during streaming.
+ *
+ * The `renderResult` path is identical to `overrideToolRendering` so the result
+ * display (diff block for edit, line count for write) is unchanged.
+ */
+function registerEditWriteToolRendering<TParams extends TSchema, TDetails, TState>(
+	pi: ToolRegistrar,
+	definition: ToolDefinition<TParams, TDetails, TState>,
+): void {
+	const toolName = definition.name;
+
+	pi.registerTool<TParams, TDetails, TState>({
+		...definition,
+		renderShell: "self",
+		renderCall: (args, theme, context) => createEditCallComponent(args, toolName, theme, context),
+		renderResult: (result: AgentToolResult<TDetails>, options: ToolRenderResultOptions, theme, context) =>
+			deferredWrappedLines(
+				() =>
+					safeBuildToolResultLines(
+						toolName,
+						context.args,
+						result,
+						context.isError,
+						options.expanded,
+						themeStyler(theme),
+					),
+				() => minimalLine(toolName, context.args),
+			),
+	});
+}
+
+/**
  * The seven SDK tool-definition factories, bundled so they can be injected for
  * deterministic testing. Defaults to the real `@earendil-works/pi-coding-agent`
  * factories.
@@ -584,8 +719,8 @@ export function registerToolRenderer(pi: ToolRegistrar, options: RegisterToolRen
 
 	overrideToolRendering(pi, factories.read(cwd, readOptions));
 	registerBashToolRendering(pi, factories.bash(cwd, bashOptions));
-	overrideToolRendering(pi, factories.edit(cwd));
-	overrideToolRendering(pi, factories.write(cwd));
+	registerEditWriteToolRendering(pi, factories.edit(cwd));
+	registerEditWriteToolRendering(pi, factories.write(cwd));
 	overrideToolRendering(pi, factories.grep(cwd));
 	overrideToolRendering(pi, factories.find(cwd));
 	overrideToolRendering(pi, factories.ls(cwd));

@@ -24,3 +24,4 @@ export { buildToolResultLines } from "./formatters/tool-result.ts";
 export { formatMcpCall, formatMcpResult } from "./formatters/mcp.ts";
 export type { SpinnerState } from "./formatters/bash-spinner.ts";
 export { nextSpinner, buildBashCallLine } from "./formatters/bash-spinner.ts";
+export { projectPendingEdit } from "./formatters/pending-diff.ts";
