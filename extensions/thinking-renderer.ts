@@ -51,7 +51,7 @@ import { clampLineWidths } from "../packages/visual-hierarchy/transforms.ts";
 import { renderThinkingBlock } from "../packages/render-core/formatters/thinking.ts";
 import { RENDER_DEFAULTS } from "../packages/render-core/index.ts";
 import type { RenderCtx, WidthOps } from "../packages/render-core/width.ts";
-import { captureTheme, releaseTheme, currentRenderStyler } from "./theme-capture.ts";
+import { captureTheme, releaseTheme, currentRenderStyler } from "../packages/visual-hierarchy/theme-capture.ts";
 
 const THINKING_RENDER_SYMBOL = Symbol("thinking-render-patch");
 

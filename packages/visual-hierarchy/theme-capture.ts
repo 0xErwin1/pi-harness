@@ -29,8 +29,8 @@
  * is safe: every `RenderColor` literal exists in `ThemeColor`.
  */
 import { type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
-import type { RenderStyler } from "../packages/render-core/styler.ts";
-import type { RenderColor } from "../packages/render-core/styler.ts";
+import type { RenderStyler } from "../render-core/styler.ts";
+import type { RenderColor } from "../render-core/styler.ts";
 
 const PLAIN_STYLER: RenderStyler = {
 	fg: (_color, text) => text,

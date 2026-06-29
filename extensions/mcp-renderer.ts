@@ -36,7 +36,7 @@ import {
 import { clampLineWidths } from "../packages/visual-hierarchy/transforms.ts";
 import { formatMcpCall, formatMcpResult, RENDER_DEFAULTS } from "../packages/render-core/index.ts";
 import type { RenderCtx, WidthOps } from "../packages/render-core/width.ts";
-import { captureTheme, releaseTheme, currentRenderStyler } from "./theme-capture.ts";
+import { captureTheme, releaseTheme, currentRenderStyler } from "../packages/visual-hierarchy/theme-capture.ts";
 
 /**
  * Stable Symbol slot for the idempotent prototype patch.

@@ -40,7 +40,7 @@ import { clampLineWidths } from "../packages/visual-hierarchy/transforms.ts";
 import { applyUserMarker } from "../packages/render-core/formatters/user-message.ts";
 import { RENDER_DEFAULTS } from "../packages/render-core/index.ts";
 import type { RenderCtx, WidthOps } from "../packages/render-core/width.ts";
-import { captureTheme, releaseTheme, currentRenderStyler } from "./theme-capture.ts";
+import { captureTheme, releaseTheme, currentRenderStyler } from "../packages/visual-hierarchy/theme-capture.ts";
 
 const USER_MSG_RENDER_SYMBOL = Symbol("user-message-render-patch");
 
