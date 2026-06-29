@@ -14,16 +14,3 @@
 export interface LineStyler {
 	fg(role: "dim" | "accent", text: string): string;
 }
-
-const GUTTER_GLYPH = "│ ";
-
-/**
- * Prefixes every line with a dim left-bar gutter `│ ` (R1).
- *
- * The line count is unchanged: no lines are added, removed, split, or merged.
- * OSC 133 markers must be stripped by the caller before this is invoked.
- */
-export function applyAssistantGutter(lines: string[], styler: LineStyler): string[] {
-	const prefix = styler.fg("dim", GUTTER_GLYPH);
-	return lines.map((line) => prefix + line);
-}
