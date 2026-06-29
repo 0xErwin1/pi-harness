@@ -109,10 +109,11 @@ test("renderAllTodos: returns nothing for an empty list", () => {
 	assert.deepEqual(render(makeState([])), []);
 });
 
-test("shouldOpenTodosOverlay: only the right arrow at an empty prompt with no overlay opens", () => {
-	assert.equal(shouldOpenTodosOverlay("\x1b[C", true, false), true);
-	assert.equal(shouldOpenTodosOverlay("\x1b[C", false, false), false, "non-empty editor must not open");
-	assert.equal(shouldOpenTodosOverlay("\x1b[C", true, true), false, "an open overlay must not re-open");
-	assert.equal(shouldOpenTodosOverlay("\x1b[D", true, false), false, "the left arrow is the fleet's key");
-	assert.equal(shouldOpenTodosOverlay("a", true, false), false, "normal typing is never the trigger");
+test("shouldOpenTodosOverlay: only the right arrow at an empty prompt with no overlay and todos present opens", () => {
+	assert.equal(shouldOpenTodosOverlay("\x1b[C", true, false, true), true);
+	assert.equal(shouldOpenTodosOverlay("\x1b[C", false, false, true), false, "non-empty editor must not open");
+	assert.equal(shouldOpenTodosOverlay("\x1b[C", true, true, true), false, "an open overlay must not re-open");
+	assert.equal(shouldOpenTodosOverlay("\x1b[C", true, false, false), false, "no todos must not open an empty modal");
+	assert.equal(shouldOpenTodosOverlay("\x1b[D", true, false, true), false, "the left arrow is the fleet's key");
+	assert.equal(shouldOpenTodosOverlay("a", true, false, true), false, "normal typing is never the trigger");
 });

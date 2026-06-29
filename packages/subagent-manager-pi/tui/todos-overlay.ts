@@ -6,6 +6,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { enterOverlay, exitOverlay } from "../../shared/overlay-gate.ts";
 import { getState } from "../todo/store.ts";
 import type { TaskState } from "../todo/state.ts";
 import type { Task } from "../todo/types.ts";
@@ -30,11 +31,18 @@ export function isTodosOverlayOpen(): boolean {
 /**
  * Whether a raw key should open the full-todos overlay. Gated identically to the
  * fleet's `←` navigation: it acts ONLY on the right arrow, only at an empty
- * editor, and only when no overlay is already open — so it never swallows normal
- * typing and never fires while a conversation viewer or this overlay is up.
+ * editor, only when no overlay is already open, and only when there is at least
+ * one todo to show — so it never swallows normal typing, never fires while
+ * another overlay (a conversation viewer, the stash browser, this overlay) is up,
+ * and never opens an empty modal.
  */
-export function shouldOpenTodosOverlay(data: string, editorEmpty: boolean, overlayOpen: boolean): boolean {
-	return editorEmpty && !overlayOpen && matchesKey(data, "right");
+export function shouldOpenTodosOverlay(
+	data: string,
+	editorEmpty: boolean,
+	overlayOpen: boolean,
+	hasTodos: boolean,
+): boolean {
+	return editorEmpty && !overlayOpen && hasTodos && matchesKey(data, "right");
 }
 
 /** Lines consumed by the bordered chrome: top, header, header separator, footer separator, footer, bottom. */
@@ -227,6 +235,7 @@ export class TodosOverlay implements Component {
  */
 export function showTodosOverlay(ctx: ExtensionContext): Promise<void> {
 	openOverlayCount += 1;
+	enterOverlay();
 	const closed = ctx.ui.custom<void>(
 		(tui, theme, _keybindings, done) => new TodosOverlay(tui, theme, done),
 		{
@@ -240,5 +249,6 @@ export function showTodosOverlay(ctx: ExtensionContext): Promise<void> {
 	);
 	return closed.finally(() => {
 		openOverlayCount = Math.max(0, openOverlayCount - 1);
+		exitOverlay();
 	});
 }

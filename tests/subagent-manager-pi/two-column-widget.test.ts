@@ -444,13 +444,14 @@ test("TwoColumnWidget: addTokenUsage is a no-op when no task is in_progress", ()
 const RIGHT_ARROW = "\x1b[C";
 const LEFT_ARROW = "\x1b[D";
 
-test("routeTwoColumnInput: right arrow at an empty prompt with no overlay opens the todos overlay", () => {
+test("routeTwoColumnInput: right arrow at an empty prompt with no overlay and todos present opens the overlay", () => {
 	let opened = 0;
 	let fellThrough = 0;
 	const result = routeTwoColumnInput(
 		RIGHT_ARROW,
 		true,
 		false,
+		true,
 		() => { opened += 1; },
 		() => { fellThrough += 1; return undefined; },
 	);
@@ -460,6 +461,22 @@ test("routeTwoColumnInput: right arrow at an empty prompt with no overlay opens 
 	assert.deepEqual(result, { consume: true }, "the right arrow is consumed");
 });
 
+test("routeTwoColumnInput: right arrow with no todos does not open an empty overlay", () => {
+	let opened = 0;
+	let fellThrough = 0;
+	const result = routeTwoColumnInput(
+		RIGHT_ARROW,
+		true,
+		false,
+		false,
+		() => { opened += 1; },
+		() => { fellThrough += 1; return undefined; },
+	);
+
+	assert.equal(opened, 0, "an empty todos modal must not open");
+	assert.equal(fellThrough, 1, "the key falls through to the fleet");
+});
+
 test("routeTwoColumnInput: right arrow with a non-empty editor falls through to the fleet", () => {
 	let opened = 0;
 	let fellThrough = 0;
@@ -467,6 +484,7 @@ test("routeTwoColumnInput: right arrow with a non-empty editor falls through to 
 		RIGHT_ARROW,
 		false,
 		false,
+		true,
 		() => { opened += 1; },
 		() => { fellThrough += 1; return { consume: true }; },
 	);
@@ -480,6 +498,7 @@ test("routeTwoColumnInput: right arrow while an overlay is open does not open th
 	let opened = 0;
 	routeTwoColumnInput(
 		RIGHT_ARROW,
+		true,
 		true,
 		true,
 		() => { opened += 1; },
@@ -496,6 +515,7 @@ test("routeTwoColumnInput: a non-right key always falls through to the fleet", (
 		LEFT_ARROW,
 		true,
 		false,
+		true,
 		() => { opened += 1; },
 		() => { fellThrough += 1; return { consume: true }; },
 	);

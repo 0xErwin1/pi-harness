@@ -4,15 +4,12 @@ import {
 	FleetList,
 	openFleetTarget,
 } from "./fleet-list.ts";
+import type { ViewerRuntime } from "./conversation-viewer.ts";
 import {
-	isConversationViewerOpen,
-	type ViewerRuntime,
-} from "./conversation-viewer.ts";
-import {
-	isTodosOverlayOpen,
 	shouldOpenTodosOverlay,
 	showTodosOverlay,
 } from "./todos-overlay.ts";
+import { anyOverlayOpen } from "../../shared/overlay-gate.ts";
 import { getState } from "../todo/store.ts";
 import { selectVisibleTasks } from "../todo/selectors.ts";
 import type { TaskState } from "../todo/state.ts";
@@ -308,20 +305,22 @@ export interface TwoColumnWidgetHandle {
 
 /**
  * Routes a raw terminal key for the combined widget. The right arrow at an empty
- * prompt with no overlay open opens the full-todos overlay and consumes the key
- * (symmetric to the fleet's `←` for managing Agents); every other key falls
- * through to the fleet's own navigation handling unchanged, so normal typing and
- * `←`/`↑`/`↓` navigation are never affected. Kept pure (the open and fallback
- * actions are injected) so the gating is unit-testable without a TUI.
+ * prompt, with no overlay open and at least one todo to show, opens the full-todos
+ * overlay and consumes the key (symmetric to the fleet's `←` for managing Agents);
+ * every other key falls through to the fleet's own navigation handling unchanged,
+ * so normal typing and `←`/`↑`/`↓` navigation are never affected. Kept pure (the
+ * open and fallback actions are injected) so the gating is unit-testable without a
+ * TUI.
  */
 export function routeTwoColumnInput(
 	data: string,
 	editorEmpty: boolean,
 	overlayOpen: boolean,
+	hasTodos: boolean,
 	openTodos: () => void,
 	fallback: () => { consume?: boolean } | undefined,
 ): { consume?: boolean } | undefined {
-	if (shouldOpenTodosOverlay(data, editorEmpty, overlayOpen)) {
+	if (shouldOpenTodosOverlay(data, editorEmpty, overlayOpen, hasTodos)) {
 		openTodos();
 		return { consume: true };
 	}
@@ -368,12 +367,14 @@ export function registerTwoColumnWidget(ctx: ExtensionContext, runtime: ViewerRu
 		if (!activeWidget) return undefined;
 
 		const editorEmpty = ctx.ui.getEditorText() === "";
-		const overlayOpen = isConversationViewerOpen() || isTodosOverlayOpen();
+		const overlayOpen = anyOverlayOpen();
+		const hasTodos = getState().tasks.length > 0;
 
 		return routeTwoColumnInput(
 			data,
 			editorEmpty,
 			overlayOpen,
+			hasTodos,
 			() => {
 				void showTodosOverlay(ctx);
 			},

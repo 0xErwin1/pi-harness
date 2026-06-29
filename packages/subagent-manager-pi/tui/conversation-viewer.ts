@@ -6,6 +6,7 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { enterOverlay, exitOverlay } from "../../shared/overlay-gate.ts";
 import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
 import type { RunStoreListener } from "../../subagent-manager-core/store.ts";
 import {
@@ -294,6 +295,7 @@ export function showConversationViewer(
 	transcriptPath?: string,
 ): Promise<void> {
 	openViewerCount += 1;
+	enterOverlay();
 	const showPath = transcriptPath ? () => ctx.ui.notify(transcriptPath, "info") : undefined;
 	const closed = ctx.ui.custom<void>(
 		(tui, theme, _keybindings, done) =>
@@ -310,5 +312,6 @@ export function showConversationViewer(
 	);
 	return closed.finally(() => {
 		openViewerCount = Math.max(0, openViewerCount - 1);
+		exitOverlay();
 	});
 }

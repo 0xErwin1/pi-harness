@@ -28,6 +28,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { enterOverlay, exitOverlay } from "../packages/shared/overlay-gate.ts";
 import {
 	builtinAgentDirectories,
 	createManagerCommandSurface,
@@ -830,19 +831,22 @@ async function showModelPanel(
 	const modelOptions = await getPiModelOptions(ctx);
 	const agents = listDiscoverableAgents(ctx.cwd).map((agent) => agent.name);
 
-	return ctx.ui.custom<ModelPanelResult>(
-		(_tui, _theme, _keybindings, done) =>
-			new ModelPanel(config, modelOptions, agents, done),
-		{
-			overlay: true,
-			overlayOptions: {
-				anchor: "center",
-				width: "70%",
-				minWidth: 72,
-				maxHeight: "85%",
+	enterOverlay();
+	return ctx.ui
+		.custom<ModelPanelResult>(
+			(_tui, _theme, _keybindings, done) =>
+				new ModelPanel(config, modelOptions, agents, done),
+			{
+				overlay: true,
+				overlayOptions: {
+					anchor: "center",
+					width: "70%",
+					minWidth: 72,
+					maxHeight: "85%",
+				},
 			},
-		},
-	);
+		)
+		.finally(exitOverlay);
 }
 
 /**
