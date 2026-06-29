@@ -215,7 +215,7 @@ test("buildToolResultLines: isError overrides summary color", () => {
 	]);
 });
 
-test("buildToolResultLines: edit appends colored diff block", () => {
+test("buildToolResultLines: edit appends the rich diff block (gutter, line numbers, emphasis)", () => {
 	const diff = "--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n ctx\n-old\n+new";
 	const ctx = makeCtx();
 	const result = { resultText: "", details: { diff } };
@@ -223,9 +223,9 @@ test("buildToolResultLines: edit appends colored diff block", () => {
 	assert.deepEqual(lines, [
 		"<b><accent>Edit</accent></b> <muted>x</muted> · <dim>+1 -1</dim>",
 		"<dim>@@ -1,2 +1,3 @@</dim>",
-		"<dim> ctx</dim>",
-		"<error>-old</error>",
-		"<success>+new</success>",
+		"<dim>  1 1 │ </dim><dim>ctx</dim>",
+		"<dim>- 2   │ </dim><b><error>old</error></b>",
+		"<dim>+   2 │ </dim><b><success>new</success></b>",
 	]);
 });
 

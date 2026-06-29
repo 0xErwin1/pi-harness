@@ -88,6 +88,25 @@ const FIXTURES: ParityFixture[] = [
 		parity: "strict",
 	},
 	{
+		id: "PAR-06",
+		description: "rich edit diff: line numbers, +/- colouring, inline char emphasis across paired lines",
+		events: [
+			{
+				toolName: "edit",
+				args: { path: "src/calc.ts" },
+				result: {
+					resultText: "",
+					details: {
+						diff:
+							"--- a/src/calc.ts\n+++ b/src/calc.ts\n@@ -1,5 +1,5 @@\n import x\n-const a = 1\n+const a = 2\n const b = 3\n-return a\n+return a + b",
+					},
+				},
+			},
+		],
+		width: 200,
+		parity: "strict",
+	},
+	{
 		id: "PAR-05",
 		description: "write result: Consumer A uses args.content, Consumer B uses resultText — explicit divergence",
 		events: [

@@ -1,6 +1,8 @@
 import type { RunEvent, RunSnapshot } from "../../subagent-manager-core/events.ts";
 import { TOOL_PROGRESS_PREFIX } from "../../subagent-manager-core/events.ts";
-import { outputBlockLines, parseDiffStat, diffBlockLines } from "../tool-format/index.ts";
+import { outputBlockLines, parseDiffStat } from "../tool-format/index.ts";
+import { buildDiffRows, diffBodyTexts, styleDiffBodyLine } from "../../render-core/index.ts";
+import type { RenderStyler } from "../../render-core/index.ts";
 
 export interface ViewerModel {
 	headerLines: string[];
@@ -70,6 +72,9 @@ const STATUS_COLOR: Record<SummaryStatus, TranscriptColor> = { dim: "dim", succe
 
 /** Maximum bash output lines rendered inline before a `… +N more` continuation. */
 const OUTPUT_BLOCK_CAP = 20;
+
+/** Maximum diff rows rendered inline before a `… +N more` continuation. Mirrors render-core's default. */
+const DIFF_BLOCK_CAP = 20;
 
 /**
  * Marks a tool output block line — the text a command actually printed, shown
@@ -183,17 +188,17 @@ export function styleToolLine(line: string, styler: TranscriptStyler): string | 
 }
 
 /**
- * Styles a diff body line and strips its internal marker: additions in success,
- * deletions in error, hunk/context/continuation lines dim. Returns `undefined`
- * for any non-diff line. Detection keys off the `DIFF_MARK` prefix, so assistant
- * text that happens to start with `+`/`-` is never mistaken for a diff.
+ * Styles a rich diff body line and strips its internal marker: the line-number
+ * gutter is dim, the content is coloured by change kind (additions success,
+ * deletions error, hunk/context dim), and inline char-level emphasis spans are
+ * bold. Returns `undefined` for any non-diff line. Detection keys off the
+ * `DIFF_MARK` prefix, so assistant text is never mistaken for a diff. The styling
+ * itself is delegated to render-core's `styleDiffBodyLine`, the single function
+ * the main-thread renderer also calls, so both surfaces are byte-identical.
  */
 export function styleDiffLine(line: string, styler: TranscriptStyler): string | undefined {
 	if (!line.startsWith(DIFF_MARK)) return undefined;
-
-	const text = line.slice(DIFF_MARK.length);
-	const color: TranscriptColor = text.startsWith("+") ? "success" : text.startsWith("-") ? "error" : "dim";
-	return styler.fg(color, text);
+	return styleDiffBodyLine(line.slice(DIFF_MARK.length), styler as unknown as RenderStyler);
 }
 
 /**
@@ -746,7 +751,9 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 
 					const diff = diffOf(event.details);
 					if (diff !== undefined) {
-						for (const dl of diffBlockLines(diff)) items.push({ kind: "diff", text: stripControlChars(dl.text) });
+						for (const body of diffBodyTexts(buildDiffRows(diff, { cap: DIFF_BLOCK_CAP }))) {
+							items.push({ kind: "diff", text: body });
+						}
 					}
 
 					if (event.toolName.toLowerCase() === "bash" && resultInfo.resultText) {

@@ -627,8 +627,11 @@ function registerBashToolRendering<TParams extends TSchema, TDetails, TState>(
  * In all other states the standard `<Verb> <args>` call line is shown so the
  * call slot is never blank during streaming.
  *
- * The `renderResult` path is identical to `overrideToolRendering` so the result
- * display (diff block for edit, line count for write) is unchanged.
+ * The `renderResult` path goes through render-core's `buildToolResultLines` (the
+ * same builder the subagent viewer shares), so an edit result renders the RICH
+ * unified diff — line-number gutter, +/- colouring, and inline char-level
+ * emphasis — width-clamped through `LineBuffer`. A write result is unchanged
+ * (line-count summary, no body block).
  */
 function registerEditWriteToolRendering<TParams extends TSchema, TDetails, TState>(
 	pi: ToolRegistrar,
@@ -641,16 +644,18 @@ function registerEditWriteToolRendering<TParams extends TSchema, TDetails, TStat
 		renderShell: "self",
 		renderCall: (args, theme, context) => createEditCallComponent(args, toolName, theme, context),
 		renderResult: (result: AgentToolResult<TDetails>, options: ToolRenderResultOptions, theme, context) =>
-			deferredWrappedLines(
-				() =>
-					safeBuildToolResultLines(
+			deferredRenderCoreLines(
+				(width) => {
+					const rt = resultText(result as ToolResultShape);
+					return renderCoreBuildToolResultLines(
 						toolName,
 						context.args,
-						result,
+						{ resultText: rt, details: result.details },
 						context.isError,
 						options.expanded,
-						themeStyler(theme),
-					),
+						makeRenderCtx(theme, width),
+					);
+				},
 				() => minimalLine(toolName, context.args),
 			),
 	});

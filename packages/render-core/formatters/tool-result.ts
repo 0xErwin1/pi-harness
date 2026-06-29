@@ -10,8 +10,9 @@
 import { LineBuffer, type RenderCtx } from "../width.ts";
 import type { RenderColor } from "../styler.ts";
 import { toolVerb, formatToolArgs } from "./tool-args.ts";
-import { summarizeToolResult, parseDiffStat, diffBlockLines, type ToolSummaryStatus, type DiffLineKind } from "./tool-summary.ts";
+import { summarizeToolResult, type ToolSummaryStatus } from "./tool-summary.ts";
 import { outputBlockLines } from "./output-block.ts";
+import { buildDiffRows, diffBodyTexts, styleDiffBodyLine } from "./diff.ts";
 
 /** Minimal result shape consumed by the formatter; no pi-coding-agent import needed. */
 export interface ToolResultData {
@@ -24,17 +25,6 @@ function statusColor(status: ToolSummaryStatus): RenderColor {
 		case "ok":
 			return "success";
 		case "error":
-			return "error";
-		default:
-			return "dim";
-	}
-}
-
-function diffColor(kind: DiffLineKind): RenderColor {
-	switch (kind) {
-		case "add":
-			return "success";
-		case "del":
 			return "error";
 		default:
 			return "dim";
@@ -96,9 +86,9 @@ export function buildToolResultLines(
 	if (tool === "edit") {
 		const diff = editDiff(result.details);
 		if (diff !== undefined) {
-			const cap = expanded ? Number.MAX_SAFE_INTEGER : undefined;
-			for (const dl of diffBlockLines(diff, cap)) {
-				lb.push(ctx.styler.fg(diffColor(dl.kind), dl.text));
+			const cap = expanded ? Number.MAX_SAFE_INTEGER : ctx.config.diff.collapsedLines;
+			for (const body of diffBodyTexts(buildDiffRows(diff, { cap }))) {
+				lb.push(styleDiffBodyLine(body, ctx.styler));
 			}
 		}
 	} else if (tool === "bash") {

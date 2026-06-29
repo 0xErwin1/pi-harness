@@ -528,10 +528,19 @@ test("edit result shows `+A -R` and renders the diff block with coloured +/- lin
 
 	assert.equal(styled[0], "<b><accent>edit</accent></b> <muted>crates/x.rs</muted> · <dim>+2 -1</dim>");
 	assert.ok(styled.includes("<dim>@@ -1,3 +1,3 @@</dim>"), "hunk header dim");
-	assert.ok(styled.includes("<dim> context</dim>"), "context line dim");
-	assert.ok(styled.includes("<error>-old line</error>"), "removed line error");
-	assert.ok(styled.includes("<success>+new line</success>"), "added line success");
-	assert.ok(styled.includes("<success>+added line</success>"), "second added line success");
+	assert.ok(styled.includes("<dim>  1 1 │ </dim><dim>context</dim>"), "context line: dim gutter + dim content");
+	assert.ok(
+		styled.includes("<dim>- 2   │ </dim><b><error>old</error></b><error> line</error>"),
+		"removed line: dim gutter, error content, emphasized 'old'",
+	);
+	assert.ok(
+		styled.includes("<dim>+   2 │ </dim><b><success>new</success></b><success> line</success>"),
+		"added line: dim gutter, success content, emphasized 'new'",
+	);
+	assert.ok(
+		styled.includes("<dim>+   3 │ </dim><success>added line</success>"),
+		"unpaired added line: success content, no emphasis",
+	);
 	assert.ok(!styled.some((s) => s.includes("+++")), "the +++ file header is skipped");
 	assert.ok(!styled.some((s) => s.includes("--- a/")), "the --- file header is skipped");
 });
@@ -955,7 +964,11 @@ test("C0 defense: diff line starting with DIFF_MARK produces no raw control char
 
 	const addLine = diffLines.find((l) => l.includes("normal add"));
 	assert.ok(addLine !== undefined, "+normal add must survive");
-	assert.equal(styleDiffLine(addLine!, STYLER), "<success>+normal add</success>", "normal add must be success-colored");
+	assert.equal(
+		styleDiffLine(addLine!, STYLER),
+		"<dim>+   2 │ </dim><success>normal add</success>",
+		"normal add: dim gutter + success content",
+	);
 });
 
 test("C0 defense: embedded DIFF_MARK in diff line content is stripped, line is still success-colored", () => {
@@ -968,7 +981,10 @@ test("C0 defense: embedded DIFF_MARK in diff line content is stripped, line is s
 
 	const styled = styleDiffLine(addLine!, STYLER)!;
 	assert.ok(!hasRawControlChars(styled), `no raw C0 in embedded case: ${JSON.stringify(styled)}`);
-	assert.ok(styled.startsWith("<success>"), "must be success-colored since original line starts with +");
+	assert.ok(
+		styled.includes("<success>contentwith-embedded-diff-mark</success>"),
+		`content must be success-colored with the embedded marker stripped: ${JSON.stringify(styled)}`,
+	);
 });
 
 test("C0 defense: tool target containing TOOL_MARK produces no raw control char in styled output", () => {
@@ -1002,7 +1018,7 @@ test("C0 defense: tab inside a diff line is preserved after sanitization", () =>
 
 	const addLine = lines.find((l) => isDiffLine(l) && l.includes("\t"));
 	assert.ok(addLine !== undefined, "tab-indented diff line must be preserved");
-	assert.equal(styleDiffLine(addLine!, STYLER), "<success>+\tindented code line</success>");
+	assert.equal(styleDiffLine(addLine!, STYLER), "<dim>+   1 │ </dim><success>\tindented code line</success>");
 });
 
 test("C0 defense: normal content without control chars renders byte-identically to baseline", () => {
