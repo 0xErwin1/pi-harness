@@ -101,6 +101,40 @@ export function isOrchestratorRoot(): boolean {
 	return currentDepth() === 0;
 }
 
+/**
+ * Wraps `ui.custom` so EVERY overlay opened through pi's shared custom-overlay API
+ * — including overlays opened by OTHER extensions (e.g. the ask-user-question
+ * package) — brackets its lifetime with the shared overlay gate. pi dispatches
+ * extension `onTerminalInput` listeners BEFORE the focused overlay, so the global
+ * fleet key-router (right-arrow → open agents) otherwise consumes keys meant for an
+ * external overlay (e.g. advancing a multi-step question) instead of letting that
+ * overlay handle them. Only the harness's own overlays previously registered with
+ * the gate; this makes external ones participate without their cooperation.
+ *
+ * Idempotent (marked on the patched method) so it survives `/reload`. The host's
+ * `custom<T>` is generic and the wrapper cannot preserve that generic, so the patch
+ * is contained behind one local cast to a loose call signature.
+ */
+function bracketAllOverlays(ui: ExtensionContext["ui"]): void {
+	const target = ui as unknown as {
+		custom: (...args: unknown[]) => Promise<unknown>;
+		__piHarnessOverlayGated?: boolean;
+	};
+	if (target.__piHarnessOverlayGated) return;
+
+	const original = target.custom.bind(ui);
+	target.custom = (...args: unknown[]): Promise<unknown> => {
+		enterOverlay();
+		try {
+			return original(...args).finally(exitOverlay);
+		} catch (error) {
+			exitOverlay();
+			throw error;
+		}
+	};
+	target.__piHarnessOverlayGated = true;
+}
+
 const SDD_AGENT_NAMES = [
 	"sdd-init",
 	"sdd-explore",
@@ -1300,6 +1334,7 @@ export default function harness(pi: ExtensionAPI): void {
 	// branch so todo state survives compaction and session tree navigation, and
 	// reset the hide-between-turns state on every session boundary.
 	pi.on("session_start", (_event, ctx) => {
+		bracketAllOverlays(ctx.ui);
 		installSessionCleanup(pi);
 		replayFromBranch(ctx);
 		if (!registeredCwds.has(ctx.cwd)) {
