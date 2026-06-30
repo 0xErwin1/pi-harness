@@ -21,12 +21,18 @@ function stripAnsi(s: string): string {
 const STYLER: RenderStyler = {
 	fg: (color, text) => `<${color}>${text}</${color}>`,
 	bold: (text) => `<b>${text}</b>`,
+	italic: (text) => `<i>${text}</i>`,
 };
 
-/** ASCII width ops: one char = one column. */
+/** Strips the deterministic `<tag>` markup so width is measured by VISIBLE text, mirroring the real ANSI-aware ops. */
+function visibleText(s: string): string {
+	return s.replace(/<\/?[a-z]+>/g, "");
+}
+
+/** ASCII width ops: one visible char = one column. Tag-aware so styled split lines measure their true width. */
 const ASCII_WIDTH: WidthOps = {
-	visibleWidth: (s) => s.length,
-	truncateToWidth: (s, w) => (s.length <= w ? s : s.slice(0, w)),
+	visibleWidth: (s) => visibleText(s).length,
+	truncateToWidth: (s, w) => (visibleText(s).length <= w ? s : s.slice(0, w)),
 };
 
 // ── fixtures seeded after ADR-2 (args = muted on both consumers) ─────────────

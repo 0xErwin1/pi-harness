@@ -30,7 +30,7 @@ export const RENDER_DEFAULTS: RenderConfig = Object.freeze({
 	previewLines: 3,
 	bashCollapsed: 6,
 	diff: Object.freeze({
-		mode: "auto",
+		mode: "split",
 		splitMinWidth: 120,
 		collapsedLines: 20,
 		wordWrap: true,

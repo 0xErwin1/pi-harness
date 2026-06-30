@@ -4,9 +4,11 @@ import { outputBlockLines, parseDiffStat } from "../tool-format/index.ts";
 import {
 	buildDiffRows,
 	diffBodyTexts,
+	resolveDiffMode,
+	RENDER_DEFAULTS,
+	splitDiffBodyTexts,
 	splitThinkingTitle,
 	styleDiffBodyLine,
-	THINKING_BODY_PREFIX,
 	THINKING_HEADER,
 } from "../../render-core/index.ts";
 import type { RenderStyler } from "../../render-core/index.ts";
@@ -92,13 +94,40 @@ const DIFF_BLOCK_CAP = 20;
 const OUTPUT_MARK = "\u0007";
 
 /**
+ * Marks a thinking HEADER line. The styler renders it as the reasoning label
+ * (`Thinking` / `Thinking:`) in the thinking tint, italicised, followed by the
+ * bold title when one is present (the title is separated from the label by
+ * `TITLE_SEP`). A C0 control stripped from real content, so it cannot misfire.
+ */
+const THINK_HEAD_MARK = String.fromCharCode(0x0b);
+
+/** Marks a thinking BODY line: reasoning prose rendered muted and flush (no gutter), matching the main thread. */
+const THINK_BODY_MARK = String.fromCharCode(0x0c);
+
+/** Separates the `Thinking:` label from its title inside a `THINK_HEAD_MARK` line. */
+const TITLE_SEP = String.fromCharCode(0x1f);
+
+/**
+ * Marks a user-prompt line. The styler accents the leading `❯ ` marker glyph (or
+ * keeps the aligned indent on continuation lines), mirroring the main thread's
+ * user-message accent so the run's prompt reads as input rather than a section header.
+ */
+const USER_MARK = String.fromCharCode(0x0e);
+
+/** Leading glyph for the first line of the user prompt block; continuation lines align under it. */
+const USER_GLYPH = "❯ ";
+const USER_INDENT = "  ";
+
+/**
  * Style surface the model functions delegate to so they stay theme-agnostic and
- * headlessly testable: `fg` applies a semantic colour, `bold` weights text. The
+ * headlessly testable: `fg` applies a semantic colour, `bold` weights text, and
+ * `italic` slants it (used by the thinking header to match the main thread). The
  * render layer wires these to its theme; tests pass deterministic doubles.
  */
 export interface TranscriptStyler {
 	fg(color: TranscriptColor, text: string): string;
 	bold(text: string): string;
+	italic(text: string): string;
 }
 
 function formatElapsedMs(ms: number): string {
@@ -220,6 +249,49 @@ export function styleOutputLine(line: string, styler: TranscriptStyler): string 
 }
 
 /**
+ * Styles a thinking HEADER line and strips its marker: the `Thinking`/`Thinking:`
+ * label is italic and thinking-tinted; a title (present after `TITLE_SEP`) follows
+ * in bold. Mirrors the main thread's opencode reasoning header. Returns `undefined`
+ * for any non-header line.
+ */
+export function styleThinkingHeadLine(line: string, styler: TranscriptStyler): string | undefined {
+	if (!line.startsWith(THINK_HEAD_MARK)) return undefined;
+
+	const rest = line.slice(THINK_HEAD_MARK.length);
+	const sepAt = rest.indexOf(TITLE_SEP);
+	if (sepAt < 0) return styler.italic(styler.fg("thinking", rest));
+
+	const label = rest.slice(0, sepAt);
+	const title = rest.slice(sepAt + TITLE_SEP.length);
+	return `${styler.italic(styler.fg("thinking", label))} ${styler.bold(title)}`;
+}
+
+/**
+ * Styles a thinking BODY line and strips its marker: the reasoning prose is muted
+ * and flush (no gutter), matching the main thread. Returns `undefined` otherwise.
+ */
+export function styleThinkingBodyLine(line: string, styler: TranscriptStyler): string | undefined {
+	if (!line.startsWith(THINK_BODY_MARK)) return undefined;
+	return styler.fg("muted", line.slice(THINK_BODY_MARK.length));
+}
+
+/**
+ * Styles a user-prompt line and strips its marker: the leading `❯ ` glyph is
+ * accent-coloured (mirroring the main thread's user-message marker) and the prompt
+ * text is dim, so the run's input reads as subordinate context. A continuation line
+ * (aligned indent, no glyph) is dim throughout. Returns `undefined` otherwise.
+ */
+export function styleUserLine(line: string, styler: TranscriptStyler): string | undefined {
+	if (!line.startsWith(USER_MARK)) return undefined;
+
+	const rest = line.slice(USER_MARK.length);
+	if (rest.startsWith(USER_GLYPH)) {
+		return styler.fg("accent", USER_GLYPH) + styler.fg("dim", rest.slice(USER_GLYPH.length));
+	}
+	return styler.fg("dim", rest);
+}
+
+/**
  * Single entry point for colouring one body line: tool lines, then diff lines,
  * then everything else via `transcriptLineColor`. Both render layers (the overlay
  * viewer and the expanded Ctrl-O row) share this so they stay visually identical.
@@ -235,6 +307,15 @@ export function styleTranscriptLine(line: string, styler: TranscriptStyler): str
 
 	const output = styleOutputLine(line, styler);
 	if (output !== undefined) return output;
+
+	const thinkHead = styleThinkingHeadLine(line, styler);
+	if (thinkHead !== undefined) return thinkHead;
+
+	const thinkBody = styleThinkingBodyLine(line, styler);
+	if (thinkBody !== undefined) return thinkBody;
+
+	const user = styleUserLine(line, styler);
+	if (user !== undefined) return user;
 
 	return styler.fg(transcriptLineColor(line), line);
 }
@@ -285,23 +366,35 @@ export function formatInvocationSubline(model?: string, thinking?: string): stri
 }
 
 /**
- * Renders one or more consecutive thinking texts as a single grouped block: a dim
- * `Thinking`/`Thinking: <title>` header followed by the reasoning body wrapped to
- * width under a dim gutter. Empty bodies (title-only thinking) yield just the
- * header. The title/body split and the header/gutter constants are imported from
- * render-core, so this viewer block is byte-identical to the main thread's.
+ * Renders one or more consecutive thinking texts as a single grouped block, marked
+ * for the styling layer to match the main thread's opencode style: an italic,
+ * thinking-tinted `Thinking`/`Thinking:` header with a bold title, followed by the
+ * reasoning body rendered muted and flush (no gutter), word-wrapped to width.
+ * Title-only thinking yields just the header. The source text is stripped of
+ * control bytes HERE (before the markers are added) so the returned lines carry the
+ * markers intact for `styleTranscriptLine`. The title/body split is shared with the
+ * main thread via render-core's `splitThinkingTitle`.
  */
 function renderThinkingBlock(texts: string[], width: number): string[] {
-	const combined = texts.join("\n").trim();
+	// Strip ANSI and C0 controls but PRESERVE tab (0x09) and newline (0x0a): the
+	// newline is the structural separator `splitThinkingTitle`/`wrapText` rely on, so
+	// stripping it here (as the generic `stripControlChars` would) folds the body into
+	// the title. The remaining markers are added AFTER this, so they survive.
+	const combined = texts
+		.join("\n")
+		.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+		.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "")
+		.trim();
 	if (combined.length === 0) return [];
 
 	const { title, body } = splitThinkingTitle(combined);
-	const lines = [title ? `${THINKING_HEADER}: ${title}` : THINKING_HEADER];
 
-	const bodyWidth = width > 0 ? width - THINKING_BODY_PREFIX.length : width;
-	for (const line of wrapText(body, bodyWidth)) {
+	const header = title ? `${THINKING_HEADER}:${TITLE_SEP}${title}` : THINKING_HEADER;
+	const lines = [`${THINK_HEAD_MARK}${header}`];
+
+	for (const line of wrapText(body, width)) {
 		if (line.length === 0) continue;
-		lines.push(`${THINKING_BODY_PREFIX}${line}`);
+		lines.push(`${THINK_BODY_MARK}${line}`);
 	}
 
 	return lines;
@@ -465,6 +558,8 @@ interface TextItem {
 interface DiffItem {
 	kind: "diff";
 	text: string;
+	/** True when `text` is a side-by-side split body already sized to width; it must not be re-truncated. */
+	split?: boolean;
 }
 interface OutputItem {
 	kind: "output";
@@ -500,9 +595,22 @@ function toolItemKey(item: ToolItem): string {
  * plus indented continuation lines (never truncated). Diff lines carry the diff
  * marker; plain text passes through truncated. Always returns at least one string.
  */
+/** Leading 1-char kind markers that the styler consumes; truncation must preserve them, clamping only the payload. */
+const LEADING_MARKERS = new Set([THINK_HEAD_MARK, THINK_BODY_MARK, USER_MARK]);
+
 function encodeItem(item: LineItem, width: number): string[] {
-	if (item.kind === "text") return [width > 0 ? truncateByLength(item.text, width) : item.text];
-	if (item.kind === "diff") return [`${DIFF_MARK}${width > 0 ? truncateByLength(item.text, width) : item.text}`];
+	if (item.kind === "text") {
+		const marker = item.text[0];
+		if (marker !== undefined && LEADING_MARKERS.has(marker)) {
+			const payload = item.text.slice(1);
+			return [`${marker}${width > 0 ? truncateByLength(payload, width) : payload}`];
+		}
+		return [width > 0 ? truncateByLength(item.text, width) : item.text];
+	}
+	if (item.kind === "diff") {
+		const fitted = item.split || width <= 0 ? item.text : truncateByLength(item.text, width);
+		return [`${DIFF_MARK}${fitted}`];
+	}
 	if (item.kind === "output") return [`${OUTPUT_MARK}${width > 0 ? truncateByLength(item.text, width) : item.text}`];
 	return encodeToolItem(item, width);
 }
@@ -598,7 +706,7 @@ function finalizeItems(items: LineItem[], width: number): string[] {
 	return collapsed.flatMap((item) => encodeItem(item, width));
 }
 
-export type TranscriptColor = "accent" | "success" | "error" | "warning" | "muted" | "dim" | "text";
+export type TranscriptColor = "accent" | "success" | "error" | "warning" | "muted" | "dim" | "text" | "thinking";
 
 /**
  * Maps a transcript line to a semantic colour so the viewer can give assistant
@@ -610,16 +718,10 @@ export type TranscriptColor = "accent" | "success" | "error" | "warning" | "mute
  * `eventsToBodyLines`, so the markers and this classifier must stay in sync.
  */
 export function transcriptLineColor(line: string): TranscriptColor {
-	if (line.startsWith("[prompt]")) return "dim";
-	if (line.startsWith("[Assistant")) return "accent";
-	if (line.startsWith("[done]")) return "success";
 	if (line.startsWith("[failed]")) return "error";
 	if (line.startsWith("[attention]")) return "warning";
 	if (line.startsWith("[degraded]")) return "warning";
 	if (line.startsWith("[interrupted]")) return "warning";
-	if (line.startsWith("[started]")) return "dim";
-	if (line === THINKING_HEADER || line.startsWith(`${THINKING_HEADER}: `)) return "dim";
-	if (line.startsWith(THINKING_BODY_PREFIX)) return "dim";
 	if (line.startsWith("·")) return "dim";
 	return "text";
 }
@@ -659,13 +761,17 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 	const pushText = (text: string) => items.push({ kind: "text", text });
 
 	if (prompt) {
-		pushText("[prompt]");
-		for (const line of wrapText(prompt, width)) pushText(line);
+		const promptWidth = width > 0 ? Math.max(1, width - USER_GLYPH.length) : width;
+		const wrapped = wrapText(stripControlChars(prompt), promptWidth);
+		wrapped.forEach((line, index) => {
+			const prefix = index === 0 ? USER_GLYPH : USER_INDENT;
+			pushText(`${USER_MARK}${prefix}${line}`);
+		});
 	}
 
 	const flushThinking = () => {
 		if (thinkingRun.length === 0) return;
-		for (const line of renderThinkingBlock(thinkingRun, width)) pushText(stripControlChars(line));
+		for (const line of renderThinkingBlock(thinkingRun, width)) pushText(line);
 		thinkingRun = [];
 	};
 
@@ -679,7 +785,6 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 
 		switch (event.type) {
 			case "run.started":
-				pushText("[started]");
 				break;
 			case "run.progress": {
 				const tool = toolNameFromProgress(event.message);
@@ -698,7 +803,6 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 			}
 			case "run.output":
 				if (event.role === "assistant" && event.text) {
-					pushText("[Assistant]");
 					for (const line of wrapText(event.text, width)) pushText(stripControlChars(line));
 				}
 				break;
@@ -720,8 +824,11 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 
 					const diff = diffOf(event.details);
 					if (diff !== undefined) {
-						for (const body of diffBodyTexts(buildDiffRows(diff, { cap: DIFF_BLOCK_CAP }))) {
-							items.push({ kind: "diff", text: body });
+						const rows = buildDiffRows(diff, { cap: DIFF_BLOCK_CAP });
+						const split = resolveDiffMode(RENDER_DEFAULTS.diff, width) === "split";
+						const bodies = split ? splitDiffBodyTexts(rows, width) : diffBodyTexts(rows);
+						for (const body of bodies) {
+							items.push({ kind: "diff", text: body, split });
 						}
 					}
 
@@ -737,7 +844,6 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 				pushText(`[attention] ${event.reason}`);
 				break;
 			case "run.completed":
-				pushText("[done]");
 				break;
 			case "run.failed":
 				pushText(`[failed] ${event.error}`);

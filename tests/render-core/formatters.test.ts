@@ -215,9 +215,23 @@ test("buildToolResultLines: isError overrides summary color", () => {
 	]);
 });
 
-test("buildToolResultLines: edit appends the rich diff block (gutter, line numbers, emphasis)", () => {
+/** Config that forces the unified (single-column) diff layout regardless of width. */
+const UNIFIED_CONFIG = { ...RENDER_DEFAULTS, diff: { ...RENDER_DEFAULTS.diff, mode: "unified" as const } };
+
+/** Strips the deterministic `<tag>` markup so a split line's true visible width is measured. */
+function visibleText(s: string): string {
+	return s.replace(/<\/?[a-z]+>/g, "");
+}
+
+/** Tag-aware width ops: needed for split lines, which are padded to near the full draw width. */
+const TAG_WIDTH: WidthOps = {
+	visibleWidth: (s) => visibleText(s).length,
+	truncateToWidth: (s, w) => (visibleText(s).length <= w ? s : s.slice(0, w)),
+};
+
+test("buildToolResultLines: edit appends the rich UNIFIED diff block when mode is unified", () => {
 	const diff = "--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n ctx\n-old\n+new";
-	const ctx = makeCtx();
+	const ctx: RenderCtx = { styler: STYLER, width: ASCII_WIDTH, maxWidth: 200, config: UNIFIED_CONFIG };
 	const result = { resultText: "", details: { diff } };
 	const lines = buildToolResultLines("edit", { path: "x" }, result, false, false, ctx);
 	assert.deepEqual(lines, [
@@ -227,6 +241,29 @@ test("buildToolResultLines: edit appends the rich diff block (gutter, line numbe
 		"<dim>- 2   │ </dim><b><error>old</error></b>",
 		"<dim>+   2 │ </dim><b><success>new</success></b>",
 	]);
+});
+
+test("buildToolResultLines: edit renders a SPLIT diff at the default (split) mode on a wide terminal", () => {
+	const diff = "--- a/x\n+++ b/x\n@@ -1,2 +1,3 @@\n ctx\n-old\n+new";
+	const ctx: RenderCtx = { styler: STYLER, width: TAG_WIDTH, maxWidth: 120, config: RENDER_DEFAULTS };
+	const result = { resultText: "", details: { diff } };
+	const lines = buildToolResultLines("edit", { path: "x" }, result, false, false, ctx);
+
+	assert.equal(lines[0], "<b><accent>Edit</accent></b> <muted>x</muted> · <dim>+1 -1</dim>");
+	assert.ok(lines.includes("<dim>@@ -1,2 +1,3 @@</dim>"), "hunk header stays a dim full-width line");
+
+	const ctxLine = lines.find((l) => (l.match(/ctx/g) ?? []).length === 2);
+	assert.ok(ctxLine !== undefined, `context must mirror onto both panes: ${JSON.stringify(lines)}`);
+	assert.ok(ctxLine!.includes("│"), "the two panes are divided by a vertical separator");
+
+	const pairLine = lines.find((l) => l.includes("old") && l.includes("new"));
+	assert.ok(pairLine !== undefined, `the modified line pairs old-left / new-right on one row: ${JSON.stringify(lines)}`);
+	assert.ok(pairLine!.includes("<b><error>old</error></b>"), "old text is error-coloured + emphasised on the left pane");
+	assert.ok(pairLine!.includes("<b><success>new</success></b>"), "new text is success-coloured + emphasised on the right pane");
+
+	for (const line of lines) {
+		assert.ok(!/[\x10-\x14]/.test(line), `no split control byte may leak into styled output: ${JSON.stringify(line)}`);
+	}
 });
 
 test("buildToolResultLines: no output contains emoji", () => {

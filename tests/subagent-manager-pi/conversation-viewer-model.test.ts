@@ -9,8 +9,11 @@ import {
 	resolveViewportOffset,
 	styleDiffLine,
 	styleOutputLine,
+	styleThinkingBodyLine,
+	styleThinkingHeadLine,
 	styleToolLine,
 	styleTranscriptLine,
+	styleUserLine,
 	transcriptLineColor,
 } from "../../packages/subagent-manager-pi/tui/conversation-viewer-model.ts";
 import type { RunEvent, RunSnapshot } from "../../packages/subagent-manager-core/events.ts";
@@ -23,16 +26,25 @@ import type { RunEvent, RunSnapshot } from "../../packages/subagent-manager-core
 const STYLER = {
 	fg: (color: string, text: string): string => `<${color}>${text}</${color}>`,
 	bold: (text: string): string => `<b>${text}</b>`,
+	italic: (text: string): string => `<i>${text}</i>`,
 };
 
 /** Strips the internal kind markers (control chars) so a raw body line's visible width can be measured. */
 function stripMarkers(line: string): string {
-	return line.replace(/[\u0001-\u0007]/g, "");
+	return line.replace(/[\u0001-\u0007\u000b\u000c\u000e\u001f]/g, "");
+}
+
+/** Strips the deterministic `<tag>` markup so a styled line's visible width can be measured. */
+function stripTags(line: string): string {
+	return line.replace(/<\/?[a-z]+>/g, "");
 }
 
 const isToolLine = (line: string): boolean => styleToolLine(line, STYLER) !== undefined;
 const isDiffLine = (line: string): boolean => styleDiffLine(line, STYLER) !== undefined;
 const isOutputLine = (line: string): boolean => styleOutputLine(line, STYLER) !== undefined;
+const isThinkHead = (line: string): boolean => styleThinkingHeadLine(line, STYLER) !== undefined;
+const isThinkBody = (line: string): boolean => styleThinkingBodyLine(line, STYLER) !== undefined;
+const isUserLine = (line: string): boolean => styleUserLine(line, STYLER) !== undefined;
 
 const BASE_STARTED_AT = "2024-01-01T12:00:00.000Z";
 const BASE_NOW = Date.parse(BASE_STARTED_AT) + 3000;
@@ -152,19 +164,19 @@ test("eventsToBodyLines: mixed events render chronologically (tool → assistant
 	assert.ok(textIdx < writeIdx, "assistant text must come before the Write tool");
 });
 
-test("eventsToBodyLines: assistant output gets an [Assistant] section header", () => {
+test("eventsToBodyLines: assistant output flows without a section header, matching the main thread", () => {
 	const lines = eventsToBodyLines([assistant("response body", 1)], 80);
 
-	assert.ok(lines.some((l) => l.includes("[Assistant]")), "assistant output must be sectioned");
+	assert.ok(!lines.some((l) => l.includes("[Assistant]")), "the [Assistant] section header is gone");
 	assert.ok(lines.some((l) => l.includes("response body")), "assistant text must be present");
 });
 
-test("eventsToBodyLines: terminal events surface completed/failed", () => {
+test("eventsToBodyLines: completion emits no [done] header; failure still surfaces its reason", () => {
 	const completed = eventsToBodyLines(
 		[{ id: "c1", runId: "r1", type: "run.completed", summary: { text: "ok", executionMode: "subprocess", routedBy: "t" }, at: BASE_STARTED_AT }],
 		80,
 	);
-	assert.ok(completed.some((l) => l.includes("[done]")), "completion must surface");
+	assert.ok(!completed.some((l) => l.includes("[done]")), "the [done] section header is gone");
 
 	const failed = eventsToBodyLines(
 		[{ id: "f1", runId: "r1", type: "run.failed", error: "boom", at: BASE_STARTED_AT }],
@@ -198,9 +210,9 @@ test("buildViewerModel: maxScroll is max(0, totalBodyLines - height)", () => {
 		now: BASE_NOW,
 	});
 
-	// Each assistant message produces 2 lines: "[Assistant]" + text; 5 messages = 10 total.
-	// maxScroll = max(0, 10 - 4) = 6.
-	assert.equal(model.maxScroll, 6, "maxScroll must equal (total lines - height)");
+	// Each assistant message now produces 1 line (no [Assistant] header); 5 messages = 5 total.
+	// maxScroll = max(0, 5 - 4) = 1.
+	assert.equal(model.maxScroll, 1, "maxScroll must equal (total lines - height)");
 });
 
 test("buildViewerModel: autoScroll=true clamps the viewport to the height", () => {
@@ -751,121 +763,117 @@ test("buildViewerModel: a paused viewport stays anchored when new events arrive"
 	assert.deepEqual(after.bodyLines, before.bodyLines, "paused viewport must show the same window after new events");
 });
 
-test("transcriptLineColor: distinct semantic colours per line kind (plain-text markers, no emoji)", () => {
-	assert.equal(transcriptLineColor("[Assistant]"), "accent");
-	assert.equal(transcriptLineColor("[done]"), "success");
+test("transcriptLineColor: distinct semantic colours for status lines (no section-header labels)", () => {
 	assert.equal(transcriptLineColor("[failed] boom"), "error");
 	assert.equal(transcriptLineColor("[attention] needs input"), "warning");
 	assert.equal(transcriptLineColor("[degraded] provider: down"), "warning");
 	assert.equal(transcriptLineColor("[interrupted]"), "warning");
-	assert.equal(transcriptLineColor("[started]"), "dim");
-	assert.equal(transcriptLineColor("Thinking"), "dim");
-	assert.equal(transcriptLineColor("Thinking: weighing the options"), "dim");
-	assert.equal(transcriptLineColor("│ a reasoning body line"), "dim");
 	assert.equal(transcriptLineColor("· starting subprocess"), "dim");
 	assert.equal(transcriptLineColor("plain assistant body text"), "text");
 });
 
-test("eventsToBodyLines: thinking renders as a grouped dim block (header + body), never a per-line [thinking] tag", () => {
+test("eventsToBodyLines: thinking renders as a grouped block (italic header + muted flush body), no per-line tag, no gutter", () => {
 	const lines = eventsToBodyLines([thinking("I should read the spec before editing"), assistant("the answer", 1)], 80);
+	const styled = lines.map((l) => styleTranscriptLine(l, STYLER));
 
 	assert.ok(!lines.some((l) => l.includes("[thinking]")), "the old per-line [thinking] tag must be gone");
+	assert.ok(!lines.some((l) => l.includes("[Assistant]")), "the assistant section header must be gone");
+	assert.ok(!styled.some((l) => l.includes("│")), "the reasoning body must have no gutter");
 
-	const headerIdx = lines.findIndex((l) => l === "Thinking");
-	assert.ok(headerIdx >= 0, "a grouped block must start with a plain 'Thinking' header");
-	assert.equal(transcriptLineColor(lines[headerIdx]), "dim", "the header must classify dim");
+	const header = styled.find((l) => l.includes("<i><thinking>Thinking</thinking></i>"));
+	assert.ok(header !== undefined, `the block opens with an italic thinking-tinted header: ${JSON.stringify(styled)}`);
 
-	const bodyLines = lines.filter((l) => l.startsWith("│ "));
-	assert.ok(bodyLines.length > 0, "the reasoning body must render under the dim gutter");
-	assert.ok(bodyLines.every((l) => transcriptLineColor(l) === "dim"), "every body line must classify dim");
+	const bodyLines = lines.filter(isThinkBody).map((l) => styleTranscriptLine(l, STYLER));
+	assert.ok(bodyLines.length > 0, "the reasoning body must render");
+	assert.ok(bodyLines.every((l) => l.includes("<muted>")), "every body line is muted");
 	assert.ok(bodyLines.some((l) => l.includes("read the spec")), "the reasoning text must be present");
 
-	assert.ok(lines.includes("[Assistant]"), "final assistant text keeps its own [Assistant] header");
-	assert.ok(!lines.some((l) => l.startsWith("│ ") && l.includes("the answer")), "final text must not be folded into the thinking block");
+	assert.ok(styled.some((l) => l.includes("the answer")), "the final assistant text flows after the block");
+	assert.ok(!lines.some((l) => isThinkBody(l) && l.includes("the answer")), "final text is not folded into the thinking block");
 });
 
 test("eventsToBodyLines: consecutive thinking events group under ONE header", () => {
 	const lines = eventsToBodyLines([thinking("first thought"), thinking("second thought"), tool("Read")], 80);
 
-	const headers = lines.filter((l) => l === "Thinking" || l.startsWith("Thinking: "));
-	assert.equal(headers.length, 1, "consecutive thinking events must produce a single grouped header");
-	assert.ok(lines.some((l) => l.startsWith("│ ") && l.includes("first thought")), "first thought must be in the body");
-	assert.ok(lines.some((l) => l.startsWith("│ ") && l.includes("second thought")), "second thought must be in the same body");
+	assert.equal(lines.filter(isThinkHead).length, 1, "consecutive thinking events must produce a single grouped header");
+
+	const body = lines.filter(isThinkBody).map(stripMarkers);
+	assert.ok(body.some((l) => l.includes("first thought")), "first thought must be in the body");
+	assert.ok(body.some((l) => l.includes("second thought")), "second thought must be in the same body");
 });
 
-test("eventsToBodyLines: a model-supplied title becomes the header without doubling 'Thinking:'", () => {
+test("eventsToBodyLines: a model-supplied title becomes a bold header without doubling 'Thinking:'", () => {
 	const titled = eventsToBodyLines([thinking("Thinking: weighing the options\nnow I will read the file")], 80);
-	assert.ok(titled.some((l) => l === "Thinking: weighing the options"), "the title line must be lifted into the header");
-	assert.ok(!titled.some((l) => l.includes("Thinking: Thinking:")), "the header must never double the 'Thinking:' label");
-	assert.ok(titled.some((l) => l.startsWith("│ ") && l.includes("read the file")), "the remaining text is the body");
+	const styledT = titled.map((l) => styleTranscriptLine(l, STYLER));
+	assert.ok(
+		styledT.some((l) => l.includes("<i><thinking>Thinking:</thinking></i> <b>weighing the options</b>")),
+		`the title must be lifted into a bold header: ${JSON.stringify(styledT)}`,
+	);
+	assert.ok(!styledT.some((l) => l.includes("Thinking: Thinking:")), "the header must never double the 'Thinking:' label");
+	assert.ok(titled.filter(isThinkBody).map(stripMarkers).some((l) => l.includes("read the file")), "the remaining text is the body");
 
 	const bold = eventsToBodyLines([thinking("**Weighing options**\nthe body follows")], 80);
-	assert.ok(bold.some((l) => l === "Thinking: Weighing options"), "a bold markdown title must become the header");
-	assert.ok(!bold.some((l) => l.includes("**")), "the bold markers must be stripped from the header");
+	const styledB = bold.map((l) => styleTranscriptLine(l, STYLER));
+	assert.ok(
+		styledB.some((l) => l.includes("<i><thinking>Thinking:</thinking></i> <b>Weighing options</b>")),
+		"a bold markdown title must become the header",
+	);
+	assert.ok(!styledB.some((l) => l.includes("**")), "the bold markers must be stripped from the header");
 });
 
-test("eventsToBodyLines: thinking body wraps to width under the dim gutter, no [thinking] tag", () => {
+test("eventsToBodyLines: thinking body wraps flush to width, no gutter, no per-line tag", () => {
 	const longThought = "reasoning ".repeat(30).trim();
 	const lines = eventsToBodyLines([thinking(longThought)], 40);
-	const bodyLines = lines.filter((l) => l.startsWith("│ "));
+	const bodyLines = lines.filter(isThinkBody);
 
 	assert.ok(!lines.some((l) => l.includes("[thinking]")), "no per-line [thinking] tag");
 	assert.ok(bodyLines.length > 1, "a long thought must wrap into multiple body lines");
-	assert.ok(bodyLines.every((l) => l.length <= 40), "wrapped body lines must fit the width");
+	assert.ok(bodyLines.every((l) => !stripMarkers(l).startsWith("│")), "body lines carry no gutter");
+	assert.ok(bodyLines.every((l) => stripMarkers(l).length <= 40), "wrapped body lines must fit the width");
 });
 
-test("eventsToBodyLines: prompt block prepended before event stream when prompt is present", () => {
+test("eventsToBodyLines: prompt is prepended as a user-marked block (no [prompt] header) before the event stream", () => {
 	const lines = eventsToBodyLines([started(), tool("Read")], 80, "Do the task now");
-
-	const promptIdx = lines.findIndex((l) => l === "[prompt]");
-	const startedIdx = lines.findIndex((l) => l === "[started]");
 	const toolIdx = lines.findIndex((l) => l.includes("Read"));
 
-	assert.ok(promptIdx >= 0, "[prompt] header must be present");
-	assert.ok(promptIdx < startedIdx, "[prompt] header must come before [started]");
-	assert.ok(promptIdx < toolIdx, "[prompt] header must come before tool lines");
-	assert.ok(lines[promptIdx + 1] === "Do the task now", "prompt text must follow the [prompt] header");
+	assert.ok(!lines.some((l) => l.includes("[prompt]")), "the [prompt] section header must be gone");
+	assert.ok(isUserLine(lines[0]), "the first line is the user-marked prompt");
+	assert.ok(stripMarkers(lines[0]).includes("Do the task now"), "the prompt text is shown");
+
+	const styledFirst = styleTranscriptLine(lines[0], STYLER);
+	assert.ok(styledFirst.includes("<accent>❯ </accent>"), "the prompt carries the accent user-marker glyph");
+	assert.ok(lines.findIndex(isUserLine) < toolIdx, "the prompt comes before the tool lines");
 });
 
 test("eventsToBodyLines: prompt text is untruncated (full, not the 80-char task label)", () => {
 	const longPrompt = "word ".repeat(40).trim();
 	const lines = eventsToBodyLines([], 40, longPrompt);
 
-	const promptIdx = lines.findIndex((l) => l === "[prompt]");
-	assert.ok(promptIdx >= 0, "[prompt] header must be present");
-
-	const bodyLines = lines.slice(promptIdx + 1);
-	const combined = bodyLines.join(" ");
-	assert.ok(combined.includes("word"), "full prompt text must be present");
-	assert.ok(bodyLines.length > 1, "long prompt must wrap into multiple lines");
+	const promptLines = lines.filter(isUserLine);
+	assert.ok(promptLines.length > 1, "long prompt must wrap into multiple lines");
+	assert.ok(promptLines.map(stripMarkers).join(" ").includes("word"), "full prompt text must be present");
 });
 
 test("eventsToBodyLines: no prompt block when prompt is absent", () => {
 	const lines = eventsToBodyLines([started()], 80);
 
-	assert.ok(!lines.some((l) => l === "[prompt]"), "no [prompt] header without a prompt");
-	assert.equal(lines[0], "[started]", "first line must be [started] with no prompt");
+	assert.ok(!lines.some(isUserLine), "no user-marked prompt without a prompt");
+	assert.ok(!lines.some((l) => l.includes("[started]")), "the [started] section header is gone");
 });
 
 test("eventsToBodyLines: no prompt block when prompt is empty string", () => {
 	const lines = eventsToBodyLines([started()], 80, "");
 
-	assert.ok(!lines.some((l) => l === "[prompt]"), "empty prompt must not emit a [prompt] block");
+	assert.ok(!lines.some(isUserLine), "empty prompt must not emit a user-marked block");
 });
 
 test("eventsToBodyLines: prompt wraps to width", () => {
 	const longPrompt = "word ".repeat(20).trim();
 	const lines = eventsToBodyLines([], 40, longPrompt);
 
-	const promptIdx = lines.findIndex((l) => l === "[prompt]");
-	const bodyLines = lines.slice(promptIdx + 1);
-
-	assert.ok(bodyLines.every((l) => l.length <= 40), "prompt body lines must fit the width");
-	assert.ok(bodyLines.length > 1, "long prompt must wrap into multiple lines");
-});
-
-test("transcriptLineColor: [prompt] label classifies as dim", () => {
-	assert.equal(transcriptLineColor("[prompt]"), "dim");
+	const promptLines = lines.filter(isUserLine);
+	assert.ok(promptLines.every((l) => stripMarkers(l).length <= 40), "prompt body lines must fit the width");
+	assert.ok(promptLines.length > 1, "long prompt must wrap into multiple lines");
 });
 
 test("buildViewerModel: prompt block is first in body when snapshot has a prompt", () => {
@@ -879,8 +887,8 @@ test("buildViewerModel: prompt block is first in body when snapshot has a prompt
 	});
 
 	assert.ok(model.bodyLines.length > 0, "body must not be empty");
-	assert.equal(model.bodyLines[0], "[prompt]", "first body line must be [prompt]");
-	assert.ok(model.bodyLines.some((l) => l.includes("Analyze the codebase")), "prompt text must appear in body");
+	assert.ok(isUserLine(model.bodyLines[0]), "first body line is the user-marked prompt");
+	assert.ok(model.bodyLines.some((l) => stripMarkers(l).includes("Analyze the codebase")), "prompt text must appear in body");
 });
 
 test("buildViewerModel: no prompt block when snapshot has no prompt", () => {
@@ -893,7 +901,7 @@ test("buildViewerModel: no prompt block when snapshot has no prompt", () => {
 		now: BASE_NOW,
 	});
 
-	assert.ok(!model.bodyLines.some((l) => l === "[prompt]"), "no [prompt] block when snapshot lacks a prompt");
+	assert.ok(!model.bodyLines.some(isUserLine), "no user-marked prompt when snapshot lacks a prompt");
 });
 
 test("buildViewerModel: no crash when snapshot is absent (no prompt available)", () => {
@@ -1039,15 +1047,15 @@ test("ANSI: thinking event with 24-bit SGR sequences renders with no [39m, [38;2
 	const events = [thinking("\x1b[38;2;138;190;183mThinking:\x1b[39m **x**")];
 	const lines = eventsToBodyLines(events, 80);
 
-	const bodyLines = lines.filter((l) => l.startsWith("│ "));
-	assert.ok(bodyLines.length > 0, "thinking block must produce body lines");
+	const thinkingLines = lines.filter((l) => isThinkHead(l) || isThinkBody(l));
+	assert.ok(thinkingLines.length > 0, "thinking block must produce lines");
 
-	for (const line of bodyLines) {
-		assert.ok(!line.includes("[39m"), `body line must not contain [39m residue: ${JSON.stringify(line)}`);
-		assert.ok(!line.includes("[38;2"), `body line must not contain [38;2 residue: ${JSON.stringify(line)}`);
-		assert.ok(!line.includes("\x1b"), `body line must not contain bare ESC byte: ${JSON.stringify(line)}`);
+	for (const line of thinkingLines) {
+		assert.ok(!line.includes("[39m"), `thinking line must not contain [39m residue: ${JSON.stringify(line)}`);
+		assert.ok(!line.includes("[38;2"), `thinking line must not contain [38;2 residue: ${JSON.stringify(line)}`);
+		assert.ok(!line.includes("\x1b"), `thinking line must not contain bare ESC byte: ${JSON.stringify(line)}`);
 	}
-	assert.ok(bodyLines.some((l) => l.includes("Thinking:")), "clean Thinking: text must be present in body");
+	assert.ok(thinkingLines.map(stripMarkers).some((l) => l.includes("Thinking:")), "clean Thinking: text must be present");
 });
 
 test("ANSI: assistant text line with trailing SGR sequence renders without residue", () => {

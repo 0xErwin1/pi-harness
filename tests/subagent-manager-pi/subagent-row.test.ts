@@ -141,6 +141,7 @@ test("buildCollapsedRowParts: formats sub-second and multi-minute elapsed", () =
 const IDENTITY_THEME = {
 	fg: (_color: string, text: string): string => text,
 	bold: (text: string): string => text,
+	italic: (text: string): string => text,
 } as unknown as Theme;
 
 let rowEventSeq = 0;
@@ -180,7 +181,7 @@ function makeAccess(events: RunEvent[]): SubagentRowAccess {
 
 /** Strips the transcript control-char markers so a rendered line's visible width is measurable. */
 function stripBodyMarkers(line: string): string {
-	return line.replace(/[-]/g, "");
+	return line.replace(/[-]/g, "");
 }
 
 test("buildExpandedBody: a long tool call wraps into MULTIPLE lines at a narrow width, no ellipsis", () => {
@@ -210,13 +211,13 @@ test("buildExpandedBody: a long thinking body wraps into MULTIPLE lines at a nar
 
 	const lines = buildExpandedBody(access, ["r1"], IDENTITY_THEME).render(40);
 
-	const bodyLines = lines.filter((l) => l.startsWith("│ "));
+	const bodyLines = lines.filter((l) => l.includes("reasoning"));
 	assert.ok(bodyLines.length > 1, `a long thought must wrap into multiple body lines, got ${bodyLines.length}`);
 	for (const l of bodyLines) {
 		assert.ok(!l.includes("…"), `thinking body must never be truncated: ${JSON.stringify(l)}`);
-		assert.ok(l.length <= 40, `each wrapped body line must fit the width, got ${l.length}`);
+		assert.ok(!l.startsWith("│"), `thinking body must render flush with no gutter: ${JSON.stringify(l)}`);
+		assert.ok(stripBodyMarkers(l).length <= 40, `each wrapped body line must fit the width, got ${l.length}`);
 	}
-	assert.ok(bodyLines.some((l) => l.includes("reasoning")), "the reasoning text must survive wrapping");
 });
 
 test("buildExpandedBody: defers to draw width — narrow render yields more lines than wide render", () => {

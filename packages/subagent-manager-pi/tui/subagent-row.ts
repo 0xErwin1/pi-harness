@@ -12,7 +12,11 @@ import {
 	formatModelEffort,
 	formatTokens,
 	styleDiffLine,
+	styleThinkingBodyLine,
+	styleThinkingHeadLine,
 	styleToolLine,
+	styleUserLine,
+	type TranscriptColor,
 	type TranscriptStyler,
 	transcriptLineColor,
 } from "./conversation-viewer-model.ts";
@@ -311,13 +315,24 @@ export function buildExpandedBody(access: SubagentRowAccess, runIds: string[], t
  * component wrapper). Used by the deferred body's degenerate non-positive-width path,
  * where no draw width is available to wrap or truncate against.
  */
+/** Resolves a `TranscriptColor` against the theme, mapping `thinking` to pi's `thinkingText` tint. */
+function themeTranscriptFg(theme: Theme, color: TranscriptColor, text: string): string {
+	return theme.fg(color === "thinking" ? "thinkingText" : color, text);
+}
+
+/** Builds a theme-backed transcript styler (with italic + thinking mapping) shared by both expanded-row paths. */
+function expandedStyler(theme: Theme): TranscriptStyler {
+	return {
+		fg: (color, text) => themeTranscriptFg(theme, color, text),
+		bold: (text) => theme.bold(text),
+		italic: (text) => theme.italic(text),
+	};
+}
+
 function styleExpandedLine(line: string, theme: Theme): string {
 	if (line.length === 0) return "";
 
-	const styler: TranscriptStyler = {
-		fg: (color, text) => theme.fg(color, text),
-		bold: (text) => theme.bold(text),
-	};
+	const styler = expandedStyler(theme);
 
 	const styledTool = styleToolLine(line, styler);
 	if (styledTool !== undefined) return styledTool;
@@ -325,8 +340,17 @@ function styleExpandedLine(line: string, theme: Theme): string {
 	const styledDiff = styleDiffLine(line, styler);
 	if (styledDiff !== undefined) return styledDiff;
 
+	const styledThinkHead = styleThinkingHeadLine(line, styler);
+	if (styledThinkHead !== undefined) return styledThinkHead;
+
+	const styledThinkBody = styleThinkingBodyLine(line, styler);
+	if (styledThinkBody !== undefined) return styledThinkBody;
+
+	const styledUser = styleUserLine(line, styler);
+	if (styledUser !== undefined) return styledUser;
+
 	const color = transcriptLineColor(line);
-	return color === "text" ? line : theme.fg(color, line);
+	return color === "text" ? line : themeTranscriptFg(theme, color, line);
 }
 
 /**
@@ -341,10 +365,7 @@ function styleExpandedLine(line: string, theme: Theme): string {
 function renderExpandedLine(line: string, theme: Theme): Component {
 	if (line.length === 0) return new Text("");
 
-	const styler: TranscriptStyler = {
-		fg: (color, text) => theme.fg(color, text),
-		bold: (text) => theme.bold(text),
-	};
+	const styler = expandedStyler(theme);
 
 	const styledTool = styleToolLine(line, styler);
 	if (styledTool !== undefined) return new TruncatedText(styledTool);
@@ -352,8 +373,17 @@ function renderExpandedLine(line: string, theme: Theme): Component {
 	const styledDiff = styleDiffLine(line, styler);
 	if (styledDiff !== undefined) return new TruncatedText(styledDiff);
 
+	const styledThinkHead = styleThinkingHeadLine(line, styler);
+	if (styledThinkHead !== undefined) return new TruncatedText(styledThinkHead);
+
+	const styledThinkBody = styleThinkingBodyLine(line, styler);
+	if (styledThinkBody !== undefined) return new TruncatedText(styledThinkBody);
+
+	const styledUser = styleUserLine(line, styler);
+	if (styledUser !== undefined) return new TruncatedText(styledUser);
+
 	const color = transcriptLineColor(line);
 	if (color === "text") return new Text(line);
 
-	return new TruncatedText(theme.fg(color, line));
+	return new TruncatedText(themeTranscriptFg(theme, color, line));
 }

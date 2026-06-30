@@ -26,6 +26,6 @@ export type { SpinnerState } from "./formatters/bash-spinner.ts";
 export { nextSpinner, buildBashCallLine } from "./formatters/bash-spinner.ts";
 export { projectPendingEdit } from "./formatters/pending-diff.ts";
 export type { DiffRowKind, DiffSpan, DiffRow, DiffRowsOptions } from "./formatters/diff.ts";
-export { buildDiffRows, diffBodyTexts, styleDiffBodyLine } from "./formatters/diff.ts";
+export { buildDiffRows, diffBodyTexts, splitDiffBodyTexts, resolveDiffMode, styleDiffBodyLine } from "./formatters/diff.ts";
 export { applyUserMarker } from "./formatters/user-message.ts";
 export { splitThinkingTitle, renderThinkingBlock, THINKING_HEADER, THINKING_BODY_PREFIX } from "./formatters/thinking.ts";

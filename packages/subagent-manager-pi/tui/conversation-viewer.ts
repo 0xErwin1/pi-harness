@@ -252,8 +252,9 @@ export class ConversationViewer implements Component {
 	 */
 	private styleBodyLine(line: string): string {
 		const styler: TranscriptStyler = {
-			fg: (color, text) => this.theme.fg(color, text),
+			fg: (color, text) => this.theme.fg(color === "thinking" ? "thinkingText" : color, text),
 			bold: (text) => this.theme.bold(text),
+			italic: (text) => this.theme.italic(text),
 		};
 		return styleTranscriptLine(line, styler);
 	}

@@ -12,7 +12,7 @@ import type { RenderColor } from "../styler.ts";
 import { toolVerb, formatToolArgs } from "./tool-args.ts";
 import { summarizeToolResult, type ToolSummaryStatus } from "./tool-summary.ts";
 import { outputBlockLines } from "./output-block.ts";
-import { buildDiffRows, diffBodyTexts, styleDiffBodyLine } from "./diff.ts";
+import { buildDiffRows, diffBodyTexts, splitDiffBodyTexts, resolveDiffMode, styleDiffBodyLine } from "./diff.ts";
 
 /** Minimal result shape consumed by the formatter; no pi-coding-agent import needed. */
 export interface ToolResultData {
@@ -87,7 +87,12 @@ export function buildToolResultLines(
 		const diff = editDiff(result.details);
 		if (diff !== undefined) {
 			const cap = expanded ? Number.MAX_SAFE_INTEGER : ctx.config.diff.collapsedLines;
-			for (const body of diffBodyTexts(buildDiffRows(diff, { cap }))) {
+			const rows = buildDiffRows(diff, { cap });
+			const bodies =
+				resolveDiffMode(ctx.config.diff, ctx.maxWidth) === "split"
+					? splitDiffBodyTexts(rows, ctx.maxWidth, ctx.width)
+					: diffBodyTexts(rows);
+			for (const body of bodies) {
 				lb.push(styleDiffBodyLine(body, ctx.styler));
 			}
 		}
