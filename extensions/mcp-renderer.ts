@@ -121,6 +121,18 @@ function dropLeadingBlankLines(lines: string[]): string[] {
 	return start === 0 ? lines : lines.slice(start);
 }
 
+/**
+ * Normalizes a tool block to exactly ONE leading blank line, so it reads as a
+ * separated unit (opencode-style, #85) instead of gluing to the previous row. Used
+ * for bash, whose `$ cmd` + output block is heavy enough to warrant breathing room;
+ * light tools (read/grep/…) stay tight via `dropLeadingBlankLines`. A block with no
+ * content is left untouched (no stray separator before nothing).
+ */
+function withLeadingSeparator(lines: string[]): string[] {
+	const body = dropLeadingBlankLines(lines);
+	return body.length > 0 ? ["", ...body] : body;
+}
+
 /** pi-tui WidthOps implementation threaded into the `RenderCtx`. */
 const PI_TUI_WIDTH: WidthOps = { visibleWidth, truncateToWidth };
 
@@ -179,10 +191,12 @@ function installPatch(): void {
 				return clampLineWidths(lines, width);
 			}
 
-			// Every other tool (read/bash/edit/todo/…) keeps pi's native rendering, minus
-			// the background fill and the leading blank-line separator — so tool rows read
-			// transparently like assistant text and stack tightly (opencode-style).
-			return dropLeadingBlankLines(stripToolBackground(baseline));
+			// Every other tool keeps pi's native rendering, minus the background fill. Bash
+			// blocks get a single leading separator so each `$ cmd` + output reads as its own
+			// unit (#85); lighter tools (read/grep/…) stack tightly (opencode-style).
+			const stripped = stripToolBackground(baseline);
+			const toolName = typeof comp.toolName === "string" ? comp.toolName.toLowerCase() : "";
+			return toolName === "bash" ? withLeadingSeparator(stripped) : dropLeadingBlankLines(stripped);
 		}),
 	);
 }

@@ -864,8 +864,15 @@ export function eventsToBodyLines(events: RunEvent[], width: number, prompt?: st
 					}
 
 					if (event.toolName.toLowerCase() === "bash" && resultInfo.resultText) {
-						for (const line of outputBlockLines(resultInfo.resultText, OUTPUT_BLOCK_CAP)) {
-							items.push({ kind: "output", text: stripControlChars(line) });
+						const output = outputBlockLines(resultInfo.resultText, OUTPUT_BLOCK_CAP);
+						if (output.length > 0) {
+							// One blank between the head and the output, mirroring the main thread
+							// (#85). A plain text blank — not an `output` line — keeps it out of the
+							// muted output block proper.
+							pushText("");
+							for (const line of output) {
+								items.push({ kind: "output", text: stripControlChars(line) });
+							}
 						}
 					}
 				}

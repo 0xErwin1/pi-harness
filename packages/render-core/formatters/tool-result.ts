@@ -154,8 +154,15 @@ export function buildToolResultLines(
 		if (diff !== undefined) pushDiffBlock(lb, diff, expanded, ctx);
 	} else if (tool === "bash") {
 		const cap = expanded ? Number.MAX_SAFE_INTEGER : undefined;
-		for (const outLine of outputBlockLines(result.resultText, cap)) {
-			lb.push(ctx.styler.fg("muted", stripAnsi(outLine)));
+		const output = outputBlockLines(result.resultText, cap);
+		if (output.length > 0) {
+			// One blank between the `$ cmd · summary` head and the printed output, so the
+			// command intent and its result read as two parts of a breathing block (#85)
+			// rather than a glued wall of text.
+			lb.push("");
+			for (const outLine of output) {
+				lb.push(ctx.styler.fg("muted", stripAnsi(outLine)));
+			}
 		}
 	}
 
