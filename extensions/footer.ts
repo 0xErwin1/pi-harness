@@ -148,6 +148,14 @@ class StatusFooter implements Component {
 	private gitTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly unsubscribeBranch: () => void;
 
+	/**
+	 * Cached cumulative token/cost usage. Recomputed only when usage actually
+	 * changes (turn end / provider response), never inside `render()` — scanning the
+	 * whole session on every keystroke is O(history) per frame and shows up as input
+	 * lag in long sessions.
+	 */
+	private cumulativeUsage: RawUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+
 	constructor(
 		private readonly tui: TUI,
 		private readonly theme: Theme,
@@ -158,10 +166,16 @@ class StatusFooter implements Component {
 		liveFooters.add(this);
 		this.unsubscribeBranch = footerData.onBranchChange(() => this.scheduleGitRefresh());
 		this.scheduleGitRefresh();
+		this.refreshCumulative();
 	}
 
 	requestRender(): void {
 		this.tui.requestRender();
+	}
+
+	/** Recomputes cached cumulative usage from the session. Call on usage changes, NOT per render. */
+	refreshCumulative(): void {
+		this.cumulativeUsage = readCumulative(this.ctx);
 	}
 
 	/** Debounced git-diff refresh; collapses bursts of triggers into one exec pair. */
@@ -205,7 +219,7 @@ class StatusFooter implements Component {
 		const level: EffortLevel = this.pi.getThinkingLevel();
 
 		const cumulative: CumulativeStats = {
-			...readCumulative(this.ctx),
+			...this.cumulativeUsage,
 			sub: model ? this.ctx.modelRegistry.isUsingOAuth(model) : false,
 		};
 
@@ -245,11 +259,15 @@ export default function statusFooter(pi: ExtensionAPI): void {
 		const provider = ctx.model?.provider;
 		usageWindows = extractUsageWindows(event.headers, provider);
 		probeRateLimitHeaders(event.headers, provider);
+		for (const footer of liveFooters) footer.refreshCumulative();
 		requestRenderAll();
 	});
 
 	pi.on("turn_end", () => {
-		for (const footer of liveFooters) footer.scheduleGitRefresh();
+		for (const footer of liveFooters) {
+			footer.refreshCumulative();
+			footer.scheduleGitRefresh();
+		}
 	});
 
 	pi.on("session_start", (_event, ctx) => {
