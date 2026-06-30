@@ -120,7 +120,7 @@ Core question: does this inflate parent context without need?
 
 ### Mandatory Delegation Triggers
 
-These are parent-orchestrator stop rules. Once any trigger fires, the parent must either delegate or explicitly tell the user why delegation would be unsafe or wasteful for this exact case. Do not inject these as child-agent permission to spawn subagents; children receive concrete role work and must not orchestrate.
+These are parent-orchestrator stop rules. Once any trigger fires, the parent MUST delegate through the harness-owned `subagent` tool. Do not replace a required delegation with inline execution. If the manager runtime cannot service the delegation, stop the complex work and explain the blocker instead of silently continuing inline. Do not inject these as child-agent permission to spawn subagents; children receive concrete role work and must not orchestrate.
 
 1. **4-file rule**: if understanding requires reading 4+ files, launch `scout` or `context-builder` with fresh context and a narrow mapping task.
 2. **Multi-file write rule**: if implementation will touch 2+ non-trivial files, use one `worker` or keep writing inline only if a fresh reviewer will audit before completion.
@@ -253,6 +253,10 @@ Manager-runtime rules:
 3. Do not silently fall back to another package or invent partial semantics.
 4. Keep unsupported payload failures actionable so the parent can choose a
    supported manager workflow.
+
+### Generic Subagent Model Routing
+
+For generic subagents (`scout`, `researcher`, `reviewer`, `worker`, and any non-SDD role), do NOT pass a `model` override when launching. Let the manager resolve model and thinking from the agent definition and `.pi` settings. The SDD/Judgment-Day model pins (declared in phase-agent frontmatter) apply only to those phase agents — never to generic delegation. Pass `model` for a generic subagent only when the user explicitly requests an override for that launch.
 
 ### Visual-Aware Apply Split (local policy, MANDATORY)
 
@@ -550,6 +554,23 @@ The `review-gate` extension (`extensions/review-gate.ts`) gates `bash` calls tha
 When the extension blocks a `gh pr create`, the orchestrator must launch the `4r-review` chain (or run the four lenses individually), surface their reports, and only then let the user retry the PR command. Do NOT bypass the block by reshaping the command. Treat the lens reports as findings for the user, not as tasks to silently act on.
 
 After a high-risk SDD phase (design, apply), prefer `judgment-day` for adversarial dual review; the 4R lenses complement it for pre-PR breadth.
+
+### Review Lens Selection
+
+`reviewer` is a generic review intent; the 4R agents are concrete risk lenses. Use both deliberately:
+
+- **Quick / general review** (small diffs, no dominant risk): the generic `reviewer` subagent is fine.
+- **Risk-driven review** (pre-PR, incident audit, hot path, large diff): select concrete lens(es) by risk profile instead of the generic reviewer:
+
+| Risk signal | Review lens |
+| --- | --- |
+| Clear naming, structure, maintainability, small refactors | `review-readability` |
+| Behavior, state, tests, determinism, regressions | `review-reliability` |
+| Shell/process integration, partial failures, recovery, degraded dependencies | `review-resilience` |
+| Security, permissions, data exposure/loss, architecture, dependencies | `review-risk` |
+| Large PR, hot path, or >400 changed lines | Full 4R: `review-risk`, `review-resilience`, `review-readability`, `review-reliability` |
+
+If multiple rows match, run the narrow set that covers the risk (e.g. shell integration that mutates live state → `review-reliability` + `review-resilience`, not `review-readability`). The `review-gate` extension's pre-PR block names the four lenses; satisfy it with the concrete lenses or the `4r-review` chain, not the generic reviewer.
 
 ## Safety
 
