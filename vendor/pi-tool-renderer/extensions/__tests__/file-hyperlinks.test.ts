@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { stripAnsi } from "../tool-renderer/ansi.js";
-import { readCallText, readOnlyCallText, renderToolPathText } from "../tool-renderer/text.js";
+import { stripAnsi } from "../tool-renderer/ansi.ts";
+import { readCallText, readOnlyCallText, renderToolPathText } from "../tool-renderer/text.ts";
 
 const theme = {
 	bold(text: string) {

@@ -1,6 +1,6 @@
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
-import { rightMarginGuardEnabled } from "./settings.js";
+import { rightMarginGuardEnabled } from "./settings.ts";
 
 export const ANSI_GREEN = "\x1b[32m";
 export const ANSI_RED = "\x1b[31m";

@@ -15,21 +15,21 @@ import { join } from "node:path";
 import { defineTool, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext, getAgentDir, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, Key, matchesKey, type SettingItem, SettingsList, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { AgentManager } from "./agent-manager.js";
-import { getAgentConversation, getDefaultMaxTurns, getGraceTurns, normalizeMaxTurns, SUBAGENT_TOOL_NAMES, setDefaultMaxTurns, setGraceTurns, steerAgent } from "./agent-runner.js";
-import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, isDefaultsDisabled, registerAgents, resolveType, setDefaultsDisabled } from "./agent-types.js";
-import { registerRpcHandlers } from "./cross-extension-rpc.js";
-import { loadCustomAgents } from "./custom-agents.js";
-import { isModelInScope, readEnabledModels, resolveEnabledModels } from "./enabled-models.js";
-import { GroupJoinManager } from "./group-join.js";
-import { resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.js";
-import { type ModelRegistry, resolveModel } from "./model-resolver.js";
-import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "./output-file.js";
-import { SubagentScheduler } from "./schedule.js";
-import { resolveStorePath, ScheduleStore } from "./schedule-store.js";
-import { applyAndEmitLoaded, type SubagentsSettings, saveAndEmitChanged, type ToolDescriptionMode } from "./settings.js";
-import { getStatusNote } from "./status-note.js";
-import { type AgentConfig, type AgentInvocation, type AgentRecord, type JoinMode, type NotificationDetails, type SubagentType, type WidgetMode } from "./types.js";
+import { AgentManager } from "./agent-manager.ts";
+import { getAgentConversation, getDefaultMaxTurns, getGraceTurns, normalizeMaxTurns, SUBAGENT_TOOL_NAMES, setDefaultMaxTurns, setGraceTurns, steerAgent } from "./agent-runner.ts";
+import { BUILTIN_TOOL_NAMES, getAgentConfig, getAllTypes, getAvailableTypes, isDefaultsDisabled, registerAgents, resolveType, setDefaultsDisabled } from "./agent-types.ts";
+import { registerRpcHandlers } from "./cross-extension-rpc.ts";
+import { loadCustomAgents } from "./custom-agents.ts";
+import { isModelInScope, readEnabledModels, resolveEnabledModels } from "./enabled-models.ts";
+import { GroupJoinManager } from "./group-join.ts";
+import { resolveAgentInvocationConfig, resolveJoinMode } from "./invocation-config.ts";
+import { type ModelRegistry, resolveModel } from "./model-resolver.ts";
+import { createOutputFilePath, streamToOutputFile, writeInitialEntry } from "./output-file.ts";
+import { SubagentScheduler } from "./schedule.ts";
+import { resolveStorePath, ScheduleStore } from "./schedule-store.ts";
+import { applyAndEmitLoaded, type SubagentsSettings, saveAndEmitChanged, type ToolDescriptionMode } from "./settings.ts";
+import { getStatusNote } from "./status-note.ts";
+import { type AgentConfig, type AgentInvocation, type AgentRecord, type JoinMode, type NotificationDetails, type SubagentType, type WidgetMode } from "./types.ts";
 import {
   type AgentActivity,
   type AgentDetails,
@@ -45,10 +45,10 @@ import {
   SPINNER,
   type Theme,
   type UICtx,
-} from "./ui/agent-widget.js";
-import { FleetList, type FleetUICtx } from "./ui/fleet-list.js";
-import { showSchedulesMenu } from "./ui/schedule-menu.js";
-import { addUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage } from "./usage.js";
+} from "./ui/agent-widget.ts";
+import { FleetList, type FleetUICtx } from "./ui/fleet-list.ts";
+import { showSchedulesMenu } from "./ui/schedule-menu.ts";
+import { addUsage, getLifetimeTotal, getSessionContextPercent, type LifetimeUsage } from "./usage.ts";
 
 // ---- Shared helpers ----
 
@@ -1629,7 +1629,7 @@ Terse command-style prompts produce shallow, generic work.
       return;
     }
 
-    const { ConversationViewer, VIEWPORT_HEIGHT_PCT } = await import("./ui/conversation-viewer.js");
+    const { ConversationViewer, VIEWPORT_HEIGHT_PCT } = await import("./ui/conversation-viewer.ts");
     const session = record.session;
     const activity = agentActivity.get(record.id);
 

@@ -1,4 +1,4 @@
-import { glyphs, glyphStyle, treeGlyph as configuredTreeGlyph } from "./glyphs.js";
+import { glyphs, glyphStyle, treeGlyph as configuredTreeGlyph } from "./glyphs.ts";
 
 export const FALLBACK_THEME = {
 	bg(_token: string, text: string) {

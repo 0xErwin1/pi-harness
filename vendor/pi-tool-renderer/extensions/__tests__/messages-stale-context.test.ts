@@ -9,7 +9,7 @@ import {
 	installMarkdownCodeBlockRenderer,
 	installSkillInvocationRenderer,
 	installUserMessageRenderer,
-} from "../tool-renderer/messages.js";
+} from "../tool-renderer/messages.ts";
 
 function staleCtx(): any {
 	return Object.defineProperties({}, {

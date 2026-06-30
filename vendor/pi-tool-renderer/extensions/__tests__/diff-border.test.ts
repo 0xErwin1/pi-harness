@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { buildStructuredDiff, renderMutationCallPreview, renderStructuredDiff } from "../tool-renderer/diff.js";
+import { buildStructuredDiff, renderMutationCallPreview, renderStructuredDiff } from "../tool-renderer/diff.ts";
 
 const ACCENT = "\x1b[96m";
 const MUTED = "\x1b[90m";

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { glyphs, glyphStyle } from "../tool-renderer/glyphs.js";
+import { glyphs, glyphStyle } from "../tool-renderer/glyphs.ts";
 
 const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 

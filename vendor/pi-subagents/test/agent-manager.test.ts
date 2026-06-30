@@ -1,20 +1,20 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentManager } from "../src/agent-manager.js";
-import type { AgentRecord } from "../src/types.js";
+import { AgentManager } from "../src/agent-manager.ts";
+import type { AgentRecord } from "../src/types.ts";
 
-vi.mock("../src/agent-runner.js", () => ({
+vi.mock("../src/agent-runner.ts", () => ({
   runAgent: vi.fn(),
   resumeAgent: vi.fn(),
 }));
 
-vi.mock("../src/worktree.js", () => ({
+vi.mock("../src/worktree.ts", () => ({
   createWorktree: vi.fn(),
   cleanupWorktree: vi.fn(() => ({ hasChanges: false })),
   pruneWorktrees: vi.fn(),
 }));
 
-import { runAgent } from "../src/agent-runner.js";
+import { runAgent } from "../src/agent-runner.ts";
 
 const mockPi = {} as any;
 const mockCtx = { cwd: "/tmp" } as any;
@@ -463,7 +463,7 @@ describe("AgentManager — lifetime usage + compaction count are eagerly initial
     expect(manager.getRecord(id)!.compactionCount).toBe(0);
 
     // Now resume — drive callbacks via the mocked resumeAgent
-    const { resumeAgent: resumeMock } = await import("../src/agent-runner.js");
+    const { resumeAgent: resumeMock } = await import("../src/agent-runner.ts");
     vi.mocked(resumeMock).mockImplementation(async (_session, _prompt, opts: any) => {
       opts.onAssistantUsage?.({ input: 70, output: 30, cacheWrite: 5 });
       opts.onCompaction?.({ reason: "overflow", tokensBefore: 999 });
@@ -488,7 +488,7 @@ describe("AgentManager — isolation: worktree fails loud, no silent fallback", 
   });
 
   it("spawn() throws when createWorktree returns undefined; no orphan record left behind", async () => {
-    const { createWorktree } = await import("../src/worktree.js");
+    const { createWorktree } = await import("../src/worktree.ts");
     vi.mocked(createWorktree).mockReturnValueOnce(undefined);
     vi.mocked(runAgent).mockClear();
 
@@ -556,7 +556,7 @@ describe("AgentManager — SpawnOptions.cwd passthrough (#96)", () => {
   });
 
   it("cwd + isolation: worktree — worktree created FROM cwd, session runs at the copy's workPath, cleanup targets cwd's repo", async () => {
-    const { createWorktree, cleanupWorktree } = await import("../src/worktree.js");
+    const { createWorktree, cleanupWorktree } = await import("../src/worktree.ts");
     vi.mocked(createWorktree).mockReturnValueOnce({
       path: "/wt/copy", branch: "pi-agent-x", baseSha: "abc", workPath: "/wt/copy/packages/api",
     });
@@ -584,7 +584,7 @@ describe("AgentManager — SpawnOptions.cwd passthrough (#96)", () => {
     // Parent session sitting in a repo subdirectory: workPath would point at
     // the copied subdir. Without SpawnOptions.cwd the agent must stay at the
     // copy's root — moving it would also move .pi config discovery.
-    const { createWorktree } = await import("../src/worktree.js");
+    const { createWorktree } = await import("../src/worktree.ts");
     vi.mocked(createWorktree).mockReturnValueOnce({
       path: "/wt/copy", branch: "pi-agent-x", baseSha: "abc", workPath: "/wt/copy/sub/dir",
     });

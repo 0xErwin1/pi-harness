@@ -11,10 +11,10 @@ import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.js";
-import type { AgentInvocation, AgentRecord, IsolationMode, SubagentType, ThinkingLevel } from "./types.js";
-import { addUsage } from "./usage.js";
-import { cleanupWorktree, createWorktree, pruneWorktrees, } from "./worktree.js";
+import { resumeAgent, runAgent, type ToolActivity } from "./agent-runner.ts";
+import type { AgentInvocation, AgentRecord, IsolationMode, SubagentType, ThinkingLevel } from "./types.ts";
+import { addUsage } from "./usage.ts";
+import { cleanupWorktree, createWorktree, pruneWorktrees, } from "./worktree.ts";
 
 export type OnAgentComplete = (record: AgentRecord) => void;
 export type OnAgentStart = (record: AgentRecord) => void;

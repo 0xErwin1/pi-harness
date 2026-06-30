@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { __test } from "../tool-renderer/messages.js";
+import { __test } from "../tool-renderer/messages.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";

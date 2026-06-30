@@ -61,7 +61,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   SettingsManager: { create: settingsManagerCreate },
 }));
 
-vi.mock("../src/agent-types.js", () => ({
+vi.mock("../src/agent-types.ts", () => ({
   BUILTIN_TOOL_NAMES: ["read", "bash", "edit", "write", "grep", "find", "ls"],
   getConfig: vi.fn(() => ({
     displayName: "Explore",
@@ -88,20 +88,20 @@ vi.mock("../src/agent-types.js", () => ({
   getToolNamesForType: vi.fn(() => ["read"]),
 }));
 
-vi.mock("../src/env.js", () => ({
+vi.mock("../src/env.ts", () => ({
   detectEnv: vi.fn(async () => ({ isGitRepo: false, branch: "", platform: "linux" })),
 }));
 
-vi.mock("../src/prompts.js", () => ({
+vi.mock("../src/prompts.ts", () => ({
   buildAgentPrompt: vi.fn(() => "system prompt"),
 }));
 
-vi.mock("../src/memory.js", () => ({
+vi.mock("../src/memory.ts", () => ({
   buildMemoryBlock: vi.fn(() => ""),
   buildReadOnlyMemoryBlock: vi.fn(() => ""),
 }));
 
-vi.mock("../src/skill-loader.js", () => ({
+vi.mock("../src/skill-loader.ts", () => ({
   preloadSkills: vi.fn(() => []),
 }));
 
@@ -112,7 +112,7 @@ import {
   parseExtSelectors,
   resumeAgent,
   runAgent,
-} from "../src/agent-runner.js";
+} from "../src/agent-runner.ts";
 
 function createSession(finalText: string) {
   const listeners: Array<(event: any) => void> = [];
@@ -455,7 +455,7 @@ import {
   getAgentConfig,
   getConfig,
   getToolNamesForType,
-} from "../src/agent-types.js";
+} from "../src/agent-types.ts";
 
 const BUILTINS_7 = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 

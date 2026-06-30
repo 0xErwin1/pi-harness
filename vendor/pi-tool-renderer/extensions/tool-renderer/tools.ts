@@ -14,7 +14,7 @@ import {
 	shouldRenderBashDiffsForCommand,
 	suppressReadOnlyBashDiffOutput,
 	type StructuredDiff,
-} from "./diff.js";
+} from "./diff.ts";
 import {
 	bashLiveOutputDelayMs,
 	bashLiveTailLines,
@@ -23,8 +23,8 @@ import {
 	searchOutputMode,
 	settingNumber,
 	stackToolCalls,
-} from "./settings.js";
-import { stackPrefix, toolLabel, treeConnector } from "./theme.js";
+} from "./settings.ts";
+import { stackPrefix, toolLabel, treeConnector } from "./theme.ts";
 import {
 	bashCallText,
 	clearBlink,
@@ -43,8 +43,8 @@ import {
 	renderPendingDetail,
 	resultTruncated,
 	textContent,
-} from "./text.js";
-import { renderStackedToolResult, type StackableToolName } from "./stack.js";
+} from "./text.ts";
+import { renderStackedToolResult, type StackableToolName } from "./stack.ts";
 
 export type BuiltInToolName = StackableToolName | "edit" | "write";
 export type BuiltInToolSet = Partial<Record<BuiltInToolName, any>>;

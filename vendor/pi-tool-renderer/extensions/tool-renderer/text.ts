@@ -3,10 +3,10 @@ import * as os from "node:os";
 import { basename, extname, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { stableRenderWidth, stripAnsi } from "./ansi.js";
-import { glyphs, truncateText } from "./glyphs.js";
-import { pendingStatusAnimation, settingNumber, stackToolCalls } from "./settings.js";
-import { stackPrefix, toolLabel, treeConnector, type TreeBranch } from "./theme.js";
+import { stableRenderWidth, stripAnsi } from "./ansi.ts";
+import { glyphs, truncateText } from "./glyphs.ts";
+import { pendingStatusAnimation, settingNumber, stackToolCalls } from "./settings.ts";
+import { stackPrefix, toolLabel, treeConnector, type TreeBranch } from "./theme.ts";
 
 export class TruncatedLines {
 	private cachedLines?: string[];

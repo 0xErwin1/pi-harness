@@ -9,8 +9,8 @@
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { SubagentScheduler } from "../schedule.js";
-import type { ScheduledSubagent } from "../types.js";
+import type { SubagentScheduler } from "../schedule.ts";
+import type { ScheduledSubagent } from "../types.ts";
 
 /** Format an ISO timestamp as relative time ("in 4h", "2d ago", "—"). */
 function relTime(iso: string | undefined, now = Date.now()): string {

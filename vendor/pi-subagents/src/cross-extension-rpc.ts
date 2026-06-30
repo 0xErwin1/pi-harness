@@ -9,7 +9,7 @@
  *   error   → { success: false, error: string }
  */
 
-import { type ModelRegistry, resolveModel } from "./model-resolver.js";
+import { type ModelRegistry, resolveModel } from "./model-resolver.ts";
 
 /** Minimal event bus interface needed by the RPC handlers. */
 export interface EventBus {

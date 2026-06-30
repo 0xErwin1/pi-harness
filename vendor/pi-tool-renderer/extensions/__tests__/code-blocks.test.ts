@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { __test } from "../tool-renderer/messages.js";
+import { __test } from "../tool-renderer/messages.ts";
 
 const ANSI_RE = /\x1b(?:\[[0-9;:]*m|\]133;[ABC]\x07)/g;
 

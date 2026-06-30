@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { stackPrefix } from "../tool-renderer/theme.js";
+import { stackPrefix } from "../tool-renderer/theme.ts";
 
 describe("tool renderer theme helpers", () => {
 	test("stackPrefix prefers dedicated toolBullet token over accent", () => {

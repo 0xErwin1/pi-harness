@@ -8,10 +8,10 @@ import {
 	summarizeDiffs,
 	type StructuredDiff,
 	type StructuredDiffLine,
-} from "./diff.js";
-import { mcpOutputMode, settingBoolean, settingNumber } from "./settings.js";
-import { glyphs, truncateText } from "./glyphs.js";
-import { stackPrefix, toolLabel, treeConnector, treeStem } from "./theme.js";
+} from "./diff.ts";
+import { mcpOutputMode, settingBoolean, settingNumber } from "./settings.ts";
+import { glyphs, truncateText } from "./glyphs.ts";
+import { stackPrefix, toolLabel, treeConnector, treeStem } from "./theme.ts";
 import {
 	clearBlink,
 	clipLine,
@@ -21,7 +21,7 @@ import {
 	renderPendingDetail,
 	textContent,
 	type TruncatedLines,
-} from "./text.js";
+} from "./text.ts";
 
 export const CORE_TOOL_RENDERERS = new Set(["read", "bash", "grep", "find", "ls", "edit", "write", "tool_batch", "tasks_write", "bg_task", "bg_status", "question", "subagent"]);
 export const OPENAI_STYLE_TOOL_NAMES = new Set([

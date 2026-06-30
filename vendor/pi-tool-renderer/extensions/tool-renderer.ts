@@ -1,13 +1,13 @@
 import { CompactionSummaryMessageComponent, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { registerToolBatch } from "./tool-renderer/batch.js";
+import { registerToolBatch } from "./tool-renderer/batch.ts";
 import {
 	installToolChromePatch,
 	installToolExecutionRendererPatch,
 	installWorkingIndicator,
 	installWorkingLoaderAlignmentPatch,
 	registerToolChromeEvents,
-} from "./tool-renderer/chrome.js";
+} from "./tool-renderer/chrome.ts";
 import {
 	installAssistantMessageRenderer,
 	installCompactionSummaryRenderer,
@@ -15,10 +15,10 @@ import {
 	installMarkdownCodeBlockRenderer,
 	installSkillInvocationRenderer,
 	installUserMessageRenderer,
-} from "./tool-renderer/messages.js";
-import { recordProjectTrust, settingBoolean } from "./tool-renderer/settings.js";
-import { registerStackEvents } from "./tool-renderer/stack.js";
-import { registerBash, registerEdit, registerRead, registerReadOnly, registerWrite } from "./tool-renderer/tools.js";
+} from "./tool-renderer/messages.ts";
+import { recordProjectTrust, settingBoolean } from "./tool-renderer/settings.ts";
+import { registerStackEvents } from "./tool-renderer/stack.ts";
+import { registerBash, registerEdit, registerRead, registerReadOnly, registerWrite } from "./tool-renderer/tools.ts";
 
 const INSTALL_SYMBOL = Symbol.for("vstack.pi-tool-renderer.installed");
 

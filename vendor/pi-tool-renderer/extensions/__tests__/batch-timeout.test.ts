@@ -8,8 +8,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { registerToolBatch } from "../tool-renderer/batch.js";
-import { recordProjectTrust } from "../tool-renderer/settings.js";
+import { registerToolBatch } from "../tool-renderer/batch.ts";
+import { recordProjectTrust } from "../tool-renderer/settings.ts";
 
 const RENDERER_CONFIG_ID = "@vanillagreen/pi-tool-renderer";
 

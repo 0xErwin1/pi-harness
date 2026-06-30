@@ -15,11 +15,11 @@ import {
 	truncateAnsi,
 	visibleWidth,
 	wrapTextWithAnsi,
-} from "./ansi.js";
-import { settingBoolean } from "./settings.js";
-import { frameGlyphs, glyphs } from "./glyphs.js";
-import { FALLBACK_THEME, stackPrefix, toolLabel, treeConnector } from "./theme.js";
-import { makeTruncatedLines } from "./text.js";
+} from "./ansi.ts";
+import { settingBoolean } from "./settings.ts";
+import { frameGlyphs, glyphs } from "./glyphs.ts";
+import { FALLBACK_THEME, stackPrefix, toolLabel, treeConnector } from "./theme.ts";
+import { makeTruncatedLines } from "./text.ts";
 
 const USER_MESSAGE_PATCH_SYMBOL = Symbol.for("vstack.pi-tool-renderer.user-message-patch");
 const USER_MESSAGE_BOX_STATE_SYMBOL = Symbol.for("vstack.pi-tool-renderer.user-message-box-state");

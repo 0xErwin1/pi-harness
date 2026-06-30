@@ -12,11 +12,11 @@
  */
 
 import { isKeyRelease, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { AgentManager } from "../agent-manager.js";
-import type { AgentRecord } from "../types.js";
-import { getLifetimeTotal } from "../usage.js";
-import { type AgentActivity, getDisplayName, type Theme } from "./agent-widget.js";
-import { ConversationViewer, VIEWPORT_HEIGHT_PCT } from "./conversation-viewer.js";
+import type { AgentManager } from "../agent-manager.ts";
+import type { AgentRecord } from "../types.ts";
+import { getLifetimeTotal } from "../usage.ts";
+import { type AgentActivity, getDisplayName, type Theme } from "./agent-widget.ts";
+import { ConversationViewer, VIEWPORT_HEIGHT_PCT } from "./conversation-viewer.ts";
 
 /** Widget key for the below-editor fleet list. */
 const FLEET_KEY = "fleet";

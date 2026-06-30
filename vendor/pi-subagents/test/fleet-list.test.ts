@@ -1,9 +1,9 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentManager } from "../src/agent-manager.js";
-import type { AgentRecord } from "../src/types.js";
-import { getDisplayName } from "../src/ui/agent-widget.js";
-import { FleetList, type FleetUICtx, formatFleetElapsed, formatFleetTokens } from "../src/ui/fleet-list.js";
+import type { AgentManager } from "../src/agent-manager.ts";
+import type { AgentRecord } from "../src/types.ts";
+import { getDisplayName } from "../src/ui/agent-widget.ts";
+import { FleetList, type FleetUICtx, formatFleetElapsed, formatFleetTokens } from "../src/ui/fleet-list.ts";
 
 // ---- Key sequences (see node_modules/@earendil-works/pi-tui/dist/keys.js) ----
 const DOWN = "\x1b[B";

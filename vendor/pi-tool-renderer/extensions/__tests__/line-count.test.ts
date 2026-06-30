@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { lineCount } from "../tool-renderer/text.js";
+import { lineCount } from "../tool-renderer/text.ts";
 
 describe("lineCount", () => {
 	test("empty string is zero", () => {

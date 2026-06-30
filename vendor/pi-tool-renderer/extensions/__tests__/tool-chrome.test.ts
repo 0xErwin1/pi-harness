@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { stripAnsi } from "../tool-renderer/ansi.js";
-import { __test } from "../tool-renderer/chrome.js";
-import { recordProjectTrust } from "../tool-renderer/settings.js";
+import { stripAnsi } from "../tool-renderer/ansi.ts";
+import { __test } from "../tool-renderer/chrome.ts";
+import { recordProjectTrust } from "../tool-renderer/settings.ts";
 
 const createdDirs: string[] = [];
 

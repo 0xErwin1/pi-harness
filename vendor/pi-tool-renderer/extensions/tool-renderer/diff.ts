@@ -16,15 +16,15 @@ import {
 	visibleLength,
 	visibleWidth,
 	type AnsiParts,
-} from "./ansi.js";
+} from "./ansi.ts";
 import {
 	bashDiffRenderingEnabled,
 	diffBackgroundEnabled,
 	settingBoolean,
 	settingNumber,
-} from "./settings.js";
-import { dot, glyphs } from "./glyphs.js";
-import { borderMuted, stackPrefix, toolLabel, treeConnector } from "./theme.js";
+} from "./settings.ts";
+import { dot, glyphs } from "./glyphs.ts";
+import { borderMuted, stackPrefix, toolLabel, treeConnector } from "./theme.ts";
 import {
 	makeEmpty,
 	makeTruncatedLines,
@@ -32,7 +32,7 @@ import {
 	pendingStatusPrefix,
 	renderToolPathText,
 	type TruncatedLines,
-} from "./text.js";
+} from "./text.ts";
 
 const DIFF_SPLIT_MIN_WIDTH = 132;
 const DIFF_SPLIT_MIN_CODE_WIDTH = 24;

@@ -1,22 +1,22 @@
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { settingNumber } from "./settings.js";
+import { settingNumber } from "./settings.ts";
 import {
 	isStackableToolName,
 	renderStackItemText,
 	stackItemCallText,
 	type StackableToolName,
 	type StackItem,
-} from "./stack.js";
-import { stackPrefix, toolLabel, treeConnector } from "./theme.js";
+} from "./stack.ts";
+import { stackPrefix, toolLabel, treeConnector } from "./theme.ts";
 import {
 	lineCount,
 	makeEmpty,
 	makeTruncatedLines,
 	resultTruncated,
 	textContent,
-} from "./text.js";
-import { contextCwd, getBuiltInTool } from "./tools.js";
+} from "./text.ts";
+import { contextCwd, getBuiltInTool } from "./tools.ts";
 
 type BatchToolCall = { args: Record<string, any>; tool: StackableToolName };
 

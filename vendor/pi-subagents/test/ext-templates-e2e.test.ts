@@ -30,10 +30,10 @@ import { fileURLToPath } from "node:url";
 import { registerFauxProvider } from "@earendil-works/pi-ai";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { runAgent } from "../src/agent-runner.js";
-import { getAgentConfig, registerAgents } from "../src/agent-types.js";
-import { loadCustomAgents } from "../src/custom-agents.js";
-import { resolveAgentInvocationConfig } from "../src/invocation-config.js";
+import { runAgent } from "../src/agent-runner.ts";
+import { getAgentConfig, registerAgents } from "../src/agent-types.ts";
+import { loadCustomAgents } from "../src/custom-agents.ts";
+import { resolveAgentInvocationConfig } from "../src/invocation-config.ts";
 
 // Real pi-mono (loader + dynamic extension import + session construction) — a
 // cold run under full-suite contention can exceed vitest's 5s default.

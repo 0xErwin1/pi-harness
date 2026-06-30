@@ -8,8 +8,8 @@ import {
 	trimOuterBlankLines,
 	trimTrailingWhitespaceBeforeAnsi,
 	wrapTextWithAnsi,
-} from "./ansi.js";
-import { captureDiffBackgroundTheme } from "./diff.js";
+} from "./ansi.ts";
+import { captureDiffBackgroundTheme } from "./diff.ts";
 import {
 	renderApplyPatchCall,
 	renderApplyPatchResult,
@@ -20,10 +20,10 @@ import {
 	shouldUseGenericRenderer,
 	shouldUseUnknownToolRenderer,
 	componentDefinesRenderer,
-} from "./generic.js";
-import { settingBoolean, settingEnum, toolChromeMode } from "./settings.js";
-import { glyphs } from "./glyphs.js";
-import { subtleRule } from "./theme.js";
+} from "./generic.ts";
+import { settingBoolean, settingEnum, toolChromeMode } from "./settings.ts";
+import { glyphs } from "./glyphs.ts";
+import { subtleRule } from "./theme.ts";
 
 const TOOL_EXECUTION_RENDERER_PATCH_SYMBOL = Symbol.for("vstack.pi-tool-renderer.tool-execution-renderer-patch.v2");
 const TOOL_CHROME_PATCH_SYMBOL = Symbol.for("vstack.pi-tool-renderer.tool-chrome-patch");

@@ -1,12 +1,12 @@
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { renderBashDiffOutput, shouldRenderBashDiffsForCommand, suppressReadOnlyBashDiffOutput } from "./diff.js";
+import { renderBashDiffOutput, shouldRenderBashDiffsForCommand, suppressReadOnlyBashDiffOutput } from "./diff.ts";
 import {
 	settingNumber,
 	stackChildDisplay,
 	type StackChildDisplay,
-} from "./settings.js";
-import { stackPrefix, toolLabel, treeConnector, treeStem, type TreeBranch } from "./theme.js";
+} from "./settings.ts";
+import { stackPrefix, toolLabel, treeConnector, treeStem, type TreeBranch } from "./theme.ts";
 import {
 	commandExit,
 	joinPhrases,
@@ -21,8 +21,8 @@ import {
 	resultTruncated,
 	textContent,
 	type TruncatedLines,
-} from "./text.js";
-import { renderPathListPreview } from "./text.js";
+} from "./text.ts";
+import { renderPathListPreview } from "./text.ts";
 
 export type StackableToolName = "read" | "bash" | "grep" | "find" | "ls";
 export type StackItemStatus = "running" | "done" | "error";
