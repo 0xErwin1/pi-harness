@@ -37,6 +37,31 @@ link_file() {
 	echo "linked:    ${dst} -> ${src}"
 }
 
+# Writes a generated re-export loader for a vendored extension instead of symlinking
+# it. Pi resolves an extension's relative imports against the LOADED FILE'S OWN
+# directory, not the symlink target's — so a symlinked entry's `./sibling.ts` imports
+# resolve in ${PI_EXT} (where the siblings do not exist) and fail. A real file that
+# re-exports the entry by ABSOLUTE path loads the entry from its true directory, so
+# its siblings resolve. Generated outside the repo, so it never enters the tsconfig.
+write_vendor_loader() {
+	local entry="$1" dst="$2"
+
+	if [ ! -f "$entry" ]; then
+		[ -e "$dst" ] && rm -f "$dst"   # drop a stale loader if the vendored entry is gone
+		return 0
+	fi
+
+	if [ -L "$dst" ]; then
+		rm "$dst"
+	elif [ -e "$dst" ]; then
+		mv "$dst" "${dst}.bak"
+		echo "backed up: ${dst} -> ${dst}.bak"
+	fi
+
+	printf 'export { default } from "%s";\n' "$entry" > "$dst"
+	echo "wrote:     ${dst} -> re-export ${entry}"
+}
+
 # extensions/: per-file links plus the vendored entries. The target dir is reset to
 # a clean set of managed symlinks each run (stale links from removed extensions are
 # pruned), while any real file a user dropped in there is preserved.
@@ -53,14 +78,11 @@ for f in "${REPO_DIR}"/extensions/*.ts; do
 	link_file "$f" "${PI_EXT}/$(basename "$f")"
 done
 
-# Vendored third-party extensions, loaded here (not via a repo re-export) so they
-# stay out of the harness tsconfig. See vendor/*/VENDORED.md for provenance.
-if [ -f "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" ]; then
-	link_file "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "${PI_EXT}/pi-tool-renderer.ts"
-fi
-if [ -f "${REPO_DIR}/vendor/pi-subagents/src/index.ts" ]; then
-	link_file "${REPO_DIR}/vendor/pi-subagents/src/index.ts" "${PI_EXT}/pi-subagents.ts"
-fi
+# Vendored third-party extensions: loaded via generated absolute-path re-export
+# files (see write_vendor_loader) so their internal relative imports resolve, and so
+# the vendored code stays out of the harness tsconfig. See vendor/*/VENDORED.md.
+write_vendor_loader "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "${PI_EXT}/pi-tool-renderer.ts"
+write_vendor_loader "${REPO_DIR}/vendor/pi-subagents/src/index.ts" "${PI_EXT}/pi-subagents.ts"
 
 if [ -d "${REPO_DIR}/packages" ]; then
 	link_file "${REPO_DIR}/packages" "${PI_AGENT}/packages"
