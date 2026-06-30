@@ -8,7 +8,6 @@ import {
 import type { PolishedTuiConfig } from "./config.ts";
 import {
 	EDITOR_ACCENT_FALLBACK,
-	EDITOR_BORDER_FALLBACK,
 	renderStyleForSourceOrFallback,
 } from "./style.ts";
 
@@ -186,22 +185,9 @@ function renderZentuiUserMessage(
 	});
 	const body = renderer.render(contentWidth);
 	const contentLines = body.length > 0 ? body : [""];
-	const border = theme
-		? renderStyleForSourceOrFallback(
-				theme,
-				config.colorSources.userMessages,
-				config.colors.editorBorder,
-				EDITOR_BORDER_FALLBACK,
-				"─".repeat(width),
-			)
-		: "─".repeat(width);
-	const lines = [
-		truncateToWidth(border, width, ""),
-		renderPromptBoxLine("", width, theme, config),
-		...contentLines.map((line) => renderPromptBoxLine(line, width, theme, config)),
-		renderPromptBoxLine("", width, theme, config),
-		truncateToWidth(border, width, ""),
-	];
+	// opencode-style: a left accent rail only — no top/bottom border and no internal
+	// padding rows — so a user message reads as a quiet railed block, not a boxed card.
+	const lines = contentLines.map((line) => renderPromptBoxLine(line, width, theme, config));
 
 	userMessageRenderCache.set(instance, {
 		hasMarkdownText: true,
