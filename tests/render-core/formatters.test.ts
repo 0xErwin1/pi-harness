@@ -161,21 +161,21 @@ test("outputBlockLines: empty output yields no lines", () => {
 test("buildToolCallLine: verb is bold+accent, args are muted", () => {
 	const ctx = makeCtx();
 	assert.deepEqual(buildToolCallLine("read", { path: "a.ts" }, ctx), [
-		"<b><accent>Read</accent></b> <muted>a.ts</muted>",
+		"<dim>→</dim> <muted>Read</muted> <muted>a.ts</muted>",
 	]);
 });
 
 test("buildToolCallLine: bash shows $ prefix for command", () => {
 	const ctx = makeCtx();
 	assert.deepEqual(buildToolCallLine("bash", { command: "ls" }, ctx), [
-		"<b><accent>Bash</accent></b> <muted>$ ls</muted>",
+		"<b><accent>$</accent></b> <muted>ls</muted>",
 	]);
 });
 
 test("buildToolCallLine: unknown tool with no display args yields verb only", () => {
 	const ctx = makeCtx();
 	assert.deepEqual(buildToolCallLine("frobnicate", {}, ctx), [
-		"<b><accent>Frobnicate</accent></b>",
+		"<dim>→</dim> <muted>Frobnicate</muted>",
 	]);
 });
 
@@ -196,7 +196,7 @@ test("buildToolResultLines: read yields verb+args+summary", () => {
 	const result = { resultText: "l1\nl2\n", details: undefined };
 	const lines = buildToolResultLines("read", { path: "a.ts" }, result, false, false, ctx);
 	assert.deepEqual(lines, [
-		"<b><accent>Read</accent></b> <muted>a.ts</muted> · <dim>2 lines</dim>",
+		"<dim>→</dim> <muted>Read</muted> <muted>a.ts</muted> · <dim>2 lines</dim>",
 	]);
 });
 
@@ -216,7 +216,7 @@ test("buildToolResultLines: isError overrides summary color", () => {
 	const result = { resultText: "l1\n", details: undefined };
 	const lines = buildToolResultLines("read", { path: "a.ts" }, result, true, false, ctx);
 	assert.deepEqual(lines, [
-		"<b><accent>Read</accent></b> <muted>a.ts</muted> · <error>1 lines</error>",
+		"<dim>→</dim> <muted>Read</muted> <muted>a.ts</muted> · <error>1 lines</error>",
 	]);
 });
 
@@ -240,7 +240,7 @@ test("buildToolResultLines: edit appends the rich UNIFIED diff block when mode i
 	const result = { resultText: "", details: { diff } };
 	const lines = buildToolResultLines("edit", { path: "x" }, result, false, false, ctx);
 	assert.deepEqual(lines, [
-		"<b><accent>Edit</accent></b> <muted>x</muted> · <dim>+1 -1</dim>",
+		"<dim>→</dim> <muted>Edit</muted> <muted>x</muted> · <dim>+1 -1</dim>",
 		"<dim>@@ -1,2 +1,3 @@</dim>",
 		"<dim>  1 1 │ </dim><dim>ctx</dim>",
 		"<dim>- 2   │ </dim><b><error>old</error></b>",
@@ -254,7 +254,7 @@ test("buildToolResultLines: edit renders a SPLIT diff at the default (split) mod
 	const result = { resultText: "", details: { diff } };
 	const lines = buildToolResultLines("edit", { path: "x" }, result, false, false, ctx);
 
-	assert.equal(lines[0], "<b><accent>Edit</accent></b> <muted>x</muted> · <dim>+1 -1</dim>");
+	assert.equal(lines[0], "<dim>→</dim> <muted>Edit</muted> <muted>x</muted> · <dim>+1 -1</dim>");
 	assert.ok(lines.includes("<dim>@@ -1,2 +1,3 @@</dim>"), "hunk header stays a dim full-width line");
 
 	const ctxLine = lines.find((l) => (l.match(/ctx/g) ?? []).length === 2);
@@ -276,7 +276,7 @@ test("buildToolResultLines: write renders its content as an all-additions diff b
 	const result = { resultText: "Successfully wrote 18 bytes to f.txt", details: undefined };
 	const lines = buildToolResultLines("write", { path: "f.txt", content: "alpha\nbeta\n" }, result, false, false, ctx);
 
-	assert.equal(lines[0], "<b><accent>Write</accent></b> <muted>f.txt</muted> · <dim>2 lines</dim>");
+	assert.equal(lines[0], "<dim>→</dim> <muted>Write</muted> <muted>f.txt</muted> · <dim>2 lines</dim>");
 	assert.ok(lines.some((l) => l.includes("<success>alpha</success>")), `alpha is an addition: ${JSON.stringify(lines)}`);
 	assert.ok(lines.some((l) => l.includes("<success>beta</success>")), "beta is an addition");
 	assert.ok(!lines.some((l) => l.includes("<error>")), "a new-file write has no deletions");

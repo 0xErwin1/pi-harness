@@ -20,6 +20,37 @@ export interface ToolResultData {
 	details?: unknown;
 }
 
+/** Leading glyph for a non-bash tool call, opencode-style (`→ Read file.ts`). */
+export const TOOL_ARROW = "→";
+
+/**
+ * Composes the single tool head line, opencode-style:
+ * - bash: `$ <cmd>` — the `$` prompt in bold accent, the command muted.
+ * - everything else: `→ <verb> <args>` — a dim arrow, the verb and args muted (no
+ *   bold-accent verb), reading as a quiet, scannable action line rather than a label.
+ * A non-empty summary is appended as ` · <summary>` in the status colour.
+ */
+export function buildToolHeadLine(
+	isBash: boolean,
+	verb: string,
+	display: string,
+	summaryText: string,
+	status: ToolSummaryStatus,
+	ctx: RenderCtx,
+): string {
+	let line: string;
+	if (isBash) {
+		const cmd = display.replace(/^\$\s?/, "");
+		line = ctx.styler.bold(ctx.styler.fg("accent", "$"));
+		if (cmd.length > 0) line += ` ${ctx.styler.fg("muted", cmd)}`;
+	} else {
+		line = `${ctx.styler.fg("dim", TOOL_ARROW)} ${ctx.styler.fg("muted", verb)}`;
+		if (display.length > 0) line += ` ${ctx.styler.fg("muted", display)}`;
+	}
+	if (summaryText.length > 0) line += ` · ${ctx.styler.fg(statusColor(status), summaryText)}`;
+	return line;
+}
+
 function statusColor(status: ToolSummaryStatus): RenderColor {
 	switch (status) {
 		case "ok":
@@ -111,17 +142,8 @@ export function buildToolResultLines(
 		if (summaryText.length === 0) summaryText = "error";
 	}
 
-	// Bash carries no "Bash" verb (opencode-style): the `$` prompt plays the verb role
-	// (bold + accent) and the command itself is muted, matching the subagent viewer.
 	const isBash = toolName.toLowerCase() === "bash";
-	const verbToken = isBash ? "$" : verb;
-	const displayToken = isBash ? display.replace(/^\$\s?/, "") : display;
-
-	let line = ctx.styler.bold(ctx.styler.fg("accent", verbToken));
-	if (displayToken.length > 0) line += ` ${ctx.styler.fg("muted", displayToken)}`;
-	if (summaryText.length > 0) line += ` · ${ctx.styler.fg(statusColor(status), summaryText)}`;
-
-	lb.push(line);
+	lb.push(buildToolHeadLine(isBash, verb, display, summaryText, status, ctx));
 
 	const tool = toolName.toLowerCase();
 	if (tool === "edit") {

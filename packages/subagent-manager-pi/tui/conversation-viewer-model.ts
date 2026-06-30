@@ -10,6 +10,7 @@ import {
 	splitThinkingTitle,
 	styleDiffBodyLine,
 	THINKING_HEADER,
+	TOOL_ARROW,
 } from "../../render-core/index.ts";
 import type { RenderStyler } from "../../render-core/index.ts";
 
@@ -210,11 +211,27 @@ export function styleToolLine(line: string, styler: TranscriptStyler): string | 
 	let out: string;
 	if (isHead) {
 		const spaceAt = callPart.indexOf(" ");
-		const verb = spaceAt < 0 ? callPart : callPart.slice(0, spaceAt);
-		const args = spaceAt < 0 ? "" : callPart.slice(spaceAt + 1);
+		const lead = spaceAt < 0 ? callPart : callPart.slice(0, spaceAt);
+		const rest = spaceAt < 0 ? "" : callPart.slice(spaceAt + 1);
 
-		out = styler.bold(styler.fg("accent", verb));
-		if (args.length > 0) out += ` ${styler.fg("muted", args)}`;
+		// The raw head already carries its lead glyph (`→ ` for tools, `$` for bash) so
+		// width is accounted for upstream; here we only COLOUR it. opencode-style: the
+		// `→` arrow is dim with a muted verb + muted args; bash leads with a bold-accent
+		// `$` prompt and a muted command (matching render-core's `buildToolHeadLine`).
+		if (lead === TOOL_ARROW) {
+			const verbAt = rest.indexOf(" ");
+			const verb = verbAt < 0 ? rest : rest.slice(0, verbAt);
+			const args = verbAt < 0 ? "" : rest.slice(verbAt + 1);
+			out = styler.fg("dim", TOOL_ARROW);
+			if (verb.length > 0) out += ` ${styler.fg("muted", verb)}`;
+			if (args.length > 0) out += ` ${styler.fg("muted", args)}`;
+		} else if (lead === "$") {
+			out = styler.bold(styler.fg("accent", "$"));
+			if (rest.length > 0) out += ` ${styler.fg("muted", rest)}`;
+		} else {
+			out = styler.fg("muted", lead);
+			if (rest.length > 0) out += ` ${styler.fg("muted", rest)}`;
+		}
 	} else {
 		out = callPart.length > 0 ? styler.fg("muted", callPart) : "";
 	}
@@ -631,15 +648,20 @@ const MIN_CONT_WIDTH = 8;
  * (`verb.length + 1`). When the verb is long enough that aligning would starve the
  * continuation of usable width, the indent collapses to a small fixed gutter.
  */
-function computeToolIndent(verb: string, width: number): number {
-	const aligned = verb.length + 1;
+function computeToolIndent(headPrefix: string, width: number): number {
+	const aligned = headPrefix.length + 1;
 	if (aligned + MIN_CONT_WIDTH <= width) return aligned;
 	return Math.min(2, Math.max(0, width - 1));
 }
 
+/** Leading glyph carried in the RAW tool line so width accounting matches the styled output. */
+function toolHeadLead(verb: string): string {
+	return verb === "$" ? "" : `${TOOL_ARROW} `;
+}
+
 function encodeToolItem(item: ToolItem, width: number): string[] {
 	const countSuffix = item.count > 1 ? ` ×${item.count}` : "";
-	const call = item.verb + (item.args ? ` ${item.args}` : "") + countSuffix;
+	const call = `${toolHeadLead(item.verb)}${item.verb}${item.args ? ` ${item.args}` : ""}${countSuffix}`;
 	const hasSummary = item.summary !== undefined && item.summary.length > 0;
 	const summary = item.summary ?? "";
 	const visibleLength = call.length + (hasSummary ? 3 + summary.length : 0);
@@ -667,14 +689,15 @@ function wrapToolItem(item: ToolItem, width: number): string[] {
 	const countSuffix = item.count > 1 ? ` ×${item.count}` : "";
 	const argsRegion = item.args ? `${item.args}${countSuffix}` : countSuffix.trimStart();
 
-	const indent = computeToolIndent(item.verb, width);
+	const headPrefix = `${toolHeadLead(item.verb)}${item.verb}`;
+	const indent = computeToolIndent(headPrefix, width);
 	const contentWidth = Math.max(1, width - indent);
 	const chunks = argsRegion.length > 0 ? wrapText(argsRegion, contentWidth) : [];
 
 	const lines: string[] = [];
 	const firstChunk = chunks[0] ?? "";
-	lines.push(`${TOOL_MARK}${item.verb}${firstChunk ? ` ${firstChunk}` : ""}`);
-	let lastVisible = item.verb.length + (firstChunk ? 1 + firstChunk.length : 0);
+	lines.push(`${TOOL_MARK}${headPrefix}${firstChunk ? ` ${firstChunk}` : ""}`);
+	let lastVisible = headPrefix.length + (firstChunk ? 1 + firstChunk.length : 0);
 
 	for (let i = 1; i < chunks.length; i++) {
 		const chunk = chunks[i];

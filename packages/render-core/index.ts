@@ -20,7 +20,7 @@ export { summarizeToolResult, parseDiffStat, diffBlockLines } from "./formatters
 export { outputBlockLines } from "./formatters/output-block.ts";
 export { buildToolCallLine } from "./formatters/tool-call.ts";
 export type { ToolResultData } from "./formatters/tool-result.ts";
-export { buildToolResultLines } from "./formatters/tool-result.ts";
+export { buildToolResultLines, buildToolHeadLine, TOOL_ARROW } from "./formatters/tool-result.ts";
 export { formatMcpCall, formatMcpResult } from "./formatters/mcp.ts";
 export type { SpinnerState } from "./formatters/bash-spinner.ts";
 export { nextSpinner, buildBashCallLine } from "./formatters/bash-spinner.ts";

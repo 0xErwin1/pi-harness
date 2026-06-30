@@ -157,12 +157,13 @@ function editDiff(details: unknown): string | undefined {
 	return typeof details.diff === "string" ? details.diff : undefined;
 }
 
-/** Builds the pending/streaming call line: `<Verb> <args>` (verb bold, args accent). */
+/** Builds the pending/streaming call line, opencode-style: `→ <Verb> <args>` (dim arrow, muted verb/args). */
 export function buildToolCallLine(toolName: string, args: unknown, styler: ToolLineStyler): string {
 	const verb = toolVerb(toolName);
 	const display = formatToolArgs(toolName, args);
-	if (display.length === 0) return styler.bold(verb);
-	return `${styler.bold(verb)} ${styler.fg("accent", display)}`;
+	let line = `${styler.fg("dim", "→")} ${styler.fg("muted", verb)}`;
+	if (display.length > 0) line += ` ${styler.fg("muted", display)}`;
+	return line;
 }
 
 /**
@@ -221,7 +222,7 @@ export function buildToolResultLines(
 		if (summaryText.length === 0) summaryText = "error";
 	}
 
-	let line = styler.bold(verb);
+	let line = `${styler.fg("dim", "→")} ${styler.fg("muted", verb)}`;
 	if (display.length > 0) line += ` ${styler.fg("muted", display)}`;
 	if (summaryText.length > 0) line += ` · ${styler.fg(statusColor(status), summaryText)}`;
 

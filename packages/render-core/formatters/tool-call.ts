@@ -8,11 +8,12 @@
 
 import { LineBuffer, type RenderCtx } from "../width.ts";
 import { toolVerb, formatToolArgs } from "./tool-args.ts";
+import { buildToolHeadLine } from "./tool-result.ts";
 
 /**
- * Builds the pending tool-call line: `<Verb> <args>` with the verb bold+accent
- * and the args muted. Returns an array of clamped lines (always length 1 for the
- * call line, since no body block exists while the call is streaming).
+ * Builds the pending tool-call line, opencode-style: bash as `$ <cmd>` and every
+ * other tool as `→ <verb> <args>` (dim arrow, muted verb/args). No summary exists
+ * while the call is streaming. Returns a single clamped line.
  */
 export function buildToolCallLine(
 	toolName: string,
@@ -20,14 +21,10 @@ export function buildToolCallLine(
 	ctx: RenderCtx,
 ): string[] {
 	const lb = new LineBuffer(ctx);
+	const isBash = toolName.toLowerCase() === "bash";
 	const verb = toolVerb(toolName);
 	const display = formatToolArgs(toolName, args);
 
-	if (display.length === 0) {
-		lb.push(ctx.styler.bold(ctx.styler.fg("accent", verb)));
-	} else {
-		lb.push(`${ctx.styler.bold(ctx.styler.fg("accent", verb))} ${ctx.styler.fg("muted", display)}`);
-	}
-
+	lb.push(buildToolHeadLine(isBash, verb, display, "", "neutral", ctx));
 	return lb.done();
 }
