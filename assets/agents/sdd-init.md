@@ -48,11 +48,11 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 
 Read any existing project context directly from the active backend before bootstrapping; do not wait for the parent to inline it. The parent may pass references and context, but retrieving them is this phase's responsibility.
 
-Inputs to read (`engram`/Obsidian: `mem_search("<topic-key>")` then `mem_get_observation`, plus the full note from Obsidian; file-backed exception: read the file under `openspec/`):
+Inputs to read (`engram`/Obsidian: use the injected Engram memory read tools for the topic key, then fetch the full observation, plus the full note from Obsidian; file-backed exception: read the file under `openspec/`):
 - Existing project context (if re-initializing): `sdd-init/{project}`
 
 Persist this phase's artifact before returning (mandatory):
-- Save the full project context to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call `mem_save` with title and `topic_key` `"sdd-init/{project}"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- Save the full project context to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call the injected Engram save tool with title and `topic_key` `"sdd-init/{project}"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
 - File-backed exception (only when the user explicitly requested files): write the project context file under `openspec/`.
 - If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active.
 

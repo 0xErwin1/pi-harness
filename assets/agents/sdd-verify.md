@@ -42,13 +42,13 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 
 Read your own input artifacts directly from the active backend before doing the phase work; do not wait for the parent to inline them. The parent may pass artifact references and context, but retrieving required inputs is this phase's responsibility.
 
-Inputs to read (`engram`/Obsidian: `mem_search("<topic-key>")` then `mem_get_observation`, plus the full artifact from Obsidian; file-backed exception: read the file under `openspec/changes/{change}/`):
+Inputs to read (`engram`/Obsidian: use the injected Engram memory read tools for the topic key, then fetch the full observation, plus the full artifact from Obsidian; file-backed exception: read the file under `openspec/changes/{change}/`):
 - Spec (required): `sdd/{change}/spec`
 - Tasks (required): `sdd/{change}/tasks`
 - Apply-progress (required): `sdd/{change}/apply-progress`
 
 Persist this phase's artifact before returning (mandatory):
-- Save the full verify report to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call `mem_save` with title and `topic_key` `"sdd/{change}/verify-report"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- Save the full verify report to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call the injected Engram save tool with title and `topic_key` `"sdd/{change}/verify-report"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
 - File-backed exception (only when the user explicitly requested files): write/update `openspec/changes/{change}/verify-report.md`.
 - If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active.
 
@@ -59,7 +59,7 @@ Never claim persistence you did not perform.
 
 Read specs, design, tasks, apply-progress, changed code, tests, and strict TDD/testing context from Engram/Obsidian or parent prompt.
 
-**Non-authoritative store carve-out:** when the native status JSON shows `nextRecommended: "resolve-via-engram"` (covers `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` without an `openspec/` directory), the status is non-authoritative. Do not treat `dependencies` or `blockedReasons` from that status as real blockers. Resolve readiness instead: check Engram for `sdd/{change}/tasks` and `sdd/{change}/apply-progress` via `mem_search` + `mem_get_observation`, and proceed with verification once those artifacts are confirmed present. For `none` there is no persistent backend — return the verification report inline and ask the user to provide required inputs (tasks, apply-progress).
+**Non-authoritative store carve-out:** when the native status JSON shows `nextRecommended: "resolve-via-engram"` (covers `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` without an `openspec/` directory), the status is non-authoritative. Do not treat `dependencies` or `blockedReasons` from that status as real blockers. Resolve readiness instead: check Engram for `sdd/{change}/tasks` and `sdd/{change}/apply-progress` via the Engram memory tools injected by the memory provider, and proceed with verification once those artifacts are confirmed present. For `none` there is no persistent backend — return the verification report inline and ask the user to provide required inputs (tasks, apply-progress).
 
 ## Verification
 

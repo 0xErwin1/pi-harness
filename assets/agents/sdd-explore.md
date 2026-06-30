@@ -47,7 +47,7 @@ Inputs to read (`engram`/Obsidian: prior notes from Obsidian and Engram; file-ba
 - None — exploration has no upstream artifacts. If iterating on a prior exploration, read `sdd/{change}/explore`.
 
 Persist this phase's artifact before returning (mandatory):
-- Save the full exploration to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call `mem_save` with title and `topic_key` `"sdd/{change}/explore"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- Save the full exploration to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call the injected Engram save tool with title and `topic_key` `"sdd/{change}/explore"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
 - File-backed exception (only when the user explicitly requested files): write the exploration file under `openspec/changes/{change}/`.
 - If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active.
 

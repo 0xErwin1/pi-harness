@@ -168,7 +168,7 @@ Minimal task context to include in every phase call:
 - Change name (a short slug, e.g. `oauth-login`)
 - Project name (basename of cwd)
 - Working directory (absolute path)
-- Engram topic_keys of dependency artifacts (the sub-agent retrieves them via `mem_search` + `mem_get_observation`)
+- Engram topic_keys of dependency artifacts (the sub-agent retrieves them via the injected Engram memory read tools)
 
 Example for the explore phase:
 
@@ -287,7 +287,7 @@ Before `/sdd-continue`, `sdd-apply`, `sdd-verify`, `sdd-sync`, or `sdd-archive`,
 Route only by `nextRecommended` and the dependency states; never infer routing from free text. Do not guess the active change — if change selection is ambiguous, ask the user and stop. If `actionContext.mode: workspace-planning` and no allowed edit roots are provided, stop before apply/verify/sync/archive and ask for an explicit implementation/edit scope. Carry `contextFiles`, task progress, dependency states, and `actionContext` into every subagent launch.
 
 - `sdd-archive` cannot proceed unless status says `dependencies.archive` is `ready` or `all_done` — UNLESS the store carve-out is active (`nextRecommended: "resolve-via-engram"`), in which case resolve archive readiness from Engram instead of treating `not_applicable` as a gate failure.
-- **Non-authoritative store carve-out:** when `nextRecommended: "resolve-via-engram"` is set, native status is **not authoritative**. This applies to `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` when the `openspec/` directory does not exist. For non-authoritative stores: resolve readiness from Engram using `mem_search` + `mem_get_observation` on the change topic keys (`sdd/{change-name}/proposal`, `sdd/{change-name}/spec`, `sdd/{change-name}/design`, `sdd/{change-name}/tasks`, etc.). Do **not** treat `blockedReasons` or `not_applicable` dependency states from the native engine as real blockers when the store carve-out is active.
+- **Non-authoritative store carve-out:** when `nextRecommended: "resolve-via-engram"` is set, native status is **not authoritative**. This applies to `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` when the `openspec/` directory does not exist. For non-authoritative stores: resolve readiness from Engram using the Engram memory tools injected by the memory provider on the change topic keys (`sdd/{change-name}/proposal`, `sdd/{change-name}/spec`, `sdd/{change-name}/design`, `sdd/{change-name}/tasks`, etc.). Do **not** treat `blockedReasons` or `not_applicable` dependency states from the native engine as real blockers when the store carve-out is active.
 
 ## Init Guard
 
@@ -308,7 +308,7 @@ This package is Engram + Obsidian native.
 
 ## Engram Persistent Memory — Protocol
 
-The Engram MCP server injects the full protocol (proactive save triggers, mem_save format, topic update rules, search rules, conflict surfacing) at session start. The rules below add orchestrator-specific behavior on top.
+The Engram MCP server injects the full protocol (proactive save triggers, memory save format, topic update rules, search rules, conflict surfacing) at session start. The rules below add orchestrator-specific behavior on top.
 
 ### Orchestrator vs Subagent Roles
 
@@ -316,9 +316,9 @@ The parent owns context selection and subagents own write-back. Retrieval rules 
 
 #### Non-SDD delegation
 
-- Read context: the parent/orchestrator searches memory (`mem_search`, `mem_context`), selects relevant observations (`mem_get_observation` for full content), and passes them into the subagent prompt. The subagent does NOT search memory itself.
-- Write context: the subagent MUST save significant discoveries, decisions, or bug fixes via `mem_save` before returning when memory tools are available.
-- Prompt forwarding: when delegating, add a concrete instruction such as: `If you make important discoveries, decisions, or fix bugs, save them to Engram via mem_save with project: '<project>' before returning.`
+- Read context: the parent/orchestrator searches memory (the injected Engram search and context tools), selects relevant observations (the injected Engram memory read tools for full content), and passes them into the subagent prompt. The subagent does NOT search memory itself.
+- Write context: the subagent MUST save significant discoveries, decisions, or bug fixes via the injected Engram save tool before returning when memory tools are available.
+- Prompt forwarding: when delegating, add a concrete instruction such as: `If you make important discoveries, decisions, or fix bugs, save them to Engram via the available memory save tool with project: '<project>' before returning.`
 
 #### SDD phases
 
@@ -339,21 +339,21 @@ Each SDD phase subagent reads its own required inputs directly from the active b
 
 - SDD artifact keys: phase artifacts use the stable topic keys `sdd/{change}/explore`, `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, `sdd/{change}/apply-progress`, `sdd/{change}/verify-report`, `sdd/{change}/sync-report`, and `sdd/{change}/archive-report`.
 - If memory tools are unavailable, do not pretend persistence exists; return artifacts inline and/or write OpenSpec files.
-- First-turn search: when the user's FIRST message references the project, a feature, or a problem, the orchestrator (not subagents) calls `mem_search` and `mem_context` before jumping to `git`, `gh`, grep, or file reads, and passes any relevant observations into delegations.
+- First-turn search: when the user's FIRST message references the project, a feature, or a problem, the orchestrator (not subagents) calls the injected Engram search and context tools before jumping to `git`, `gh`, grep, or file reads, and passes any relevant observations into delegations.
 
 ### Memory lifecycle
 
 When Engram exposes lifecycle metadata or tooling:
 
-- At session start, or before architecture-sensitive work, call `mem_review` with action `list` for the current project when the tool is available.
-- If `mem_review` is unavailable, do not fail the task. Continue with normal `mem_context`/`mem_search`, and still apply lifecycle metadata from any returned observations when present.
+- At session start, or before architecture-sensitive work, call the injected Engram review tool with action `list` for the current project when the tool is available.
+- If the injected Engram review tool is unavailable, do not fail the task. Continue with the injected Engram context/search tools, and still apply lifecycle metadata from any returned observations when present.
 - `active` memories may be used normally.
 - `needs_review` memories are stale context, not trusted facts. Surface that stale context to the user and verify it against current evidence before relying on it.
-- Do NOT call `mem_review` with action `mark_reviewed` automatically. Only call `mark_reviewed` after explicit user confirmation or through a dedicated memory maintenance command.
+- Do NOT call the injected Engram review tool with action `mark_reviewed` automatically. Only call `mark_reviewed` after explicit user confirmation or through a dedicated memory maintenance command.
 
 ### SESSION CLOSE PROTOCOL (mandatory)
 
-Before ending a session or saying "done" / "listo" / "that's it", call `mem_session_summary` with this structure:
+Before ending a session or saying "done" / "listo" / "that's it", call the injected Engram session-summary tool with this structure:
 
 ```
 ## Goal
@@ -381,8 +381,8 @@ This is NOT optional. If you skip this, the next session starts blind.
 
 If you see a compaction message or a "FIRST ACTION REQUIRED" marker:
 
-1. IMMEDIATELY call `mem_session_summary` with the compacted summary content — this persists what was done before compaction.
-2. Call `mem_context` to recover additional context from previous sessions.
+1. IMMEDIATELY call the injected Engram session-summary tool with the compacted summary content — this persists what was done before compaction.
+2. Call the injected Engram context tool to recover additional context from previous sessions.
 3. Only THEN continue working.
 
 Do not skip step 1. Without it, everything done before compaction is lost from memory.
@@ -415,7 +415,7 @@ In `auto` mode the orchestrator is the gatekeeper between phases. When a delegat
 Check every phase against the Result Contract:
 
 - **Contract conformance**: the phase returned the expected fields and `status` indicates success, not partial/failed/blocked.
-- **Artifact existence**: the declared artifact actually exists and is readable in the active backend — read it back (Engram: `mem_search` + `mem_get_observation` on the topic key; Obsidian/file: read the path). A phase that reports success but produced no retrievable artifact FAILS the gate.
+- **Artifact existence**: the declared artifact actually exists and is readable in the active backend — read it back (Engram: use the injected Engram memory read tools on the topic key; Obsidian/file: read the path). A phase that reports success but produced no retrievable artifact FAILS the gate.
 - **No hallucination**: spot-check the concrete file paths, symbols, commands, or artifacts the phase claims it created or referenced; a path that does not resolve FAILS the gate.
 - **No drift from inputs**: output stays consistent with the phase's required inputs per the dependency graph — spec within proposal scope, design answers the proposal, tasks cover spec and design, apply implements the tasks. Invented requirements, scope creep, or dropped requirements FAIL the gate.
 - **Routing coherence**: the recommended next action follows the dependency graph and risks are within tolerance (no unaddressed CRITICAL).

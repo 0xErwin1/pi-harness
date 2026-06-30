@@ -46,11 +46,11 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 
 Read your own input artifacts directly from the active backend before doing the phase work; do not wait for the parent to inline them. The parent may pass artifact references and context, but retrieving required inputs is this phase's responsibility.
 
-Inputs to read (`engram`/Obsidian: `mem_search("<topic-key>")` then `mem_get_observation`, plus the full artifact from Obsidian; file-backed exception: read the file under `openspec/changes/{change}/`):
+Inputs to read (`engram`/Obsidian: use the injected Engram memory read tools for the topic key, then fetch the full observation, plus the full artifact from Obsidian; file-backed exception: read the file under `openspec/changes/{change}/`):
 - Exploration (optional): `sdd/{change}/explore`
 
 Persist this phase's artifact before returning (mandatory):
-- Save the full proposal to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call `mem_save` with title and `topic_key` `"sdd/{change}/proposal"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- Save the full proposal to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call the injected Engram save tool with title and `topic_key` `"sdd/{change}/proposal"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
 - File-backed exception (only when the user explicitly requested files): write/update `openspec/changes/{change}/proposal.md`.
 - If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active.
 

@@ -43,15 +43,15 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 
 Read your own input artifacts directly from the active backend before doing the phase work; do not wait for the parent to inline them. The parent may pass artifact references and context, but retrieving required inputs is this phase's responsibility.
 
-Inputs to read (`engram`/Obsidian: `mem_search("<topic-key>")` then `mem_get_observation`, plus the full artifact from Obsidian; file-backed exception: read the file under `openspec/changes/{change}/`):
+Inputs to read (`engram`/Obsidian: use the injected Engram memory read tools for the topic key, then fetch the full observation, plus the full artifact from Obsidian; file-backed exception: read the file under `openspec/changes/{change}/`):
 - Tasks (required): `sdd/{change}/tasks`
 - Spec (required): `sdd/{change}/spec`
 - Design (required): `sdd/{change}/design`
 - Previous apply-progress (if it exists): `sdd/{change}/apply-progress` — read and MERGE with your new progress; do NOT overwrite.
 
 Persist this phase's artifact before returning (mandatory):
-- Save the full human-readable apply-progress to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call `mem_save` with title and `topic_key` `"sdd/{change}/apply-progress"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
-- Also update the tasks artifact checkboxes via `mem_update` (Engram) and the corresponding Obsidian note.
+- Save the full human-readable apply-progress to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call the injected Engram save tool with title and `topic_key` `"sdd/{change}/apply-progress"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- Also update the tasks artifact checkboxes via the injected Engram update tool (Engram) and the corresponding Obsidian note.
 - File-backed exception (only when the user explicitly requested files): write/update the apply-progress and tasks files under `openspec/changes/{change}/`.
 - If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active.
 
@@ -62,7 +62,7 @@ Never claim persistence you did not perform.
 
 Read proposal, specs, design, tasks, existing code, tests, `apply-progress` if present, and strict TDD/testing context from Engram/Obsidian or parent prompt.
 
-**Non-authoritative store carve-out:** when the native status JSON shows `nextRecommended: "resolve-via-engram"` (covers `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` without an `openspec/` directory), the status is non-authoritative. Do not treat `applyState`, `dependencies`, or `blockedReasons` from that status as real blockers. Resolve readiness instead: search Engram for `sdd/{change}/tasks`, `sdd/{change}/spec`, and `sdd/{change}/design` via `mem_search` + `mem_get_observation`, and proceed with implementation once those artifacts are confirmed present. For `none` there is no persistent backend — return artifacts inline and ask the user to provide required inputs.
+**Non-authoritative store carve-out:** when the native status JSON shows `nextRecommended: "resolve-via-engram"` (covers `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` without an `openspec/` directory), the status is non-authoritative. Do not treat `applyState`, `dependencies`, or `blockedReasons` from that status as real blockers. Resolve readiness instead: search Engram for `sdd/{change}/tasks`, `sdd/{change}/spec`, and `sdd/{change}/design` via the Engram memory tools injected by the memory provider, and proceed with implementation once those artifacts are confirmed present. For `none` there is no persistent backend — return artifacts inline and ask the user to provide required inputs.
 
 ## Review Workload Gate
 

@@ -41,11 +41,11 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 
 Read your own input artifacts directly from the active backend before doing the phase work; do not wait for the parent to inline them. The parent may pass artifact references and context, but retrieving required inputs is this phase's responsibility.
 
-Inputs to read (`engram`/Obsidian: `mem_search("<topic-key>")` then `mem_get_observation`, plus the full artifacts from Obsidian; file-backed exception: read the files under `openspec/changes/{change}/`):
+Inputs to read (`engram`/Obsidian: use the injected Engram memory read tools for the topic key, then fetch the full observation, plus the full artifacts from Obsidian; file-backed exception: read the files under `openspec/changes/{change}/`):
 - All change artifacts: `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, `sdd/{change}/apply-progress`, `sdd/{change}/verify-report`, and `sdd/{change}/sync-report` if present.
 
 Persist this phase's artifact before returning (mandatory):
-- Save the full archive report to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call `mem_save` with title and `topic_key` `"sdd/{change}/archive-report"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- Save the full archive report to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call the injected Engram save tool with title and `topic_key` `"sdd/{change}/archive-report"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
 - File-backed exception (only when the user explicitly requested files): write the archive report and perform the file moves described in the File-Backed Exception section.
 - If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active.
 
@@ -68,7 +68,7 @@ Before archiving, read or confirm:
 - sync-report when present;
 - project context.
 
-**Non-authoritative store carve-out:** when the native status JSON shows `nextRecommended: "resolve-via-engram"` (covers `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` without an `openspec/` directory), the status is non-authoritative. Do not treat `dependencies` or `blockedReasons` (including `not_applicable` dependency states) from that status as real blockers. Archive may proceed when `dependencies.archive` is `ready` or `all_done`; under the carve-out, resolve archive readiness by checking Engram for `sdd/{change}/verify-report` via `mem_search` + `mem_get_observation`, then record the archive report in Engram + Obsidian without filesystem sync or folder moves. For `none` there is no persistent backend — return a closure summary inline and ask the user to confirm that verification has passed before proceeding.
+**Non-authoritative store carve-out:** when the native status JSON shows `nextRecommended: "resolve-via-engram"` (covers `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` without an `openspec/` directory), the status is non-authoritative. Do not treat `dependencies` or `blockedReasons` (including `not_applicable` dependency states) from that status as real blockers. Archive may proceed when `dependencies.archive` is `ready` or `all_done`; under the carve-out, resolve archive readiness by checking Engram for `sdd/{change}/verify-report` via the Engram memory tools injected by the memory provider, then record the archive report in Engram + Obsidian without filesystem sync or folder moves. For `none` there is no persistent backend — return a closure summary inline and ask the user to confirm that verification has passed before proceeding.
 
 Stop with `blocked` if:
 

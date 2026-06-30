@@ -40,11 +40,11 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 
 Read the change artifacts directly from the active backend before syncing; do not wait for the parent to inline them. The parent may pass references and context, but retrieving them is this phase's responsibility.
 
-Inputs to read (`engram`/Obsidian: `mem_search("<topic-key>")` then `mem_get_observation`, plus the full notes from Obsidian; file-backed exception: read the files under `openspec/changes/{change}/`):
+Inputs to read (`engram`/Obsidian: use the injected Engram memory read tools for the topic key, then fetch the full observation, plus the full notes from Obsidian; file-backed exception: read the files under `openspec/changes/{change}/`):
 - Core change artifacts: `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, and `sdd/{change}/verify-report`.
 
 Persist this phase's artifact before returning (mandatory):
-- Full report: Obsidian note under `sdd/{project}/{change}-sync-report-{YYYY-MM-DD}.md`, then call `mem_save` with title and `topic_key` `"sdd/{change}/sync-report"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- Full report: Obsidian note under `sdd/{project}/{change}-sync-report-{YYYY-MM-DD}.md`, then call the injected Engram save tool with title and `topic_key` `"sdd/{change}/sync-report"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
 - If Engram or Obsidian is unavailable, return `blocked` or `partial`; do not silently fall back to repo files.
 
 Never claim persistence you did not perform.
