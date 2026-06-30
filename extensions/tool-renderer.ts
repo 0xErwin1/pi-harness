@@ -298,6 +298,14 @@ function makeRenderCtx(theme: Theme, maxWidth: number): RenderCtx {
 /** Animation interval for the bash spinner (10 frames per second). */
 const BASH_SPINNER_INTERVAL_MS = 100;
 
+/**
+ * Build width for the bash result lines. Large enough that render-core's `LineBuffer`
+ * never clamps the command head or output: the lines are built full-length and then
+ * word-wrapped to the real draw width by `deferredWrappedLines`, so a long command
+ * flows onto continuation lines instead of being chopped with an ellipsis.
+ */
+const BASH_RESULT_BUILD_WIDTH = 100_000;
+
 /** Type guard: checks whether a value looks like a persisted SpinnerState. */
 function isSpinnerState(value: unknown): value is SpinnerState {
 	if (value === null || typeof value !== "object") return false;
@@ -453,7 +461,6 @@ function createBashCallComponent(args: unknown, theme: Theme, context: BashCallC
 
 	const command = formatToolArgs("bash", args);
 	const isRunning = context.isPartial;
-	const phase: "running" | "done" = isRunning ? "running" : "done";
 	const capturedTheme = theme;
 
 	let timerId: ReturnType<typeof setTimeout> | undefined;
@@ -465,8 +472,12 @@ function createBashCallComponent(args: unknown, theme: Theme, context: BashCallC
 		_timerId: timerId,
 		invalidate(): void {},
 		render(width: number): string[] {
+			// Once execution ends, the result renderer owns the command line
+			// (`$ cmd · N lines` + output). Emitting a call-phase line here too would
+			// leave it stranded in the transcript above the result — a visible duplicate.
+			if (!isRunning) return [];
 			try {
-				return buildBashCallLine(command, phase, frame, elapsedMs, makeRenderCtx(capturedTheme, width));
+				return buildBashCallLine(command, "running", frame, elapsedMs, makeRenderCtx(capturedTheme, width));
 			} catch {
 				return [minimalLine("bash", args)];
 			}
@@ -602,8 +613,8 @@ function registerBashToolRendering<TParams extends TSchema, TDetails, TState>(
 		renderShell: "self",
 		renderCall: (args, theme, context) => createBashCallComponent(args, theme, context),
 		renderResult: (result: AgentToolResult<TDetails>, options: ToolRenderResultOptions, theme, context) =>
-			deferredRenderCoreLines(
-				(width) => {
+			deferredWrappedLines(
+				() => {
 					const rt = resultText(result as ToolResultShape);
 					return renderCoreBuildToolResultLines(
 						toolName,
@@ -611,7 +622,7 @@ function registerBashToolRendering<TParams extends TSchema, TDetails, TState>(
 						{ resultText: rt, details: result.details },
 						context.isError,
 						options.expanded,
-						makeRenderCtx(theme, width),
+						makeRenderCtx(theme, BASH_RESULT_BUILD_WIDTH),
 					);
 				},
 				() => minimalLine(toolName, context.args),
