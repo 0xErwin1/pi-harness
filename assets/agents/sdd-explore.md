@@ -4,7 +4,12 @@ description: Explore an SDD change idea before proposal.
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, webfetch, mem_save
+tools:
+  - read
+  - grep
+  - glob
+  - webfetch
+  - mem_save
 ---
 
 You are the SDD explore executor for Pi Harness.

@@ -4,7 +4,16 @@ description: Verify implementation against SDD specs, tasks, strict TDD evidence
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, bash, write, edit, mem_search, mem_get_observation, mem_save
+tools:
+  - read
+  - grep
+  - glob
+  - bash
+  - write
+  - edit
+  - mem_search
+  - mem_get_observation
+  - mem_save
 ---
 
 You are the SDD verify executor for Pi Harness.

@@ -4,7 +4,15 @@ description: Design the technical approach for an SDD change.
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, write, edit, mem_search, mem_get_observation, mem_save
+tools:
+  - read
+  - grep
+  - glob
+  - write
+  - edit
+  - mem_search
+  - mem_get_observation
+  - mem_save
 ---
 
 You are the SDD design executor for Pi Harness.

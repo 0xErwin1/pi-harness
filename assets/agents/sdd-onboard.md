@@ -4,7 +4,17 @@ description: Guide a user through a complete SDD cycle on a small real project c
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, write, edit, bash, mem_search, mem_get_observation, mem_save, mem_update
+tools:
+  - read
+  - grep
+  - glob
+  - write
+  - edit
+  - bash
+  - mem_search
+  - mem_get_observation
+  - mem_save
+  - mem_update
 ---
 
 You are the SDD onboard executor for Pi Harness.

@@ -4,7 +4,16 @@ description: Initialize project SDD context, testing capabilities, and skill reg
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, write, bash, mem_search, mem_get_observation, mem_save, mem_update
+tools:
+  - read
+  - grep
+  - glob
+  - write
+  - bash
+  - mem_search
+  - mem_get_observation
+  - mem_save
+  - mem_update
 ---
 
 You are the SDD init executor for Pi Harness.

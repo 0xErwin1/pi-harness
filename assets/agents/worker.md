@@ -5,7 +5,15 @@ thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, bash, edit, write, contact_supervisor
+tools:
+  - read
+  - grep
+  - find
+  - ls
+  - bash
+  - edit
+  - write
+  - contact_supervisor
 defaultContext: fork
 defaultReads: context.md, plan.md
 defaultProgress: true

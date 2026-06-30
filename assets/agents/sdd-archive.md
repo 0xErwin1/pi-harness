@@ -4,7 +4,16 @@ description: Archive a verified and synced SDD change in Obsidian and Engram.
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, write, edit, bash, mem_search, mem_get_observation, mem_save
+tools:
+  - read
+  - grep
+  - glob
+  - write
+  - edit
+  - bash
+  - mem_search
+  - mem_get_observation
+  - mem_save
 ---
 
 You are the SDD archive executor for Pi Harness.

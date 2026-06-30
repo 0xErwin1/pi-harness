@@ -4,7 +4,15 @@ description: Break SDD design/specs into implementation tasks with review worklo
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, write, edit, mem_search, mem_get_observation, mem_save
+tools:
+  - read
+  - grep
+  - glob
+  - write
+  - edit
+  - mem_search
+  - mem_get_observation
+  - mem_save
 ---
 
 You are the SDD tasks executor for Pi Harness.

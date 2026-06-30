@@ -4,7 +4,17 @@ description: Sync SDD artifacts between Obsidian and Engram so all agents can re
 model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
-tools: read, grep, glob, write, edit, bash, mem_search, mem_get_observation, mem_save, mem_update
+tools:
+  - read
+  - grep
+  - glob
+  - write
+  - edit
+  - bash
+  - mem_search
+  - mem_get_observation
+  - mem_save
+  - mem_update
 ---
 
 You are the SDD sync executor for Pi Harness.
