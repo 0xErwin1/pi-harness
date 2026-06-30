@@ -98,7 +98,7 @@ function formatElapsed(ms: number): string {
 	const seconds = Math.floor(ms / 1000);
 	if (seconds < 60) return `${seconds}s`;
 	const minutes = Math.floor(seconds / 60);
-	return `${minutes}m${seconds % 60}s`;
+	return `${minutes}m ${seconds % 60}s`;
 }
 
 /**
@@ -124,7 +124,7 @@ export function resolveRowCounts(
 export interface CollapsedRowParts {
 	/** Identity line: `<agent> · <status> · <elapsed>` (agent omitted when empty). */
 	header: string;
-	/** Routing + usage line: `model: <model> · thinking: <level> · <tokens> tok · <N> tools`. */
+	/** Routing + usage line: `<model> · thinking: <level> · <tokens> tok · <N> toolcalls`. */
 	meta: string;
 	/** Current-activity phrase, absent when the row has no live activity. */
 	activity?: string;
@@ -134,9 +134,9 @@ export interface CollapsedRowParts {
  * Composes the collapsed row as labeled lines (no ANSI) from the row model and
  * resolved counts. Replaces the old dense one-liner with a header/meta/activity
  * split so the model, thinking effort, and live activity read cleanly instead of
- * being crammed into a single truncated line. The `model: … · thinking: …`
- * prefix is dropped when the model is unknown; turns are intentionally omitted
- * (they read ~0 during tool use and confuse).
+ * being crammed into a single truncated line. The routing segment is dropped when
+ * the model is unknown; turns are intentionally omitted (they read ~0 during tool
+ * use and confuse).
  */
 export function buildCollapsedRowParts(
 	model: SubagentRowModel,
@@ -148,8 +148,8 @@ export function buildCollapsedRowParts(
 	headerSegments.push(formatElapsed(model.elapsedMs));
 
 	const modelEffort = formatModelEffort(model.model, model.thinking);
-	const usage = `${formatTokens(model.tokens)} tok · ${counts.tools} tools`;
-	const meta = modelEffort ? `model: ${modelEffort} · ${usage}` : usage;
+	const usage = `${formatTokens(model.tokens)} tok · ${counts.tools} toolcalls`;
+	const meta = modelEffort ? `${modelEffort} · ${usage}` : usage;
 
 	const parts: CollapsedRowParts = {
 		header: headerSegments.join(" · "),
@@ -246,7 +246,7 @@ function renderCollapsed(
 	const sep = theme.fg("dim", " · ");
 
 	const headerSegments: string[] = [];
-	if (model.agent) headerSegments.push(theme.fg("accent", model.agent));
+	if (model.agent) headerSegments.push(theme.fg("accent", theme.bold(model.agent)));
 	headerSegments.push(theme.fg(statusColor(model.status), model.status));
 	headerSegments.push(theme.fg("dim", formatElapsed(model.elapsedMs)));
 

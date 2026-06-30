@@ -50,18 +50,18 @@ test("resolveRowCounts: a zero count in details is honored over the model", () =
 test("buildCollapsedRowParts: header carries agent/status/elapsed, meta carries usage, activity is separate", () => {
 	const parts = buildCollapsedRowParts(makeModel({ tokens: 1234 }), { turns: 2, tools: 3 });
 	assert.equal(parts.header, "Explore · running · 5s");
-	assert.equal(parts.meta, "1.2k tok · 3 tools");
+	assert.equal(parts.meta, "1.2k tok · 3 toolcalls");
 	assert.equal(parts.activity, "looking at the store");
 });
 
-test("buildCollapsedRowParts: meta leads with a labeled `model: <model> · thinking: <level>` when known", () => {
+test("buildCollapsedRowParts: meta leads with the bare `<model> · thinking: <level>` routing when known", () => {
 	const parts = buildCollapsedRowParts(
 		makeModel({ model: "anthropic/claude-haiku-4-5", thinking: "high", tokens: 0 }),
 		{ turns: 0, tools: 3 },
 	);
 	assert.ok(
-		parts.meta.startsWith("model: claude-haiku-4-5 · thinking: high · "),
-		`meta must lead with the labeled model/effort, got: ${parts.meta}`,
+		parts.meta.startsWith("claude-haiku-4-5 · thinking: high · "),
+		`meta must lead with the bare model/effort, got: ${parts.meta}`,
 	);
 	assert.equal(parts.header, "Explore · running · 5s", "routing data never bleeds into the header");
 });
@@ -69,7 +69,7 @@ test("buildCollapsedRowParts: meta leads with a labeled `model: <model> · think
 test("buildCollapsedRowParts: omits the model/effort prefix when unknown", () => {
 	const parts = buildCollapsedRowParts(makeModel(), { turns: 0, tools: 3 });
 	assert.ok(!parts.meta.includes("thinking:"), `no model/effort prefix when unknown, got: ${parts.meta}`);
-	assert.ok(!parts.meta.startsWith("model:"), `meta must not show an empty model label, got: ${parts.meta}`);
+	assert.ok(parts.meta.startsWith("0 tok"), `meta must lead straight with usage when unknown, got: ${parts.meta}`);
 	assert.equal(parts.header, "Explore · running · 5s", `header must start with the agent, got: ${parts.header}`);
 });
 
@@ -91,7 +91,7 @@ test("buildCollapsedRowParts: shows tokens compactly and a bare count under 1k",
 test("buildCollapsedRowParts: omits an empty agent and activity but keeps status", () => {
 	const parts = buildCollapsedRowParts(makeModel({ agent: "", currentActivity: "" }), { turns: 0, tools: 0 });
 	assert.equal(parts.header, "running · 5s");
-	assert.equal(parts.meta, "0 tok · 0 tools");
+	assert.equal(parts.meta, "0 tok · 0 toolcalls");
 	assert.equal(parts.activity, undefined);
 });
 
@@ -128,7 +128,7 @@ test("buildCollapsedRowParts: formats sub-second and multi-minute elapsed", () =
 		makeModel({ agent: "", currentActivity: "", elapsedMs: 125000 }),
 		{ turns: 0, tools: 0 },
 	);
-	assert.ok(multiMinute.header.endsWith("2m5s"), multiMinute.header);
+	assert.ok(multiMinute.header.endsWith("2m 5s"), multiMinute.header);
 });
 
 // ── inline EXPANDED transcript: deferred draw-time wrapping (matches overlay) ──
