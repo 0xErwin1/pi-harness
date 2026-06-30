@@ -45,6 +45,41 @@ function editDiff(details: unknown): string | undefined {
 	return asString(asRecord(details)?.diff);
 }
 
+/**
+ * Synthesizes an all-additions unified diff from a `write` call's `content` arg, so
+ * a completed write renders its body as a green addition block (a new file is a diff
+ * against nothing). Returns `undefined` when there is no content. A trailing blank
+ * from the final newline is dropped so the row count matches the visible lines.
+ */
+function writeContentDiff(args: unknown): string | undefined {
+	const content = asString(asRecord(args)?.content);
+	if (content === undefined) return undefined;
+
+	const lines = content.split("\n");
+	if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+	if (lines.length === 0) return undefined;
+
+	const body = lines.map((line) => `+${line}`).join("\n");
+	return `@@ -0,0 +1,${lines.length} @@\n${body}`;
+}
+
+/**
+ * Pushes a rendered diff block onto the buffer, honouring the resolved split/unified
+ * mode and the collapsed/expanded row cap. Shared by `edit` (real unified diff) and
+ * `write` (synthesized additions), so both render through the one styling path.
+ */
+function pushDiffBlock(lb: LineBuffer, diff: string, expanded: boolean, ctx: RenderCtx): void {
+	const cap = expanded ? Number.MAX_SAFE_INTEGER : ctx.config.diff.collapsedLines;
+	const rows = buildDiffRows(diff, { cap });
+	const bodies =
+		resolveDiffMode(ctx.config.diff, ctx.maxWidth) === "split"
+			? splitDiffBodyTexts(rows, ctx.maxWidth, ctx.width)
+			: diffBodyTexts(rows);
+	for (const body of bodies) {
+		lb.push(styleDiffBodyLine(body, ctx.styler));
+	}
+}
+
 /** Strips ANSI escape sequences and C0 control characters (except tab) from one line. */
 function stripAnsi(text: string): string {
 	return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x08\x0a-\x1f\x7f]/g, "");
@@ -85,17 +120,10 @@ export function buildToolResultLines(
 	const tool = toolName.toLowerCase();
 	if (tool === "edit") {
 		const diff = editDiff(result.details);
-		if (diff !== undefined) {
-			const cap = expanded ? Number.MAX_SAFE_INTEGER : ctx.config.diff.collapsedLines;
-			const rows = buildDiffRows(diff, { cap });
-			const bodies =
-				resolveDiffMode(ctx.config.diff, ctx.maxWidth) === "split"
-					? splitDiffBodyTexts(rows, ctx.maxWidth, ctx.width)
-					: diffBodyTexts(rows);
-			for (const body of bodies) {
-				lb.push(styleDiffBodyLine(body, ctx.styler));
-			}
-		}
+		if (diff !== undefined) pushDiffBlock(lb, diff, expanded, ctx);
+	} else if (tool === "write") {
+		const diff = editDiff(result.details) ?? writeContentDiff(args);
+		if (diff !== undefined) pushDiffBlock(lb, diff, expanded, ctx);
 	} else if (tool === "bash") {
 		const cap = expanded ? Number.MAX_SAFE_INTEGER : undefined;
 		for (const outLine of outputBlockLines(result.resultText, cap)) {

@@ -63,6 +63,11 @@ test("formatToolArgs: bash prefixes the command with a $ prompt", () => {
 	assert.equal(formatToolArgs("bash", { command: "ls -la" }), "$ ls -la");
 });
 
+test("formatToolArgs: bash collapses a multi-line command to its first line plus an ellipsis", () => {
+	const command = "python3 - <<'PY'\nfrom pathlib import Path\nprint(Path('.'))";
+	assert.equal(formatToolArgs("bash", { command }), "$ python3 - <<'PY' …");
+});
+
 test("formatToolArgs: grep shows the pattern", () => {
 	assert.equal(formatToolArgs("grep", { pattern: "TODO" }), "TODO");
 });
@@ -264,6 +269,24 @@ test("buildToolResultLines: edit renders a SPLIT diff at the default (split) mod
 	for (const line of lines) {
 		assert.ok(!/[\x10-\x14]/.test(line), `no split control byte may leak into styled output: ${JSON.stringify(line)}`);
 	}
+});
+
+test("buildToolResultLines: write renders its content as an all-additions diff block (unified)", () => {
+	const ctx: RenderCtx = { styler: STYLER, width: ASCII_WIDTH, maxWidth: 200, config: UNIFIED_CONFIG };
+	const result = { resultText: "Successfully wrote 18 bytes to f.txt", details: undefined };
+	const lines = buildToolResultLines("write", { path: "f.txt", content: "alpha\nbeta\n" }, result, false, false, ctx);
+
+	assert.equal(lines[0], "<b><accent>Write</accent></b> <muted>f.txt</muted> · <dim>2 lines</dim>");
+	assert.ok(lines.some((l) => l.includes("<success>alpha</success>")), `alpha is an addition: ${JSON.stringify(lines)}`);
+	assert.ok(lines.some((l) => l.includes("<success>beta</success>")), "beta is an addition");
+	assert.ok(!lines.some((l) => l.includes("<error>")), "a new-file write has no deletions");
+});
+
+test("buildToolResultLines: write with no content renders just the summary, no diff block", () => {
+	const ctx = makeCtx();
+	const result = { resultText: "wrote", details: undefined };
+	const lines = buildToolResultLines("write", { path: "f.txt" }, result, false, false, ctx);
+	assert.equal(lines.length, 1, "no content means no diff block");
 });
 
 test("buildToolResultLines: no output contains emoji", () => {

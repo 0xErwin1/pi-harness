@@ -73,8 +73,14 @@ export function formatToolArgs(toolName: string, rawArgs: unknown): string {
 			const range = readLineRange(args);
 			return range ? `${path}:${range}` : path;
 		}
-		case "bash":
-			return `$ ${asString(args.command) ?? ""}`;
+		case "bash": {
+			const command = asString(args.command) ?? "";
+			const newlineAt = command.indexOf("\n");
+			// Collapse a multi-line command (e.g. a heredoc) to its first line plus an
+			// ellipsis: the call line is width-clamped as a single string, and embedded
+			// newlines garble that clamp (the rest of the script bleeds onto the line).
+			return newlineAt < 0 ? `$ ${command}` : `$ ${command.slice(0, newlineAt)} …`;
+		}
 		case "grep":
 		case "find":
 			return asString(args.pattern) ?? "";

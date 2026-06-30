@@ -109,6 +109,18 @@ function stripToolBackground(lines: string[]): string[] {
 	return lines.map((line) => line.replace(TOOL_BG_SGR, ""));
 }
 
+/**
+ * Drops the leading blank line pi prepends to every `renderShell: "self"` tool block
+ * (`tool-execution.js` does `lines.push("")` before the content). That separator
+ * stacks up between consecutive tool rows and reads as excessive vertical space; the
+ * opencode-style layout keeps tools tight, so the leading blank(s) are removed.
+ */
+function dropLeadingBlankLines(lines: string[]): string[] {
+	let start = 0;
+	while (start < lines.length && lines[start].trim().length === 0) start++;
+	return start === 0 ? lines : lines.slice(start);
+}
+
 /** pi-tui WidthOps implementation threaded into the `RenderCtx`. */
 const PI_TUI_WIDTH: WidthOps = { visibleWidth, truncateToWidth };
 
@@ -168,8 +180,9 @@ function installPatch(): void {
 			}
 
 			// Every other tool (read/bash/edit/todo/…) keeps pi's native rendering, minus
-			// the background fill — so tool rows read transparently like assistant text.
-			return stripToolBackground(baseline);
+			// the background fill and the leading blank-line separator — so tool rows read
+			// transparently like assistant text and stack tightly (opencode-style).
+			return dropLeadingBlankLines(stripToolBackground(baseline));
 		}),
 	);
 }
