@@ -298,9 +298,9 @@ test("eventsToBodyLines: a tool line renders `<verb> <args>` with NO glyph prefi
 });
 
 test("eventsToBodyLines: a tool with no args renders just the bold verb", () => {
-	const [line] = eventsToBodyLines([tool("bash")], 80);
+	const [line] = eventsToBodyLines([tool("read")], 80);
 
-	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>read</accent></b>");
 });
 
 test("eventsToBodyLines: a tool line uses the richer toolCall verbatim (verb bold, args accent)", () => {
@@ -315,10 +315,10 @@ test("eventsToBodyLines: a tool line uses the richer toolCall verbatim (verb bol
 	);
 });
 
-test("eventsToBodyLines: bash keeps the `$ <cmd>` arg style", () => {
+test("eventsToBodyLines: bash renders `$ <cmd>` with no bold verb prefix", () => {
 	const [line] = eventsToBodyLines([toolWithTarget("bash", "pnpm test")], 80);
 
-	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b> <muted>$ pnpm test</muted>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>$</accent></b> <muted>pnpm test</muted>");
 });
 
 test("eventsToBodyLines: identical toolCall lines collapse with a ×N count", () => {
@@ -379,8 +379,8 @@ test("styleToolLine: verb bold, args accent", () => {
 });
 
 test("styleToolLine: a no-args tool styles only the bold verb", () => {
-	const [line] = eventsToBodyLines([tool("bash")], 80);
-	assert.equal(styleToolLine(line, STYLER), "<b><accent>bash</accent></b>");
+	const [line] = eventsToBodyLines([tool("read")], 80);
+	assert.equal(styleToolLine(line, STYLER), "<b><accent>read</accent></b>");
 });
 
 test("styleToolLine: returns undefined for a non-tool line so the caller can fall through", () => {
@@ -414,7 +414,7 @@ test("bash result shows `exit 0 · N lines` coloured success", () => {
 		[toolWithTarget("bash", "pnpm test"), toolResult("bash", { resultText: "line1\nline2\nexit code: 0" })],
 		80,
 	);
-	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b> <muted>$ pnpm test</muted> · <success>exit 0 · 3 lines</success>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>$</accent></b> <muted>pnpm test</muted> · <success>exit 0 · 3 lines</success>");
 });
 
 test("bash nonzero exit colours the summary error", () => {
@@ -422,7 +422,7 @@ test("bash nonzero exit colours the summary error", () => {
 		[toolWithTarget("bash", "false"), toolResult("bash", { resultText: "boom\nexit code: 1" })],
 		80,
 	);
-	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>bash</accent></b> <muted>$ false</muted> · <error>exit 1 · 2 lines</error>");
+	assert.equal(styleTranscriptLine(line, STYLER), "<b><accent>$</accent></b> <muted>false</muted> · <error>exit 1 · 2 lines</error>");
 });
 
 test("bash result renders the printed output as muted lines under the summary", () => {
@@ -585,7 +585,7 @@ test("a result attaches to the most recent tool call by adjacency when no toolCa
 	const styled = eventsToBodyLines(events, 80).filter(isToolLine).map((l) => styleTranscriptLine(l, STYLER));
 
 	assert.ok(styled.includes("<b><accent>read</accent></b>"), "the earlier read keeps no summary");
-	assert.ok(styled.some((l) => l.startsWith("<b><accent>bash</accent></b>") && l.includes("exit 0")), "the adjacent bash gets the result");
+	assert.ok(styled.some((l) => l.startsWith("<b><accent>$</accent></b>") && l.includes("exit 0")), "the adjacent bash gets the result");
 });
 
 test("matchResultToCall: exact toolCallId match wins over adjacency", () => {
@@ -1176,7 +1176,7 @@ test("eventsToBodyLines: a wrapped tool call keeps its ` · summary` attached an
 test("styleToolLine: every tool kind renders verb bold+accent and args in a distinct muted colour", () => {
 	const cases: Array<{ event: RunEvent; verb: string; args: string }> = [
 		{ event: toolWithTarget("read", "src/foo.ts"), verb: "read", args: "src/foo.ts" },
-		{ event: toolWithTarget("bash", "pnpm test"), verb: "bash", args: "$ pnpm test" },
+		{ event: toolWithTarget("bash", "pnpm test"), verb: "$", args: "pnpm test" },
 		{ event: toolWithCall("engram_mem_save", 'engram_mem_save (project: "ignis", title: "x")'), verb: "engram_mem_save", args: '(project: "ignis", title: "x")' },
 		{ event: toolWithCall("todo", "todo (write 3 items)"), verb: "todo", args: "(write 3 items)" },
 	];

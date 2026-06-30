@@ -569,18 +569,26 @@ type LineItem = ToolItem | TextItem | DiffItem | OutputItem;
 
 /**
  * Splits a tool-call display into a bold verb and its args. The verb is the first
- * whitespace-delimited token; everything after is args. Bash keeps Pi's `$ <cmd>`
- * prompt style, applied here since the upstream `formatToolCall` emits a bare
- * command.
+ * whitespace-delimited token; everything after is args.
+ *
+ * Bash is special-cased to carry NO verb: a leading `bash` verb token (if present)
+ * is dropped and the command is shown under a `$ ` prompt, matching the main
+ * thread's opencode-style bash line (`$ <cmd>`, no bold "Bash" prefix).
  */
 function splitToolDisplay(display: string, toolName: string): { verb: string; args: string } {
+	if (toolName.toLowerCase() === "bash") {
+		const spaceAt = display.indexOf(" ");
+		const firstToken = spaceAt < 0 ? display : display.slice(0, spaceAt);
+		let command = firstToken.toLowerCase() === "bash" && spaceAt >= 0 ? display.slice(spaceAt + 1) : display;
+		if (command.startsWith("$ ")) command = command.slice(2);
+		else if (command === "$") command = "";
+		// `$` stands in for the verb so the line reads `$ <cmd>` with no bold "Bash" prefix.
+		return { verb: "$", args: command };
+	}
+
 	const spaceAt = display.indexOf(" ");
 	const verb = spaceAt < 0 ? display : display.slice(0, spaceAt);
-	let args = spaceAt < 0 ? "" : display.slice(spaceAt + 1);
-
-	if (toolName.toLowerCase() === "bash" && args.length > 0 && !args.startsWith("$")) {
-		args = `$ ${args}`;
-	}
+	const args = spaceAt < 0 ? "" : display.slice(spaceAt + 1);
 	return { verb, args };
 }
 

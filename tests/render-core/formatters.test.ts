@@ -205,7 +205,7 @@ test("buildToolResultLines: bash exit 0 success summary with output block", () =
 	const result = { resultText: "a\nb\nexit code: 0", details: undefined };
 	const lines = buildToolResultLines("bash", { command: "x" }, result, false, false, ctx);
 	assert.deepEqual(lines, [
-		"<b><accent>Bash</accent></b> <muted>$ x</muted> · <success>exit 0 · 3 lines</success>",
+		"<b><accent>$</accent></b> <muted>x</muted> · <success>exit 0 · 3 lines</success>",
 		"<muted>a</muted>",
 		"<muted>b</muted>",
 	]);

@@ -111,8 +111,14 @@ export function buildToolResultLines(
 		if (summaryText.length === 0) summaryText = "error";
 	}
 
-	let line = ctx.styler.bold(ctx.styler.fg("accent", verb));
-	if (display.length > 0) line += ` ${ctx.styler.fg("muted", display)}`;
+	// Bash carries no "Bash" verb (opencode-style): the `$` prompt plays the verb role
+	// (bold + accent) and the command itself is muted, matching the subagent viewer.
+	const isBash = toolName.toLowerCase() === "bash";
+	const verbToken = isBash ? "$" : verb;
+	const displayToken = isBash ? display.replace(/^\$\s?/, "") : display;
+
+	let line = ctx.styler.bold(ctx.styler.fg("accent", verbToken));
+	if (displayToken.length > 0) line += ` ${ctx.styler.fg("muted", displayToken)}`;
 	if (summaryText.length > 0) line += ` · ${ctx.styler.fg(statusColor(status), summaryText)}`;
 
 	lb.push(line);

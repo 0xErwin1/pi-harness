@@ -64,12 +64,14 @@ function formatElapsed(elapsedMs: number): string {
 }
 
 /**
- * Builds the bash call line for the running or done phase.
+ * Builds the bash call line for the running or done phase. Bash carries no verb:
+ * the `$ ` prompt in `command` already marks it as a shell command (opencode-style),
+ * so a bold "Bash" prefix is redundant.
  *
- * - `running`: `<frame> Bash <command> <elapsed>` — braille spinner frame (dim),
- *   verb bold+accent, command muted, elapsed dim. Used while executing.
- * - `done`: `Bash <command>` — verb bold+accent, command muted. Used when
- *   execution has ended and the call slot is waiting for the result renderer.
+ * - `running`: `<frame> <command> <elapsed>` — braille spinner frame (dim), command
+ *   muted, elapsed dim. Used while executing.
+ * - `done`: `<command>` — command muted. Used when execution has ended and the call
+ *   slot is waiting for the result renderer.
  *
  * All output is emitted through `LineBuffer` for structural width-clamping.
  */
@@ -81,13 +83,18 @@ export function buildBashCallLine(
 	ctx: RenderCtx,
 ): string[] {
 	const lb = new LineBuffer(ctx);
-	const verb = ctx.styler.bold(ctx.styler.fg("accent", "Bash"));
+
+	// `$` plays the verb role (bold + accent); the command itself is muted — matching
+	// the bash result line and the subagent viewer.
+	const cmd = command.replace(/^\$\s?/, "");
+	const prompt = ctx.styler.bold(ctx.styler.fg("accent", "$"));
+	const styledCommand = cmd.length > 0 ? `${prompt} ${ctx.styler.fg("muted", cmd)}` : prompt;
 
 	if (phase === "running") {
 		const elapsed = formatElapsed(elapsedMs);
-		lb.push(`${ctx.styler.fg("dim", frame)} ${verb} ${ctx.styler.fg("muted", command)} ${ctx.styler.fg("dim", elapsed)}`);
+		lb.push(`${ctx.styler.fg("dim", frame)} ${styledCommand} ${ctx.styler.fg("dim", elapsed)}`);
 	} else {
-		lb.push(`${verb} ${ctx.styler.fg("muted", command)}`);
+		lb.push(styledCommand);
 	}
 
 	return lb.done();
