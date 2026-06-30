@@ -58,8 +58,9 @@ done
 if [ -f "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" ]; then
 	link_file "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "${PI_EXT}/pi-tool-renderer.ts"
 fi
-# pi-subagents is intentionally NOT linked yet: it replaces the custom subagent
-# manager still present in extensions/harness.ts. Activated once that is removed.
+if [ -f "${REPO_DIR}/vendor/pi-subagents/src/index.ts" ]; then
+	link_file "${REPO_DIR}/vendor/pi-subagents/src/index.ts" "${PI_EXT}/pi-subagents.ts"
+fi
 
 if [ -d "${REPO_DIR}/packages" ]; then
 	link_file "${REPO_DIR}/packages" "${PI_AGENT}/packages"

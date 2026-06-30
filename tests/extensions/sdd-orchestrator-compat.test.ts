@@ -1,43 +1,58 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
 	buildDelegationMessage,
-	resolveDelegationTransport,
+	buildMultiPhaseDelegationMessage,
 } from "../../extensions/sdd-orchestrator.ts";
 
-function withManagerConfig(runtime: "hybrid" | "manager"): string {
-	const cwd = mkdtempSync(join(tmpdir(), "pi-harness-sdd-orchestrator-"));
-	mkdirSync(join(cwd, ".pi"), { recursive: true });
-	writeFileSync(
-		join(cwd, ".pi", "settings.json"),
-		`${JSON.stringify({ subagentManager: { runtime } }, null, 2)}\n`,
-	);
-	return cwd;
-}
-
-test("buildDelegationMessage adds fixed-identity guidance when manager compat is enabled", () => {
+test("buildDelegationMessage emits the pi-subagents Agent tool format", () => {
 	const message = buildDelegationMessage({
 		phase: "apply-progress",
 		changeName: "best-subagent-manager",
 		project: "pi-harness",
-		cwd: withManagerConfig("manager"),
+		cwd: "/tmp/pi-harness",
 		dependencies: [],
 	});
 
-	assert.match(message, /Preserve fixed SDD agent identity: "sdd-apply"/);
-	assert.match(message, /Call the subagent tool/);
+	assert.match(message, /Call the Agent tool with these parameters:/);
+	assert.match(message, /- subagent_type: "sdd-apply"/);
+	assert.match(message, /- prompt: \|/);
+	assert.match(message, /Target topic_key: sdd\/best-subagent-manager\/apply-progress/);
+
+	assert.doesNotMatch(message, /context: "fresh"/);
+	assert.doesNotMatch(message, /- agent:/);
 });
 
-test("resolveDelegationTransport reports unsupported manager control payloads", () => {
-	const decision = resolveDelegationTransport(withManagerConfig("manager"), {
-		action: "status",
-		id: "run-123",
+test("buildMultiPhaseDelegationMessage emits Agent-tool steps in phase order", () => {
+	const message = buildMultiPhaseDelegationMessage({
+		phases: ["explore", "proposal"],
+		changeName: "demo",
+		project: "pi-harness",
+		cwd: "/tmp/pi-harness",
+		status: {
+			explore: undefined,
+			proposal: undefined,
+			spec: undefined,
+			design: undefined,
+			tasks: undefined,
+			"apply-progress": undefined,
+			"verify-report": undefined,
+			"archive-report": undefined,
+		},
 	});
 
-	assert.equal(decision.mode, "unsupported");
-	assert.match(decision.reason, /not implemented by the harness manager/);
-	assert.match(decision.note ?? "", /Adjust the delegation request/);
+	assert.match(message, /Call the Agent tool with:/);
+	assert.match(message, /- subagent_type: "sdd-explore"/);
+	assert.match(message, /- subagent_type: "sdd-propose"/);
+	assert.match(message, /- prompt: \|/);
+	assert.match(message, /Wait for each Agent call/);
+
+	assert.doesNotMatch(message, /context: "fresh"/);
+
+	const exploreIdx = message.indexOf(`subagent_type: "sdd-explore"`);
+	const proposeIdx = message.indexOf(`subagent_type: "sdd-propose"`);
+	assert.ok(
+		exploreIdx >= 0 && proposeIdx > exploreIdx,
+		"explore step precedes proposal step",
+	);
 });

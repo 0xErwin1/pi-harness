@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseShortstat, sumDiffs } from "../../../packages/subagent-manager-pi/statusbar/git-diff.ts";
+import { parseShortstat, sumDiffs } from "../../packages/statusbar/git-diff.ts";
 
 test("parseShortstat reads both insertions and deletions", () => {
 	assert.deepEqual(

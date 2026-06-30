@@ -33,7 +33,7 @@ import {
 	formatModelName,
 	parseShortstat,
 	sumDiffs,
-} from "../packages/subagent-manager-pi/statusbar/index.ts";
+} from "../packages/statusbar/index.ts";
 
 const PROBE_PATH = join(homedir(), ".pi", "agent", "harness-ratelimit-headers.jsonl");
 

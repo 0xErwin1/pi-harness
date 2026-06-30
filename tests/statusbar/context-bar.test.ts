@@ -7,8 +7,8 @@ import {
 	contextBarRun,
 	formatTokens,
 	renderContextBar,
-} from "../../../packages/subagent-manager-pi/statusbar/context-bar.ts";
-import { ICON_CATALOG } from "../../../packages/subagent-manager-pi/icons/catalog.ts";
+} from "../../packages/statusbar/context-bar.ts";
+import { ICON_CATALOG } from "../../packages/icons/catalog.ts";
 
 const asciiIcons = () => ICON_CATALOG.ascii;
 

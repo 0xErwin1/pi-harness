@@ -19,6 +19,12 @@
       "./extensions"
     ]
   },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.79.8",
+    "@sinclair/typebox": "^0.34.49",
+    "croner": "^10.0.1",
+    "nanoid": "^5.0.0"
+  },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.79.8",
     "@earendil-works/pi-tui": "^0.79.8",

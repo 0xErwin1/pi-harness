@@ -17,12 +17,6 @@ import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import {
-	FIXED_SDD_AGENT_NAMES,
-	readSubagentManagerConfig,
-	translateSubagentPayload,
-	type CompatPayload,
-} from "../packages/subagent-manager-pi/index.ts";
 
 const execAsync = promisify(execFile);
 
@@ -200,38 +194,6 @@ function buildDependencyText(dependencies: EngramObservation[]): string {
  * The resulting message is injected into the main agent session, which is
  * expected to call the `subagent` tool with the parameters listed in the message.
  */
-export interface DelegationTransportDecision {
-  mode: "manager-compat" | "unsupported";
-  reason: string;
-  note?: string;
-}
-
-export function resolveDelegationTransport(cwd: string, payload: CompatPayload): DelegationTransportDecision {
-  const managerConfig = readSubagentManagerConfig(cwd);
-  const translation = translateSubagentPayload(payload, {
-    fixedAgentNames: FIXED_SDD_AGENT_NAMES,
-  });
-
-  if (translation.unsupported) {
-    return {
-      mode: "unsupported",
-      reason: translation.unsupportedReason,
-      note: `Harness subagent manager cannot translate this payload yet (${translation.unsupportedReason}). Adjust the delegation request instead of falling back to another package.`,
-    };
-  }
-
-  const agent = "agent" in payload ? payload.agent : undefined;
-  const identityNote = agent && FIXED_SDD_AGENT_NAMES.includes(agent as typeof FIXED_SDD_AGENT_NAMES[number])
-    ? `Preserve fixed SDD agent identity: "${agent}".`
-    : undefined;
-
-  return {
-    mode: "manager-compat",
-    reason: `compatible ${translation.mode} payload via ${managerConfig.runtime} runtime`,
-    note: identityNote,
-  };
-}
-
 export function buildDelegationMessage(options: {
   phase: ArtifactPhase;
   changeName: string;
@@ -242,11 +204,6 @@ export function buildDelegationMessage(options: {
   const info = phaseInfo(options.phase);
   const topicKey = `sdd/${options.changeName}/${options.phase}`;
   const depText = buildDependencyText(options.dependencies);
-  const transport = resolveDelegationTransport(options.cwd, {
-    agent: info.skill,
-    task: `Execute the SDD ${info.label} phase for ${options.changeName}.`,
-    context: "fresh",
-  });
 
   const taskLines = [
     `    You are executing the SDD ${info.label} phase.`,
@@ -255,22 +212,20 @@ export function buildDelegationMessage(options: {
     `    Working directory: ${options.cwd}`,
     `    Artifact store: engram`,
     `    Target topic_key: ${topicKey}`,
-    transport.note ? `    ${transport.note}` : undefined,
     ``,
     `    Dependency artifacts (retrieve via mem_get_observation):`,
     ...depText.split("\n").map((l) => `    ${l}`),
     ``,
     `    Instructions: Read and follow /home/iperez/.tabularium/AI/skills/${info.skill}/SKILL.md.`,
     `    Save your artifact to engram with topic_key "${topicKey}" and project "${options.project}".`,
-  ].filter((line): line is string => line !== undefined);
+  ];
 
   return [
     `[SDD] Execute ${options.phase} phase for change '${options.changeName}'.`,
     "",
-    `Call the subagent tool with these parameters:`,
-    `- agent: "${info.skill}"`,
-    `- context: "fresh"`,
-    `- task: |`,
+    `Call the Agent tool with these parameters:`,
+    `- subagent_type: "${info.skill}"`,
+    `- prompt: |`,
     ...taskLines,
     "",
     `Do not respond with text before calling the tool. Execute immediately.`,
@@ -300,12 +255,6 @@ export function buildMultiPhaseDelegationMessage(options: {
     const deps = dependencyObservations(options.status, phase);
     const depText = buildDependencyText(deps);
 
-    const transport = resolveDelegationTransport(options.cwd, {
-      agent: info.skill,
-      task: `Execute the SDD ${info.label} phase for ${options.changeName}.`,
-      context: "fresh",
-    });
-
     const taskLines = [
       `      You are executing the SDD ${info.label} phase.`,
       `      Change: ${options.changeName}`,
@@ -313,21 +262,19 @@ export function buildMultiPhaseDelegationMessage(options: {
       `      Working directory: ${options.cwd}`,
       `      Artifact store: engram`,
       `      Target topic_key: ${topicKey}`,
-      transport.note ? `      ${transport.note}` : undefined,
       ``,
       `      Dependency artifacts (retrieve via mem_get_observation):`,
       ...depText.split("\n").map((l) => `      ${l}`),
       ``,
       `      Instructions: Read and follow /home/iperez/.tabularium/AI/skills/${info.skill}/SKILL.md.`,
       `      Save your artifact to engram with topic_key "${topicKey}" and project "${options.project}".`,
-    ].filter((line): line is string => line !== undefined);
+    ];
 
     return [
       `Step ${index + 1}: ${info.label} (agent: "${info.skill}")`,
-      `  Call subagent tool with:`,
-      `  - agent: "${info.skill}"`,
-      `  - context: "fresh"`,
-      `  - task: |`,
+      `  Call the Agent tool with:`,
+      `  - subagent_type: "${info.skill}"`,
+      `  - prompt: |`,
       ...taskLines,
     ].join("\n");
   });
@@ -335,12 +282,12 @@ export function buildMultiPhaseDelegationMessage(options: {
   return [
     `[SDD] Run change '${options.changeName}': execute ${options.phases.map((p) => phaseInfo(p).label).join(" → ")} phases sequentially.`,
     "",
-    `Execute each step in order. Wait for each subagent call to complete before starting the next.`,
+    `Execute each step in order. Wait for each Agent call to complete before starting the next.`,
     `After each phase, the artifact is available in engram — pass its ID as a dependency to the following phase.`,
     "",
     ...phaseBlocks,
     "",
-    `Do not respond with text before calling the first subagent tool. Execute immediately.`,
+    `Do not respond with text before calling the first Agent tool. Execute immediately.`,
   ].join("\n");
 }
 
@@ -378,10 +325,9 @@ export default function (pi: ExtensionAPI) {
         const message = [
           `[SDD] Initialize project '${project}'.`,
           "",
-          `Call the subagent tool with these parameters:`,
-          `- agent: "sdd-init"`,
-          `- context: "fresh"`,
-          `- task: |`,
+          `Call the Agent tool with these parameters:`,
+          `- subagent_type: "sdd-init"`,
+          `- prompt: |`,
           `    Initialize SDD for project '${project}'.`,
           `    Working directory: ${ctx.cwd}`,
           `    Artifact store: engram`,

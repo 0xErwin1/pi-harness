@@ -6,7 +6,7 @@ import {
 	effortColorRole,
 	formatEffortLabel,
 	formatModelName,
-} from "../../../packages/subagent-manager-pi/statusbar/model-name.ts";
+} from "../../packages/statusbar/model-name.ts";
 
 test("formatModelName prefers the friendly name", () => {
 	assert.equal(formatModelName({ name: "Claude Sonnet 4.5", id: "claude-sonnet-4-5" }), "Claude Sonnet 4.5");

@@ -7,7 +7,7 @@ import {
 	formatDuration,
 	formatUsageWindow,
 	parseResetSeconds,
-} from "../../../packages/subagent-manager-pi/statusbar/usage.ts";
+} from "../../packages/statusbar/usage.ts";
 
 const NOW_MS = 1_000_000_000_000; // nowSec = 1_000_000_000
 const NOW_SEC = NOW_MS / 1000;
