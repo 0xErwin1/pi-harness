@@ -63,7 +63,8 @@ atlas:///{workspace}/{slug}
 
 - Discover before mutating.
 - List calls return paginated envelopes such as `{items, next_cursor, has_more}`; continue with the returned cursor when a complete result set is needed.
-- Heavy reads are compact by default; request full detail only when necessary for editing, verification, or quoting exact content.
+- Heavy reads are compact by default; request full detail whenever task context will be used for planning, implementation, status reporting, editing, verification, or quoting exact content.
+- When retrieving tasks for user-facing work, do not rely on list/search titles alone. After identifying relevant task IDs, call `atlas_get_task` with `detail: "full"`, then call the relationship/detail tools needed to gather the useful context: body/description, task fields, board/column/status, priority, assignees, labels, estimates, due dates, custom properties, checklists, subtasks, references, backlinks, linked documents, task attachments metadata, activity, related files, and external links.
 - PATCH tools distinguish omitted fields from explicit `null`: omitted means leave unchanged; `null` means clear where supported.
 - Destructive tools require explicit user confirmation and `confirm: true` where supported.
 - Some write tools resolve boards/columns by name and may return actionable ambiguity or valid-option errors; do not guess after ambiguity.
@@ -74,7 +75,7 @@ Use the tool names available in the MCP host. In Pi they are typically exposed w
 
 ### Discovery and reads
 
-Use these before writes and for normal browsing:
+Use these before writes and for normal browsing. For tasks, list/search results are discovery only unless the user explicitly asks for a lightweight list. When the user asks to fetch, inspect, summarize, plan from, or work on tasks, hydrate each relevant task with full details and useful relationships before reasoning from it.
 
 - `atlas_ping` — confirm the MCP server is reachable.
 - `atlas_search` — search documents and tasks across a workspace.
@@ -83,14 +84,15 @@ Use these before writes and for normal browsing:
 - `atlas_list_documents`, `atlas_get_document` — browse and retrieve documents.
 - `atlas_list_folders` — inspect document organization.
 - `atlas_list_boards`, `atlas_list_columns` — discover task board structure before creating or moving tasks.
-- `atlas_list_tasks`, `atlas_get_task` — browse and retrieve tasks by readable ID.
+- `atlas_list_tasks`, `atlas_get_task` — browse and retrieve tasks by readable ID. Treat `atlas_list_tasks` as a task locator; call `atlas_get_task` with `detail: "full"` for each relevant task before using its content.
 - `atlas_list_tags`, `atlas_list_used_labels` — inspect tag/label vocabulary.
 - `atlas_list_members` — discover user and API-key principals for assignments.
 - `atlas_list_saved_searches`, `atlas_list_task_views` — discover saved workspace views.
-- `atlas_get_task_references`, `atlas_get_task_backlinks`, `atlas_get_document_backlinks` — inspect relationships.
-- `atlas_list_checklist`, `atlas_list_activity`, `atlas_list_workspace_activity` — inspect task/workspace history and state.
+- `atlas_get_task_references`, `atlas_get_task_backlinks`, `atlas_get_document_backlinks` — inspect relationships; use these when task context may depend on linked work, documents, files, or external references.
+- `atlas_list_checklist`, `atlas_list_activity`, `atlas_list_workspace_activity` — inspect task/workspace history and state; use task checklist/activity reads when details may affect implementation or status.
 - `atlas_list_document_history`, `atlas_get_document_revision` — inspect document revision history and exact historical content.
-- `atlas_list_attachments` — inspect attachment metadata.
+- `atlas_list_attachments` — inspect document/workspace attachment metadata where available.
+- `atlas_list_task_attachments` — inspect task attachment metadata. Parameters: `workspace`, `readable_id`. Returns metadata such as `id`, `file_name`, `content_type`, `size_bytes`, `actor`, and `created_at`; include these details in task context when useful.
 - `atlas_get_workspace_audit`, `atlas_get_platform_audit` — inspect audit data when the user asks and permissions allow.
 
 ### Document and folder writes
@@ -125,13 +127,14 @@ Use these for work tracking:
 - `atlas_add_checklist_item`, `atlas_update_checklist_item`, `atlas_delete_checklist_item`, `atlas_promote_checklist_item` — manage checklist items and promote them to tasks.
 - `atlas_create_subtask`, `atlas_promote_subtask` — create or promote full subtasks.
 
-Task write protocol:
+Task read/write protocol:
 
 1. Discover workspace, project, board, and column.
 2. Use readable task IDs returned by Atlas, such as `ATL-42`, for follow-up operations.
-3. Preserve existing fields unless the user asked to change them.
-4. Treat labels/tags as user-facing vocabulary: list existing labels/tags before inventing new ones when consistency matters.
-5. Prefer references/subtasks/checklists over flattening all context into a single task description when Atlas structure better represents the work.
+3. Before planning from or modifying a task, retrieve full task detail with `atlas_get_task` using `detail: "full"`; if the task has structured context, also read relevant checklists, subtasks, references, backlinks, task attachments metadata via `atlas_list_task_attachments`, and activity.
+4. Preserve existing fields unless the user asked to change them.
+5. Treat labels/tags as user-facing vocabulary: list existing labels/tags before inventing new ones when consistency matters.
+6. Prefer references/subtasks/checklists over flattening all context into a single task description when Atlas structure better represents the work.
 
 ### Workspace structure writes
 

@@ -332,6 +332,7 @@ Atlas is an optional, first-class persistence backend for collaborative workspac
 
 - Prefer the `atlas` MCP tools when available; they are the agent-facing surface over the same Atlas REST API and `atlas_client` used by the CLI.
 - Discover before mutating with `atlas_search`, `atlas_list_*`, `atlas_get_document`, or `atlas_get_task`; never guess workspace/project/board/column/document identifiers.
+- When retrieving Atlas tasks for planning, implementation, status, editing, or summary work, treat list/search as discovery only; call `atlas_get_task` with `detail: "full"` for each relevant readable ID, then fetch useful relationships such as references, backlinks, checklists, activity, and `atlas_list_task_attachments` metadata (`workspace`, `readable_id`).
 - For Atlas document content edits, read full content first, preserve the returned revision ID, then write via compare-and-swap; handle conflicts explicitly instead of overwriting.
 - Destructive Atlas tools require an explicit user decision and the relevant `confirm: true` flag.
 - Never print or log Atlas tokens/API keys/session tokens.
