@@ -1,8 +1,6 @@
 ---
 name: sdd-onboard
 description: Guide a user through a complete SDD cycle on a small real project change.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep

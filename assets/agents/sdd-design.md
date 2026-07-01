@@ -1,8 +1,6 @@
 ---
 name: sdd-design
 description: Design the technical approach for an SDD change.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep

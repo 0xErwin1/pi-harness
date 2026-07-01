@@ -2,8 +2,6 @@
 name: sdd-sync
 description: Sync SDD artifacts between Obsidian and Engram so all agents can recover the same change state.
 model: openai-codex/gpt-5.4
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep

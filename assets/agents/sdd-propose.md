@@ -1,8 +1,6 @@
 ---
 name: sdd-propose
 description: Write an SDD proposal for an approved change idea.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep

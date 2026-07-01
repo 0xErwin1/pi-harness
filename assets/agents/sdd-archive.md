@@ -1,8 +1,6 @@
 ---
 name: sdd-archive
 description: Archive a verified and synced SDD change in Obsidian and Engram.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep

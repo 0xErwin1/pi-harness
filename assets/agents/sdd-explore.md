@@ -1,8 +1,6 @@
 ---
 name: sdd-explore
 description: Explore an SDD change idea before proposal.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep

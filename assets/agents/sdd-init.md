@@ -1,8 +1,6 @@
 ---
 name: sdd-init
 description: Initialize project SDD context, testing capabilities, and skill registry.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep
