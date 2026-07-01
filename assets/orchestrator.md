@@ -326,6 +326,18 @@ This package is Engram + Obsidian native.
 - Do not write OpenSpec-style artifacts into a normal repository tree unless the user explicitly asks.
 - If Engram or Obsidian is unavailable, do not pretend persistence exists; block or return partial results and tell the user which persistence backend is not active.
 
+## Atlas Persistence Contract
+
+Atlas is an optional, first-class persistence backend for collaborative workspace knowledge and task/project records. Follow `assets/support/atlas-persistence-contract.md` in this repository, or the globally installed `/home/iperez/.pi/agent/skills/_shared/atlas-persistence-contract.md`, whenever the user asks to create, read, update, or organize durable records in Atlas.
+
+- Prefer the `atlas` MCP tools when available; they are the agent-facing surface over the same Atlas REST API and `atlas_client` used by the CLI.
+- Discover before mutating with `atlas_search`, `atlas_list_*`, `atlas_get_document`, or `atlas_get_task`; never guess workspace/project/board/column/document identifiers.
+- For Atlas document content edits, read full content first, preserve the returned revision ID, then write via compare-and-swap; handle conflicts explicitly instead of overwriting.
+- Destructive Atlas tools require an explicit user decision and the relevant `confirm: true` flag.
+- Never print or log Atlas tokens/API keys/session tokens.
+- Atlas does not replace Engram session memory or Obsidian SDD artifact storage by default. Use Atlas for SDD/public artifacts only when the user explicitly chooses Atlas or names an Atlas workspace/project as the destination.
+- When saving important work to Atlas, also save an Engram pointer with the Atlas workspace, object type, slug/readable ID, and why it matters so future agents can recover the context.
+
 ## Engram Persistent Memory — Protocol
 
 The Engram MCP server injects the full protocol (proactive save triggers, memory save format, topic update rules, search rules, conflict surfacing) at session start. The rules below add orchestrator-specific behavior on top.

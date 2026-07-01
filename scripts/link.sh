@@ -2,8 +2,8 @@
 #
 # Symlink pi-harness assets into ~/.pi/agent/ (non-destructive).
 #
-# Harness-owned surfaces are linked: extensions/, packages/, agents/, and
-# assets/chains/. packages/ is linked as a whole directory. extensions/ is linked
+# Harness-owned surfaces are linked: extensions/, packages/, agents/,
+# assets/chains/, and assets/support/. packages/ is linked as a whole directory. extensions/ is linked
 # PER FILE so that vendored third-party entries (vendor/*/...) can be loaded
 # alongside the repo's own extensions WITHOUT importing them from any repo source
 # file — that keeps the vendored code out of the harness `tsc --noEmit` program
@@ -102,10 +102,17 @@ link_file() {
 # re-exports the entry by ABSOLUTE path loads the entry from its true directory, so
 # its siblings resolve. Generated outside the repo, so it never enters the tsconfig.
 write_vendor_loader() {
-	local entry="$1" dst="$2"
+	local entry="$1" dst="$2" expected
 
 	if [ ! -f "$entry" ]; then
 		[ -e "$dst" ] && rm -f "$dst"   # drop a stale loader if the vendored entry is gone
+		return 0
+	fi
+
+	expected="export { default } from \"${entry}\";"
+
+	if [ -f "$dst" ] && [ "$(cat "$dst")" = "$expected" ]; then
+		echo "kept:      ${dst} -> re-export ${entry}"
 		return 0
 	fi
 
@@ -116,7 +123,7 @@ write_vendor_loader() {
 		echo "backed up: ${dst} -> ${dst}.bak"
 	fi
 
-	printf 'export { default } from "%s";\n' "$entry" > "$dst"
+	printf '%s\n' "$expected" > "$dst"
 	echo "wrote:     ${dst} -> re-export ${entry}"
 }
 
@@ -171,6 +178,13 @@ if [ -d "${REPO_DIR}/assets/chains" ]; then
 	for f in "${REPO_DIR}"/assets/chains/*; do
 		[ -e "$f" ] || continue
 		link_file "$f" "${PI_AGENT}/chains/$(basename "$f")"
+	done
+fi
+
+if [ -d "${REPO_DIR}/assets/support" ]; then
+	for f in "${REPO_DIR}"/assets/support/*; do
+		[ -e "$f" ] || continue
+		link_file "$f" "${PI_AGENT}/support/$(basename "$f")"
 	done
 fi
 
