@@ -21,6 +21,64 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PI_AGENT="${HOME}/.pi/agent"
 
+configure_atlas_mcp() {
+	local mcp_file="${PI_AGENT}/mcp.json"
+	local atlas_bin="${ATLAS_MCP_BIN:-/home/iperez/dev/personal/atlas/target/release/atlas_mcp}"
+	local atlas_url="${ATLAS_BASE_URL:-http://localhost:8080}"
+
+	if [ ! -x "$atlas_bin" ]; then
+		echo "skipped:   atlas MCP binary not executable at ${atlas_bin}"
+		return 0
+	fi
+
+	mkdir -p "$(dirname "$mcp_file")"
+
+	MCP_FILE="$mcp_file" ATLAS_MCP_BIN="$atlas_bin" ATLAS_BASE_URL="$atlas_url" node <<'NODE'
+const fs = require("node:fs");
+
+const file = process.env.MCP_FILE;
+const atlasToken = process.env.ATLAS_TOKEN;
+const atlasBin = process.env.ATLAS_MCP_BIN;
+const atlasUrl = process.env.ATLAS_BASE_URL;
+
+let config = { mcpServers: {} };
+
+if (fs.existsSync(file)) {
+	config = JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+if (!config || typeof config !== "object" || Array.isArray(config)) {
+	config = { mcpServers: {} };
+}
+
+if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers)) {
+	config.mcpServers = {};
+}
+
+const previous = config.mcpServers.atlas;
+const previousToken = previous?.env?.ATLAS_TOKEN;
+const token = atlasToken || previousToken;
+
+if (!token) {
+	console.log("skipped:   atlas MCP token missing; set ATLAS_TOKEN or keep an existing atlas entry");
+	process.exit(0);
+}
+
+config.mcpServers.atlas = {
+	command: atlasBin,
+	args: ["--transport", "stdio"],
+	env: {
+		ATLAS_BASE_URL: atlasUrl,
+		ATLAS_TOKEN: token,
+	},
+	lifecycle: "lazy",
+};
+
+fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+console.log(`configured: ${file} -> atlas`);
+NODE
+}
+
 link_file() {
 	local src="$1" dst="$2"
 
@@ -102,5 +160,7 @@ if [ -d "${REPO_DIR}/assets/chains" ]; then
 		link_file "$f" "${PI_AGENT}/chains/$(basename "$f")"
 	done
 fi
+
+configure_atlas_mcp
 
 echo "Done."
