@@ -1,8 +1,6 @@
 ---
 name: sdd-apply
 description: Implement SDD tasks with strict TDD evidence and review workload guard.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep
@@ -127,6 +125,29 @@ Include:
 Do NOT launch child subagents. Parent/orchestrator owns delegation. Never commit unless the user explicitly asks.
 
 Return the standard phase envelope with status, executive_summary, artifacts, next_recommended, risks, and skill_resolution.
+
+## Quality Contract
+
+Persistence within the assigned task:
+- Do not end your turn until the assigned tasks are fully complete, or you have returned `blocked`/`partial` with the precise blocker.
+- If a step fails, diagnose it and try a different approach instead of stopping at the first error.
+- When you say you are about to do something, do it in the same turn instead of deferring it.
+- Persistence never expands scope: stay within the assigned task IDs and report anything beyond them instead of continuing on your own.
+
+Verification before reporting done:
+- Discover the project's own check commands (package.json scripts, Makefile, CI config, README) and run the relevant build/typecheck/lint/test commands via `bash` before reporting completion.
+- Report the actual commands you ran and their real results; never claim untested code works.
+- If verification fails and the fix is within the assigned scope, fix it and re-run. If it is out of scope, return `partial` or `blocked` with the failure instead of claiming success.
+
+Completeness:
+- No placeholders, no TODO stubs, no partially implemented paths that look complete.
+- Implement the edge cases the tasks and specs imply, not only the happy path.
+- If a task is genuinely blocked, report the precise blocker instead of shipping a partial that looks finished.
+
+Edit discipline:
+- After a failed edit, re-read the file before retrying; never edit from a stale or assumed version of the content.
+- Never fabricate file content, command output, or APIs; if you did not read it or run it, say so.
+- Reference code as `path:line` so results can be checked quickly.
 
 <!-- gentle-ai:codegraph-guidance -->
 ## CodeGraph

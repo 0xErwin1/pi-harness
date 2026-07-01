@@ -1,8 +1,6 @@
 ---
 name: sdd-tasks
 description: Break SDD design/specs into implementation tasks with review workload forecast.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep
@@ -101,6 +99,9 @@ Chain strategy: stacked-to-main|feature-branch-chain|size-exception|pending
 - Tasks are specific, actionable, verifiable, and dependency ordered.
 - If tests exist or strict TDD is enabled, sequence tasks as RED → GREEN → TRIANGULATE → REFACTOR.
 - Each task should fit one focused session; split oversized tasks.
+- Size every task and work-unit batch so a single executor subagent completes it well within the runtime limits (~10 minutes wall time, 2 minutes without activity); split anything larger.
+- Group tasks into batches that are independently verifiable and leave the tree consistent (compiling, tests passing) when applied alone.
+- Give every task and batch an explicit verification command the executor can run before reporting done.
 - Keep `tasks.md` concise and reviewable.
 - Do NOT launch child subagents. Parent/orchestrator owns delegation.
 

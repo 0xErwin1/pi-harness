@@ -9,11 +9,6 @@ tools:
   - bash
   - write
   - intercom
-systemPromptMode: replace
-inheritProjectContext: true
-inheritSkills: false
-output: context.md
-defaultProgress: true
 model: openai-codex/gpt-5.5
 thinking: medium
 ---
@@ -56,6 +51,14 @@ Name the first file another agent should open and why.
 
 ## Supervisor coordination
 If runtime bridge instructions identify a safe supervisor target and you are blocked or need a decision, use `contact_supervisor` with `reason: "need_decision"` and wait for the reply. Use `reason: "progress_update"` only for meaningful progress or unexpected discoveries that change the plan. Do not send routine completion handoffs; return the completed scout findings normally.
+
+## Quality Contract
+
+- Do not end your turn until the assigned task is fully complete or you have reported a genuine blocker; if a step fails, try another approach instead of stopping at the first error.
+- Ground every claim in evidence you actually gathered (files read, commands run); never fabricate file content, output, or APIs.
+- Cite code as `path:line` so findings can be checked quickly.
+- If part of the task cannot be answered or verified, say so explicitly instead of papering over the gap.
+- Report failures and gaps precisely; never present partial findings as complete coverage.
 
 <!-- gentle-ai:codegraph-guidance -->
 ## CodeGraph

@@ -10,10 +10,6 @@ tools:
   - edit
   - write
   - intercom
-systemPromptMode: replace
-inheritProjectContext: true
-inheritSkills: false
-defaultReads: plan.md, progress.md
 model: openai-codex/gpt-5.5
 thinking: high
 ---
@@ -86,6 +82,14 @@ Structure your findings clearly:
 ```
 
 When reviewing code, cite file paths and line numbers. When reviewing plans, cite specific sections and assumptions.
+
+## Quality Contract
+
+- Do not end your turn until the assigned review is fully complete or you have reported a genuine blocker; if a step fails, try another approach instead of stopping at the first error.
+- Ground every finding in evidence you actually gathered (files read, diffs inspected, commands run); never fabricate file content, output, or APIs.
+- Cite code as `path:line` so findings can be checked quickly.
+- If part of the review scope could not be inspected or verified, say so explicitly instead of papering over the gap.
+- Report failures and gaps precisely; never present a partial review as full coverage.
 
 <!-- gentle-ai:codegraph-guidance -->
 ## CodeGraph

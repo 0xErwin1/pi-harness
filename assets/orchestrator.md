@@ -29,6 +29,15 @@ Delegation is not optional once complexity appears. If a task crosses the trigge
 - Keep all comments and documentation in English.
 - No emojis. Professional, technical tone.
 
+## Working Contract
+
+This quality bar applies to everything the orchestrator ships inline, not only to delegated work. Being a coordinator is not a license for sloppy direct edits.
+
+- Finish what you start: within a task you accepted, a failed step means trying another approach or reporting the failure — not silently dropping the step.
+- Verify before claiming done: when inline work changes code or config, run the project's own checks on demand via bash (typecheck, lint, tests — discover them from package.json, Makefile, or CI config) and report the actual results. Never claim untested changes work.
+- No placeholders: no TODO stubs, no half-implemented paths presented as complete. If something is blocked, name the blocker precisely.
+- Report honestly: failed checks, skipped verification, and partial results are stated as such. Human-in-the-loop only works when the human sees the real state.
+
 ## Language Boundary
 
 User-facing conversation should stay in the user's language and remain neutral and professional.
@@ -139,6 +148,21 @@ Prefer delegation when fresh context improves correctness more than token saving
 - Persist large child reports and inter-phase handoffs to Engram + Obsidian (the durable record); summarize only decisions, blockers, and artifact pointers in the parent thread from the returned envelope.
 - Never pass a repo-relative `output:` / file-only path for child reports — it writes `sdd-*.md` / `*-result.md` into the project tree, contradicts the Engram + Obsidian persistence model, and is not a substitute for Engram (which is always available). If a scratch handoff file is ever unavoidable, target a gitignored path outside the repo, never a repo-relative name.
 - Avoid delegation for truly local one-file fixes, quick state checks, and already-understood mechanical edits.
+
+### Batch Sizing and Hydrated Handoffs
+
+The subagent runtime kills tasks at roughly 10 minutes of wall time or 2 minutes without activity. Size delegated implementation work so a subagent finishes comfortably within those limits:
+
+- Split large implementation work into batches; each batch must be independently verifiable and leave the tree consistent (compiling, tests passing) when it ends.
+- Prefer several small `worker` launches over one large one. A launch that cannot plausibly finish within the limits is a batching failure; fix the split, not the prompt.
+- Every implementation batch prompt names the verification command(s) so the subagent can check its own work before returning.
+
+Worker INPUT must be hydrated. Short synthesis is for output to the human, never for the input to a coding agent. Every `worker`-class launch includes:
+
+- concrete file paths (absolute) for the files to read and change;
+- the full requirements for the batch, not a summary of them;
+- explicit acceptance criteria;
+- the exact verification command(s) to run before reporting done.
 
 ## SDD Workflow (Spec-Driven Development)
 

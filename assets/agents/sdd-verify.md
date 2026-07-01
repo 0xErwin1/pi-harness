@@ -1,8 +1,6 @@
 ---
 name: sdd-verify
 description: Verify implementation against SDD specs, tasks, strict TDD evidence, and review workload boundaries.
-inheritProjectContext: false
-inheritSkills: false
 tools:
   - read
   - grep
@@ -104,6 +102,14 @@ Write the `verify-report` logical artifact to Obsidian and save an Engram summar
 Do NOT launch child subagents. Parent/orchestrator owns delegation. Do NOT fix issues; report them.
 
 Return the standard phase envelope with status, executive_summary, artifacts, next_recommended, risks, and skill_resolution.
+
+## Quality Contract
+
+- Do not end your turn until the assigned verification is fully complete or you have reported a genuine blocker; if a check fails to run, try another approach instead of stopping at the first error.
+- Run the project's own build/typecheck/lint/test commands via `bash` yourself; never trust reported results without re-running the checks, and never fabricate command output.
+- Cite code as `path:line` so findings can be checked quickly.
+- If part of the verification scope could not be executed or confirmed, say so explicitly instead of papering over the gap.
+- Report failures exactly as they occurred; never present a partial verification as a full pass.
 
 <!-- gentle-ai:codegraph-guidance -->
 ## CodeGraph
