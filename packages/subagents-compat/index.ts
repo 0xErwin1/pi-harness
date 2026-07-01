@@ -189,8 +189,18 @@ export function registerPiHarnessCompat(pi: any, runtimeRegistry?: RuntimeRegist
 	pi.registerTool({
 		name: "Agent",
 		label: "Agent",
-		description: "Compatibility bridge to the active j0k3r subagent runtime.",
-		promptSnippet: "Launch a compatible subagent task",
+		description: [
+			"Launch a subagent to do focused work in a fresh, isolated context (implementation, codebase recon, review, research, SDD phases).",
+			"",
+			"Use it when work would inflate the parent context: multi-file implementation, exploring 4+ files, running test/build cycles, or fresh-context review. `subagent_type` must be the name of an installed agent; list the roster with /agents or /subagents. Common roles: scout (recon), researcher (web research), worker (implementation), reviewer and review-* (review lenses), sdd-* (SDD phase executors).",
+			"",
+			"The subagent starts with NO conversation context — `prompt` is everything it knows. Write a hydrated handoff: concrete absolute file paths, the full requirements (not a summary), explicit acceptance criteria, and the exact verification command(s) to run before reporting done. The runtime kills tasks at ~10 minutes wall time or 2 minutes without activity, so size each launch to finish comfortably within that and split bigger work into several launches.",
+			"",
+			"With `run_in_background: true` the tool returns immediately with an agent ID; fetch the outcome with get_subagent_result. Otherwise it blocks and returns the subagent's final report text in the result content, with task metadata in the details.",
+			"",
+			"Limitations: `model`, `thinking`, `max_turns`, `resume`, `isolated`, `inherit_context`, and `isolation` are NOT supported on this runtime and make the call fail — omit them. Steering a running subagent is not supported either; put everything into the initial prompt.",
+		].join("\n"),
+		promptSnippet: "Launch a subagent for focused, isolated work (needs a fully hydrated prompt)",
 		parameters: Type.Object({
 			subagent_type: Type.String(),
 			prompt: Type.String(),
@@ -210,7 +220,13 @@ export function registerPiHarnessCompat(pi: any, runtimeRegistry?: RuntimeRegist
 	pi.registerTool({
 		name: "get_subagent_result",
 		label: "Get Agent Result",
-		description: "Compatibility bridge for fetching j0k3r subagent results by task ID.",
+		description: [
+			"Fetch the status or final result of a subagent started with the Agent tool, usually one launched with run_in_background.",
+			"",
+			"Pass the `agent_id` returned by Agent. Without `wait`, it returns the current task status immediately. With `wait: true`, it polls until the task leaves queued/running and then returns the final result: the subagent's report text in the content, task metadata in the details. Failed and cancelled tasks also resolve here — check the status instead of assuming success.",
+			"",
+			"Limitation: `verbose` transcript output is not supported on this runtime; setting it only appends a notice to the normal result.",
+		].join("\n"),
 		parameters: Type.Object({
 			agent_id: Type.String(),
 			wait: Type.Optional(Type.Boolean()),
@@ -222,7 +238,11 @@ export function registerPiHarnessCompat(pi: any, runtimeRegistry?: RuntimeRegist
 	pi.registerTool({
 		name: "steer_subagent",
 		label: "Steer Agent",
-		description: "Compatibility stub for runtimes that do not yet support steering.",
+		description: [
+			"NOT SUPPORTED on this runtime: this tool cannot deliver a message to a running subagent. Calling it only returns a notice; the subagent never sees the message.",
+			"",
+			"Do not rely on steering. Put everything the subagent needs into the initial Agent prompt, or cancel and relaunch with a corrected prompt via the /subagents workflow.",
+		].join("\n"),
 		parameters: Type.Object({
 			agent_id: Type.String(),
 			message: Type.String(),
