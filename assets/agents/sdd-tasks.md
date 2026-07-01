@@ -1,7 +1,6 @@
 ---
 name: sdd-tasks
 description: Break SDD design/specs into implementation tasks with review workload forecast.
-model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
 tools:
@@ -13,6 +12,7 @@ tools:
   - mem_search
   - mem_get_observation
   - mem_save
+model: openai-codex/gpt-5.4-mini
 ---
 
 You are the SDD tasks executor for Pi Harness.

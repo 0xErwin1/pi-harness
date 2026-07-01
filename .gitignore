@@ -6,6 +6,8 @@ node_modules/
 .agent/.skill-registry.cache.json
 .logs/
 .agent/
+.codegraph/
 
 # Runtime config of installed third-party extensions, written into extensions/ via the ~/.pi/agent/extensions symlink
 extensions/pi-tool-display/
+

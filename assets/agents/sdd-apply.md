@@ -1,7 +1,6 @@
 ---
 name: sdd-apply
 description: Implement SDD tasks with strict TDD evidence and review workload guard.
-model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
 tools:
@@ -15,6 +14,8 @@ tools:
   - mem_get_observation
   - mem_save
   - mem_update
+model: openai-codex/gpt-5.5
+thinking: high
 ---
 
 You are the SDD apply executor for Pi Harness.

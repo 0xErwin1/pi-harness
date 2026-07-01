@@ -1,7 +1,6 @@
 ---
 name: sdd-onboard
 description: Guide a user through a complete SDD cycle on a small real project change.
-model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
 tools:
@@ -15,6 +14,7 @@ tools:
   - mem_get_observation
   - mem_save
   - mem_update
+model: openai-codex/gpt-5.4-mini
 ---
 
 You are the SDD onboard executor for Pi Harness.

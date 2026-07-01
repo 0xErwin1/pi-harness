@@ -1,7 +1,6 @@
 ---
 name: sdd-verify
 description: Verify implementation against SDD specs, tasks, strict TDD evidence, and review workload boundaries.
-model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
 tools:
@@ -14,6 +13,8 @@ tools:
   - mem_search
   - mem_get_observation
   - mem_save
+model: openai-codex/gpt-5.5
+thinking: xhigh
 ---
 
 You are the SDD verify executor for Pi Harness.

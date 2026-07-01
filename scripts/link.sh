@@ -140,6 +140,9 @@ done
 # files (see write_vendor_loader) so their internal relative imports resolve, and so
 # the vendored code stays out of the harness tsconfig. See vendor/*/VENDORED.md.
 write_vendor_loader "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "${PI_EXT}/pi-tool-renderer.ts"
+# pi-subagents.ts points at the harness compatibility loader, which boots the
+# vendored j0k3r runtime from vendor/pi-subagents/j0k3r/ and re-registers the
+# legacy Agent/get_subagent_result/steer_subagent and /agents surfaces.
 write_vendor_loader "${REPO_DIR}/vendor/pi-subagents/src/index.ts" "${PI_EXT}/pi-subagents.ts"
 
 if [ -d "${REPO_DIR}/packages" ]; then
@@ -148,6 +151,16 @@ fi
 
 if [ -d "${REPO_DIR}/assets/agents" ]; then
 	mkdir -p "${PI_AGENT}/agents"
+	# Prune stale harness-owned agent symlinks so removed/renamed agents do not
+	# keep appearing in /agents (for example old proposal/task aliases).
+	find "${PI_AGENT}/agents" -maxdepth 1 -type l | while read -r link; do
+		target="$(readlink "$link")"
+		case "$target" in
+			"${REPO_DIR}/assets/agents/"*)
+				[ -e "$target" ] || rm "$link"
+				;;
+		esac
+	done
 	for f in "${REPO_DIR}"/assets/agents/*.md; do
 		[ -e "$f" ] || continue
 		link_file "$f" "${PI_AGENT}/agents/$(basename "$f")"

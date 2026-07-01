@@ -51,29 +51,27 @@ pnpm run check   # tsc --noEmit over all harness extensions
 pnpm run test    # focused harness/package tests
 ```
 
-## Subagent manager
+## Subagent runtime
 
-The harness owns the `subagent` tool through `packages/subagent-manager-*`.
-`pi-subagents` is no longer required and should not be installed for this
-harness. The default runtime is the harness manager.
+The active subagent runtime is the vendored
+[`pi-subagents-j0k3r`](https://github.com/j0k3r-dev-rgl/pi-subagents-j0k3r)
+snapshot under `vendor/pi-subagents/j0k3r/`. The harness keeps compatibility
+surfaces on top of it so existing SDD flows can continue to use:
 
-Optional per-project configuration in `.pi/settings.json`:
+- `Agent(subagent_type, prompt)`
+- `get_subagent_result`
+- `steer_subagent` (currently an explicit compatibility stub)
+- `/agents` as the primary operator entrypoint
 
-```json
-{
-  "subagentManager": {
-    "runtime": "manager"
-  }
-}
-```
+`/agents` can also open the model/thinking assignment flow. Assignments are
+global, not per-project: global markdown-backed agents save `model:` and
+`thinking:` directly into their agent `.md` frontmatter, while project-backed or
+synthetic rows save to the global Pi agent config (`~/.pi/agent/subagents.json`
+or `PI_CODING_AGENT_DIR/subagents.json`). The menu does not write project-local
+`.pi/subagents.json` model assignments.
 
-Runtime modes:
-
-- `manager` — default; route through the harness-owned manager.
-- `hybrid` — reserved for provider experiments inside the harness manager.
-
-Unsupported payloads fail explicitly with an actionable manager error. They do
-not fall back to another package.
+`steer_subagent` is documented but not implemented by the compatibility bridge
+yet. Use the native `/subagents` workflow when live steering is required.
 
 ## Companion packages
 

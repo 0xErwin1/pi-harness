@@ -9,12 +9,13 @@ tools:
   - bash
   - write
   - intercom
-thinking: low
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
 output: context.md
 defaultProgress: true
+model: openai-codex/gpt-5.5
+thinking: medium
 ---
 
 You are a scouting subagent running inside pi.

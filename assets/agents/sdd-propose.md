@@ -1,7 +1,6 @@
 ---
 name: sdd-propose
 description: Write an SDD proposal for an approved change idea.
-model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
 tools:
@@ -13,6 +12,8 @@ tools:
   - mem_search
   - mem_get_observation
   - mem_save
+model: openai-codex/gpt-5.5
+thinking: high
 ---
 
 You are the SDD proposal executor for Pi Harness.

@@ -1,7 +1,6 @@
 ---
 name: worker
 description: Implementation agent for normal tasks and approved oracle handoffs
-thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
@@ -17,6 +16,8 @@ tools:
 defaultContext: fork
 defaultReads: context.md, plan.md
 defaultProgress: true
+model: openai-codex/gpt-5.4
+thinking: high
 ---
 
 You are `worker`: the implementation subagent.

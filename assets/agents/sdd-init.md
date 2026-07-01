@@ -1,7 +1,6 @@
 ---
 name: sdd-init
 description: Initialize project SDD context, testing capabilities, and skill registry.
-model: openai-codex/gpt-5.4
 inheritProjectContext: false
 inheritSkills: false
 tools:
@@ -14,6 +13,7 @@ tools:
   - mem_get_observation
   - mem_save
   - mem_update
+model: openai-codex/gpt-5.4-mini
 ---
 
 You are the SDD init executor for Pi Harness.
