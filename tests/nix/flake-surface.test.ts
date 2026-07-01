@@ -78,6 +78,17 @@ test("flake helper library exposes assets, projections, JSON merge, and wrappers
 		    environment = { ATLAS_TOKEN_FILE = "/run/secrets/atlas token"; };
 		    extraArgs = [ "--model" "sonnet" ];
 		  };
+		  codingAgentWrapper = flake.lib.mkCodingAgentWrapper {
+		    command = "pi";
+		    resources = [
+		      {
+		        source = flake.assets.orchestrator;
+		        target = ".local/share/pi-harness/assets/orchestrator.md";
+		      }
+		    ];
+		    extensions = [ flake.assets.extensions ];
+		    extraArgs = [ "--model" "sonnet" ];
+		  };
 		}
 	`;
 	const result = nixJson(["eval", "--json", "--impure", "--no-write-lock-file", "--expr", expression]) as any;
@@ -88,7 +99,20 @@ test("flake helper library exposes assets, projections, JSON merge, and wrappers
 	}
 	assert.deepEqual(result.homeModuleKeys, ["default", "pi-harness"]);
 	assert.deepEqual(result.homeManagerModuleKeys, ["default", "pi-harness"]);
-	assert.deepEqual(result.homeOptionKeys, ["enable", "environment", "extraArgs", "package", "resources", "settings"]);
+	assert.deepEqual(result.homeOptionKeys, [
+		"enable",
+		"environment",
+		"extensions",
+		"extraArgs",
+		"models",
+		"package",
+		"promptTemplates",
+		"resources",
+		"settings",
+		"skills",
+		"themes",
+		"wrapper",
+	]);
 	assert.equal(result.projection.target, ".pi/agent/agents");
 	assert.equal(result.projection.recursive, true);
 	assert.equal(result.merged.keep, true);
@@ -97,4 +121,7 @@ test("flake helper library exposes assets, projections, JSON merge, and wrappers
 	assert.equal(result.merged.added, "yes");
 	assert.match(result.wrapper, /export ATLAS_TOKEN_FILE='\/run\/secrets\/atlas token'/);
 	assert.match(result.wrapper, /exec pi --model sonnet "\$@"/);
+	assert.match(result.codingAgentWrapper, /export PI_HARNESS_SETTINGS_FILE="\$HOME\/\.pi\/agent\/settings\.json"/);
+	assert.match(result.codingAgentWrapper, /export PI_HARNESS_RESOURCES_JSON=/);
+	assert.match(result.codingAgentWrapper, /exec pi --extension .* --model sonnet "\$@"/);
 });
