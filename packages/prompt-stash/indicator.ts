@@ -1,35 +1,23 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { PromptDb } from "./db.ts";
 
 /**
  * A one-line, right-aligned hint shown above the prompt while the current
  * session has stashed drafts — e.g. `› 2 stashed` — mirroring the Claude Code
- * "stashed" indicator. It renders nothing when the stash is empty, so the line
- * only appears when there is something to restore. The session id is read live
- * on each render (not captured) so the count follows session switches, and the
- * count is re-read every frame, which is cheap for the small stash table.
+ * "stashed" indicator. Rendering must stay purely in-memory: the TUI calls this
+ * on every frame/keystroke, and synchronous SQLite reads in render can make input
+ * echo lag when the database is momentarily locked by another pi process.
  */
 export class StashIndicator implements Component {
 	constructor(
 		private readonly theme: Theme,
-		private readonly db: () => PromptDb,
-		private readonly getSessionId: () => string,
+		private readonly getCount: () => number,
 	) {}
 
 	render(width: number): string[] {
 		if (width <= 0) return [];
 
-		// A throw here is fatal: pi has no error boundary around component.render(),
-		// so any DB hiccup (e.g. a transient lock under concurrent access) would
-		// crash the process. Degrade to showing nothing instead.
-		let count = 0;
-		try {
-			count = this.db().countStash(this.getSessionId());
-		} catch {
-			return [];
-		}
-
+		const count = this.getCount();
 		if (count <= 0) return [];
 
 		const label = `› ${count} stashed`;

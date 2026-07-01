@@ -394,6 +394,7 @@ export default function subagentsExtension(pi: any): void {
       return previousActive || cachedTasks.some(isActiveBackgroundTask);
     };
     (widgetState as any).refreshCachedTasks = refreshCachedTasks;
+    (widgetState as any).hasActiveBackgroundTasks = () => cachedTasks.some(isActiveBackgroundTask);
     if (typeof ctx?.ui?.onTerminalInput === 'function') {
       removeTerminalInputListener = ctx.ui.onTerminalInput((data: string) => {
         if (widgetInputSuspended) return undefined;
@@ -410,7 +411,7 @@ export default function subagentsExtension(pi: any): void {
   };
 
   const clearClaudeBackgroundWidget = () => {
-    if (widgetTimer) clearInterval(widgetTimer);
+    if (widgetTimer) clearTimeout(widgetTimer);
     widgetTimer = undefined;
     widgetRequestRender = undefined;
     removeTerminalInputListener?.();
@@ -428,10 +429,15 @@ export default function subagentsExtension(pi: any): void {
     if (typeof ctx?.ui?.setWidget !== 'function') return;
     widgetCtx = ctx;
     if (!installClaudeBackgroundWidget(ctx)) return;
-    widgetTimer = setInterval(() => {
-      const shouldRender = (widgetState as any)?.refreshCachedTasks?.() ?? false;
+    const poll = () => {
+      const state = widgetState as any;
+      const shouldRender = state?.refreshCachedTasks?.() ?? false;
       if (shouldRender) widgetRequestRender?.();
-    }, 1000);
+      const hasActive = state?.hasActiveBackgroundTasks?.() ?? false;
+      widgetTimer = setTimeout(poll, hasActive || shouldRender ? 1000 : 15000);
+      widgetTimer.unref?.();
+    };
+    widgetTimer = setTimeout(poll, 1000);
     widgetTimer.unref?.();
   });
 

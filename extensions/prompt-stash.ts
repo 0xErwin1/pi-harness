@@ -18,6 +18,27 @@ import type { StashTab } from "../packages/prompt-stash/popup-model.ts";
 /** cwds whose above-prompt stash indicator has already been registered. */
 const registeredIndicatorCwds = new Set<string>();
 
+/** Cached stash counts keyed by pi session id; read by render without touching SQLite. */
+const stashCounts = new Map<string, number>();
+
+function readStashCount(sessionId: string): number {
+	try {
+		return getPromptDb().countStash(sessionId);
+	} catch {
+		return stashCounts.get(sessionId) ?? 0;
+	}
+}
+
+function refreshStashCount(sessionId: string): number {
+	const count = readStashCount(sessionId);
+	stashCounts.set(sessionId, count);
+	return count;
+}
+
+function requestUiRender(ctx: ExtensionContext): void {
+	(ctx.ui as { requestRender?: () => void }).requestRender?.();
+}
+
 /** Last path segment of `cwd`, used to tag a history entry with its project. */
 function projectOf(cwd: string): string {
 	return cwd.split("/").filter(Boolean).pop() ?? cwd;
@@ -57,6 +78,8 @@ async function openPopup(ctx: ExtensionContext, initialTab: StashTab): Promise<v
 		)
 		.finally(exitOverlay);
 
+	refreshStashCount(sessionId);
+	requestUiRender(ctx);
 	if (result && result.length > 0) ctx.ui.setEditorText(result);
 }
 
@@ -87,12 +110,16 @@ export default function promptStash(pi: ExtensionAPI): void {
 
 			if (text.trim().length > 0) {
 				getPromptDb().saveStash(sessionId, text);
+				refreshStashCount(sessionId);
 				ctx.ui.setEditorText("");
+				requestUiRender(ctx);
 				return;
 			}
 
 			const last = getPromptDb().popLast(sessionId);
+			refreshStashCount(sessionId);
 			if (last) ctx.ui.setEditorText(last.text);
+			requestUiRender(ctx);
 		},
 	});
 
@@ -110,9 +137,10 @@ export default function promptStash(pi: ExtensionAPI): void {
 		if (ctx.mode !== "tui" || registeredIndicatorCwds.has(ctx.cwd)) return;
 		registeredIndicatorCwds.add(ctx.cwd);
 
+		refreshStashCount(ctx.sessionManager.getSessionId());
 		ctx.ui.setWidget(
 			"prompt-stash",
-			(_tui, theme) => new StashIndicator(theme, getPromptDb, () => ctx.sessionManager.getSessionId()),
+			(_tui, theme) => new StashIndicator(theme, () => stashCounts.get(ctx.sessionManager.getSessionId()) ?? 0),
 			{ placement: "aboveEditor" },
 		);
 	});
