@@ -1,7 +1,7 @@
 /**
  * Prompt stash + history extension.
  *
- * Ctrl-S stashes the current editor draft and clears the prompt; pressing it
+ * Ctrl-Alt-S stashes the current editor draft and clears the prompt; pressing it
  * again on an empty prompt restores (pops) the most recent draft. `/stash` opens
  * a browser over the stash and the prompt history, and `/history` opens it on the
  * history tab. Every interactive prompt is also appended to a permanent,
@@ -102,7 +102,7 @@ export default function promptStash(pi: ExtensionAPI): void {
 		return { action: "continue" };
 	});
 
-	pi.registerShortcut("ctrl+s", {
+	pi.registerShortcut("ctrl+alt+s", {
 		description: "Stash the current prompt / restore the last stash",
 		handler: (ctx) => {
 			const text = ctx.ui.getEditorText();
