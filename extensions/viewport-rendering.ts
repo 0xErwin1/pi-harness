@@ -170,12 +170,18 @@ function extractCursor(lines: string[]): CursorPosition | null {
 	return null;
 }
 
-function writeVisible(tui: TuiInternals, lines: string[], height: number, prelude = ""): void {
+function hasKittyImages(lines: string[]): boolean {
+	return lines.some(isKittyImageLine);
+}
+
+function writeFullViewport(tui: TuiInternals, lines: string[], height: number, prelude = ""): number {
 	let buffer = `\x1b[?2026h${prelude}\x1b[H`;
+	let written = 0;
 
 	for (let i = 0; i < height; i++) {
 		if (i > 0) buffer += "\r\n";
 		buffer += "\x1b[2K";
+		written += 1;
 
 		const line = lines[i];
 		if (line === undefined) continue;
@@ -192,6 +198,36 @@ function writeVisible(tui: TuiInternals, lines: string[], height: number, prelud
 	}
 
 	tui.terminal.write(`${buffer}\x1b[?2026l`);
+	return written;
+}
+
+function writeChangedViewport(tui: TuiInternals, lines: string[], height: number, prelude = ""): number {
+	let buffer = `\x1b[?2026h${prelude}`;
+	let written = 0;
+
+	for (let i = 0; i < height; i++) {
+		const line = lines[i] ?? "";
+		const previous = tui.previousLines[i] ?? "";
+		if (line === previous) continue;
+
+		buffer += `\x1b[${i + 1};1H\x1b[2K${line}`;
+		written += 1;
+	}
+
+	if (written > 0 || prelude.length > 0) tui.terminal.write(`${buffer}\x1b[?2026l`);
+	return written;
+}
+
+function writeViewport(tui: TuiInternals, lines: string[], height: number, reason: RedrawReason, prelude = ""): number {
+	const requiresFullViewport =
+		reason !== "diff" ||
+		hasKittyImages(lines) ||
+		hasKittyImages(tui.previousLines) ||
+		tui.previousLines.length !== lines.length;
+
+	return requiresFullViewport
+		? writeFullViewport(tui, lines, height, prelude)
+		: writeChangedViewport(tui, lines, height, prelude);
 }
 
 function reasonFor(tui: TuiInternals, width: number, height: number): RedrawReason {
@@ -208,6 +244,7 @@ function recordMetrics(
 	logicalLines: string[],
 	visibleLines: string[],
 	viewportTop: number,
+	writtenLineCount: number,
 ): void {
 	const metrics = metricsFor(tui);
 	const elapsed = performance.now() - startedAt;
@@ -222,8 +259,8 @@ function recordMetrics(
 	metrics.lastViewportTop = viewportTop;
 	metrics.lastRedrawReason = reason;
 	metrics.lastComparedLineCount = Math.max(tui.previousLines.length, visibleLines.length);
-	metrics.lastChangedLineCount = visibleLines.length;
-	metrics.lastWrittenLineCount = visibleLines.length;
+	metrics.lastChangedLineCount = writtenLineCount;
+	metrics.lastWrittenLineCount = writtenLineCount;
 	metrics.lastWidth = tui.terminal.columns;
 	metrics.lastHeight = tui.terminal.rows;
 }
@@ -244,11 +281,11 @@ function viewportDoRender(this: TuiInternals): void {
 	const cursorPos = extractCursor(visibleLines);
 	visibleLines = this.applyLineResets(visibleLines);
 
-	this.fullRedrawCount += 1;
+	this.fullRedrawCount += reason === "diff" ? 0 : 1;
 	const deletePreviousImages = this.deleteKittyImages(this.previousKittyImageIds);
-	writeVisible(this, visibleLines, height, deletePreviousImages);
+	const writtenLineCount = writeViewport(this, visibleLines, height, reason, deletePreviousImages);
 
-	recordMetrics(this, startedAt, reason, logicalLines, visibleLines, viewportTop);
+	recordMetrics(this, startedAt, reason, logicalLines, visibleLines, viewportTop, writtenLineCount);
 	this.cursorRow = Math.max(0, visibleLines.length - 1);
 	this.hardwareCursorRow = this.cursorRow;
 	this.previousViewportTop = viewportTop;

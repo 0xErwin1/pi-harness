@@ -46,6 +46,7 @@ class CountingLinesComponent extends LinesComponent {
 
 function renderNow(tui: TUI): void { (tui as unknown as { doRender(): void }).doRender(); }
 function joinedWrites(term: FakeTerminal, from = 0): string { return term.writes.slice(from).join("\n"); }
+function countOccurrences(text: string, needle: string): number { return text.split(needle).length - 1; }
 
 test("records viewport render metrics including line count, viewport rows, width changes and redraw reason", () => {
 	const terminal = new FakeTerminal(20, 4);
@@ -80,10 +81,12 @@ test("steady-state long transcript renders diff and writes only the bounded view
 	renderNow(tui);
 
 	const metrics = getViewportRenderingMetrics(tui);
+	const secondRender = joinedWrites(terminal, secondRenderStart);
 	assert.equal(metrics.lastRedrawReason, "diff");
 	assert.ok(metrics.lastComparedLineCount <= terminal.rows);
-	assert.ok(metrics.lastWrittenLineCount <= terminal.rows);
-	assert.ok(!joinedWrites(terminal, secondRenderStart).includes("history-0"));
+	assert.equal(metrics.lastWrittenLineCount, 1);
+	assert.equal(countOccurrences(secondRender, "\x1b[2K"), 1);
+	assert.ok(!secondRender.includes("history-0"));
 });
 
 test("container transcripts render only tail children needed for the viewport", () => {
