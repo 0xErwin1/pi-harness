@@ -299,7 +299,7 @@ function viewportDoRender(this: TuiInternals): void {
 export function installViewportRenderingPatch(options: InstallOptions = {}): boolean {
 	const prototype = TUI.prototype as unknown as Record<PropertyKey, unknown>;
 	if (prototype[INSTALL_SYMBOL]) return false;
-	if (!options.force && process.env.PI_VIEWPORT_RENDERING === "0") return false;
+	if (!options.force && process.env.PI_VIEWPORT_RENDERING !== "1") return false;
 
 	prototype[INSTALL_SYMBOL] = true;
 	prototype.doRender = viewportDoRender;
