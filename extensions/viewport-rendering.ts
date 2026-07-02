@@ -1,6 +1,5 @@
 import { performance } from "node:perf_hooks";
 import { TUI, visibleWidth, type Component, type Terminal } from "@earendil-works/pi-tui";
-import { isImageLine } from "@earendil-works/pi-tui/dist/terminal-image.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const INSTALL_SYMBOL = Symbol.for("pi-harness.viewport-rendering.installed");
@@ -91,6 +90,10 @@ export function getViewportRenderingMetrics(tui: object): ViewportRenderingMetri
 	return { ...metricsFor(tui) };
 }
 
+function isKittyImageLine(line: string): boolean {
+	return line.includes("\x1b_G");
+}
+
 function kittyRows(line: string): number {
 	const start = line.indexOf("\x1b_G");
 	const paramsEnd = start === -1 ? -1 : line.indexOf(";", start);
@@ -177,7 +180,7 @@ function writeVisible(tui: TuiInternals, lines: string[], height: number, prelud
 		const line = lines[i];
 		if (line === undefined) continue;
 
-		const rows = isImageLine(line) ? tui.getKittyImageReservedRows(lines, i) : 1;
+		const rows = isKittyImageLine(line) ? tui.getKittyImageReservedRows(lines, i) : 1;
 		if (rows > 1 && rows <= height) {
 			for (let row = 1; row < rows; row++) buffer += "\r\n\x1b[2K";
 			buffer += `\x1b[${rows - 1}A${line}\x1b[${rows - 1}B`;
