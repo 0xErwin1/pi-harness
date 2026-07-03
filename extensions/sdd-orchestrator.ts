@@ -17,6 +17,17 @@ import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
+import { detectSddProject, renderSddInitMarkdown, type SddProjectDetection } from "./sdd-project-detector.ts";
+import {
+  buildInitPersistenceContract,
+  buildPhasePersistenceContract,
+  buildSddTasksAtlasContract,
+  defaultPreflightState,
+  getCachedPreflightState,
+  setCachedPreflightState,
+  type PhasePersistenceContract,
+  type SddPreflightState,
+} from "./sdd-preflight.ts";
 
 const execAsync = promisify(execFile);
 
@@ -188,6 +199,81 @@ function buildDependencyText(dependencies: EngramObservation[]): string {
     .join("\n");
 }
 
+function preflightFor(options: { project: string; cwd: string; preflight?: SddPreflightState }): SddPreflightState {
+  if (options.preflight) return options.preflight;
+
+  const cached = getCachedPreflightState({ project: options.project, cwd: options.cwd });
+  if (cached) return cached;
+
+  const state = defaultPreflightState({ project: options.project, cwd: options.cwd });
+  setCachedPreflightState(state);
+  return state;
+}
+
+function formatContractJson(contract: PhasePersistenceContract): string {
+  return JSON.stringify(contract, null, 2);
+}
+
+function contractForPhase(
+  preflight: SddPreflightState,
+  input: { change: string; phase: ArtifactPhase },
+): PhasePersistenceContract {
+  if (input.phase === "tasks") {
+    return buildSddTasksAtlasContract(preflight, { change: input.change });
+  }
+
+  return buildPhasePersistenceContract(preflight, input);
+}
+
+function buildPersistenceContractLines(contract: PhasePersistenceContract): string[] {
+  const atlasPath = contract.humanArtifact.backend === "atlas" ? contract.humanArtifact.logicalPath : "not-selected";
+  return [
+    `Artifact store: ${contract.artifactStore}`,
+    `Engram topic key: ${contract.engram.topicKey}`,
+    `Engram role: agent memory summary/pointer`,
+    `Atlas logical path: ${atlasPath}`,
+    `Human artifact backend: ${contract.humanArtifact.backend}`,
+    `Approval state: ${contract.humanArtifact.approvalState}`,
+    `Mutation permitted: ${String(contract.humanArtifact.mutationPermitted)}`,
+    `No Atlas mutation unless approved: Do not create or update Atlas records unless mutationPermitted is true and approvalState is approved.`,
+    `Persistence contract JSON:`,
+    ...formatContractJson(contract).split("\n"),
+  ];
+}
+
+function packageManagerSummary(detection: SddProjectDetection): string {
+  if (detection.packageManagers.length === 0) return "none detected";
+  return detection.packageManagers
+    .map((manager) => `${manager.name}${manager.version ? `@${manager.version}` : ""}`)
+    .join(", ");
+}
+
+function stackSummary(detection: SddProjectDetection): string {
+  if (detection.stack.length === 0) return "none detected";
+  return detection.stack.map((item) => item.name).join(", ");
+}
+
+function commandSummary(command: SddProjectDetection["commands"]["test"]): string {
+  return command?.command ?? "not detected";
+}
+
+function buildDetectionLines(detection: SddProjectDetection): string[] {
+  return [
+    `Detected project facts:`,
+    `Project name: ${detection.projectName}`,
+    `Detected at: ${detection.detectedAt}`,
+    `Package managers: ${packageManagerSummary(detection)}`,
+    `Stack: ${stackSummary(detection)}`,
+    `Primary test command: ${commandSummary(detection.commands.test)}`,
+    `Primary check command: ${commandSummary(detection.commands.check)}`,
+    `Runtime verification command: ${commandSummary(detection.commands.runtimeVerify)}`,
+    `Strict TDD: ${String(detection.strictTdd)}`,
+    `Evidence: ${detection.evidence.length > 0 ? detection.evidence.join(", ") : "none detected"}`,
+    `Rendered init artifact draft:`,
+    ...renderSddInitMarkdown(detection).split("\n"),
+  ];
+}
+
 /**
  * Builds a delegation message for a single SDD phase.
  *
@@ -200,9 +286,14 @@ export function buildDelegationMessage(options: {
   project: string;
   cwd: string;
   dependencies: EngramObservation[];
+  preflight?: SddPreflightState;
 }): string {
   const info = phaseInfo(options.phase);
-  const topicKey = `sdd/${options.changeName}/${options.phase}`;
+  const contract = contractForPhase(
+    preflightFor({ project: options.project, cwd: options.cwd, preflight: options.preflight }),
+    { change: options.changeName, phase: options.phase },
+  );
+  const topicKey = contract.engram.topicKey;
   const depText = buildDependencyText(options.dependencies);
 
   const taskLines = [
@@ -210,14 +301,15 @@ export function buildDelegationMessage(options: {
     `    Change: ${options.changeName}`,
     `    Project: ${options.project}`,
     `    Working directory: ${options.cwd}`,
-    `    Artifact store: engram`,
+    ...buildPersistenceContractLines(contract).map((line) => `    ${line}`),
     `    Target topic_key: ${topicKey}`,
     ``,
     `    Dependency artifacts (retrieve via mem_get_observation):`,
     ...depText.split("\n").map((l) => `    ${l}`),
     ``,
     `    Instructions: Read and follow /home/iperez/.tabularium/AI/skills/${info.skill}/SKILL.md.`,
-    `    Save your artifact to engram with topic_key "${topicKey}" and project "${options.project}".`,
+    `    Save agent memory to Engram with topic_key "${topicKey}" and project "${options.project}".`,
+    `    Save the full human-readable artifact to the selected human backend only when the contract permits it; otherwise return partial and embed the full artifact in Engram if allowed.`,
   ];
 
   return [
@@ -225,6 +317,41 @@ export function buildDelegationMessage(options: {
     "",
     `Call the Agent tool with these parameters:`,
     `- subagent_type: "${info.skill}"`,
+    `- prompt: |`,
+    ...taskLines,
+    "",
+    `Do not respond with text before calling the tool. Execute immediately.`,
+  ].join("\n");
+}
+
+export function buildInitDelegationMessage(options: {
+  project: string;
+  cwd: string;
+  detection: SddProjectDetection;
+  preflight?: SddPreflightState;
+}): string {
+  const contract = buildInitPersistenceContract(
+    preflightFor({ project: options.project, cwd: options.cwd, preflight: options.preflight }),
+    options.project,
+  );
+  const topicKey = contract.engram.topicKey;
+  const taskLines = [
+    `    Initialize SDD for project '${options.project}'.`,
+    `    Working directory: ${options.cwd}`,
+    ...buildPersistenceContractLines(contract).map((line) => `    ${line}`),
+    `    Target topic_key: ${topicKey}`,
+    ``,
+    ...buildDetectionLines(options.detection).map((line) => `    ${line}`),
+    ``,
+    `    Instructions: Read and follow /home/iperez/.tabularium/AI/skills/sdd-init/SKILL.md.`,
+    `    Persist using the init contract: Engram topic_key "${topicKey}" is mandatory and the Atlas logical path is "${contract.humanArtifact.logicalPath}" when Atlas writes are approved.`,
+  ];
+
+  return [
+    `[SDD] Initialize project '${options.project}'.`,
+    "",
+    `Call the Agent tool with these parameters:`,
+    `- subagent_type: "sdd-init"`,
     `- prompt: |`,
     ...taskLines,
     "",
@@ -245,10 +372,13 @@ export function buildMultiPhaseDelegationMessage(options: {
   project: string;
   cwd: string;
   status: Record<ArtifactPhase, EngramObservation | undefined>;
+  preflight?: SddPreflightState;
 }): string {
+  const preflight = preflightFor({ project: options.project, cwd: options.cwd, preflight: options.preflight });
   const phaseBlocks = options.phases.map((phase, index) => {
     const info = phaseInfo(phase);
-    const topicKey = `sdd/${options.changeName}/${phase}`;
+    const contract = contractForPhase(preflight, { change: options.changeName, phase });
+    const topicKey = contract.engram.topicKey;
 
     // For the first phase, use pre-loaded deps. For later phases, the agent must
     // retrieve the artifact saved by the preceding subagent call.
@@ -260,14 +390,15 @@ export function buildMultiPhaseDelegationMessage(options: {
       `      Change: ${options.changeName}`,
       `      Project: ${options.project}`,
       `      Working directory: ${options.cwd}`,
-      `      Artifact store: engram`,
+      ...buildPersistenceContractLines(contract).map((line) => `      ${line}`),
       `      Target topic_key: ${topicKey}`,
       ``,
       `      Dependency artifacts (retrieve via mem_get_observation):`,
       ...depText.split("\n").map((l) => `      ${l}`),
       ``,
       `      Instructions: Read and follow /home/iperez/.tabularium/AI/skills/${info.skill}/SKILL.md.`,
-      `      Save your artifact to engram with topic_key "${topicKey}" and project "${options.project}".`,
+      `      Save agent memory to Engram with topic_key "${topicKey}" and project "${options.project}".`,
+      `      Save the full human-readable artifact to the selected human backend only when the contract permits it; otherwise return partial and embed the full artifact in Engram if allowed.`,
     ];
 
     return [
@@ -322,21 +453,8 @@ export default function (pi: ExtensionAPI) {
           return;
         }
 
-        const message = [
-          `[SDD] Initialize project '${project}'.`,
-          "",
-          `Call the Agent tool with these parameters:`,
-          `- subagent_type: "sdd-init"`,
-          `- prompt: |`,
-          `    Initialize SDD for project '${project}'.`,
-          `    Working directory: ${ctx.cwd}`,
-          `    Artifact store: engram`,
-          ``,
-          `    Instructions: Read and follow /home/iperez/.tabularium/AI/skills/sdd-init/SKILL.md.`,
-          `    Save the init artifact to engram with topic_key "sdd-init/${project}" and project "${project}".`,
-          "",
-          `Do not respond with text before calling the tool. Execute immediately.`,
-        ].join("\n");
+        const detection = await detectSddProject({ cwd: ctx.cwd, projectName: project });
+        const message = buildInitDelegationMessage({ project, cwd: ctx.cwd, detection });
 
         await pi.sendUserMessage(message, { deliverAs: "followUp" });
       } catch (error: any) {

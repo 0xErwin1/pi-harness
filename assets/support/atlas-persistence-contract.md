@@ -2,7 +2,7 @@
 
 Atlas is a first-class persistence backend for user-facing knowledge and work management. Use it when the user asks to create, read, update, organize, or track durable workspace records in Atlas.
 
-Atlas is not a replacement for Engram session memory or the default Obsidian SDD artifact store unless the user explicitly chooses Atlas as the destination.
+For new SDD flows, Atlas is the default human-facing detailed artifact workspace. Engram remains the agent memory/pointer store. Obsidian is an explicit legacy/fallback backend only when selected by the user or active phase contract.
 
 ## Contract Scope
 
@@ -179,6 +179,7 @@ Use Atlas for:
 - workspace knowledge that should be visible in the Atlas web UI;
 - task status, references, assignees, labels, checklists, and subtasks;
 - human-readable documentation when the user names Atlas as the destination;
+- SDD full human-readable artifacts when Atlas is selected/defaulted by preflight and approved for writes;
 - project planning records that should be shared beyond the current Pi session.
 
 Do not use Atlas for:
@@ -187,11 +188,13 @@ Do not use Atlas for:
 - subagent model assignments or `/agents` state;
 - Engram memory observations or lifecycle metadata;
 - Obsidian vault maintenance unless the user asks to import/export or sync with Atlas;
-- OpenSpec/SDD artifacts by default.
+- repository file-backed OpenSpec artifacts unless the user explicitly requests file-backed SDD output.
 
-For SDD flows, Engram plus Obsidian remain the default Pi Harness persistence path. Atlas may store a copy or public-facing note/task only when explicitly requested by the user or when an SDD task says Atlas is the target backend.
+For SDD flows, Atlas plus Engram are the default/new Pi Harness persistence path: Atlas stores the full human-readable artifact at logical path `sdd/<change>/<phase>.md`, while Engram stores the stable topic-key summary and pointer. Obsidian remains a legacy/fallback human backend only when explicitly selected. File-backed/OpenSpec artifacts remain opt-in only.
 
-When a result is saved to Atlas and is also important future agent context, also save a concise Engram pointer with the Atlas workspace, object type, slug/readable ID, and why it matters.
+Atlas task tracking is separate from artifact persistence. SDD does not automatically create human Atlas tasks, epics, subtasks, labels, boards, or columns. Task mutation requires explicit user request/approval, discovered workspace/project/board/column targets, and full task hydration before update.
+
+When a result is saved to Atlas and is also important future agent context, also save a concise Engram pointer with the Atlas workspace, object type, slug/readable ID, revision when applicable, logical path, and why it matters.
 
 ## Safety Checklist
 
@@ -211,6 +214,6 @@ If any item is uncertain, ask the user or perform another read-only discovery st
 | Backend | Primary role | Default for |
 |---|---|---|
 | Engram | Agent/session memory and SDD recovery pointers | durable agent context, summaries, decisions, SDD topic keys |
-| Obsidian | Human-readable local notes/artifacts | full SDD artifacts and vault notes |
-| Atlas | Collaborative workspace knowledge and tasks | user-facing documents, boards, tasks, workspace records |
+| Atlas | Collaborative workspace knowledge and tasks | default/new full SDD artifacts, user-facing documents, boards, tasks, workspace records |
+| Obsidian | Human-readable local notes/artifacts | explicit legacy/fallback SDD artifacts and vault notes |
 | OpenSpec/files | Repository-tracked specs | explicit file-backed or team-reviewable SDD artifacts |

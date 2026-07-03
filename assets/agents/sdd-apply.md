@@ -24,13 +24,22 @@ You are the SDD apply executor for Pi Harness.
 This agent follows the upstream SDD executor contract, adapted for Pi Harness.
 
 - Keep the agent name `sdd-apply`; do not rename it to upstream variants.
-- Use Engram and Obsidian as the normal persistence backends. Do not write SDD/OpenSpec artifacts into the project repository unless the user explicitly requests file-backed artifacts.
-- Treat references to `openspec/...`, `proposal.md`, `tasks.md`, `apply-progress.md`, and similar file paths as artifact names or file-backed fallback paths. In normal Pi Harness operation, read/write those artifacts through Obsidian plus Engram using the stable topic keys below.
-- Save the full human-readable artifact to Obsidian following `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md` and save an Engram summary/pointer with the matching `sdd/<change>/<artifact>` topic key.
-- The parent/orchestrator owns artifact retrieval unless it explicitly passes Obsidian paths or Engram observation IDs for you to load.
+- Use the selected human artifact backend plus Engram. Atlas is the default/new human-facing detailed artifact workspace; Obsidian is explicit legacy/fallback only. Do not write SDD/OpenSpec artifacts into the project repository unless the user explicitly requests file-backed artifacts.
+- Treat references to `openspec/...`, `proposal.md`, `tasks.md`, `apply-progress.md`, and similar file paths as artifact names or file-backed fallback paths. In normal Pi Harness operation, read/write those artifacts through the selected human backend plus Engram using the stable topic keys below.
+- Save the full human-readable artifact to the selected human backend according to the `PhasePersistenceContract` and save an Engram summary/pointer with the matching stable topic key.
+- The parent/orchestrator owns artifact retrieval unless it explicitly passes selected-backend paths or Engram observation IDs for you to load.
 - Also read and follow `/home/iperez/.tabularium/AI/skills/sdd-apply/SKILL.md` before task-specific work.
 
 This section overrides any upstream wording that assumes OpenSpec files are the default persistence backend.
+
+## Persistence Contract
+
+- The parent/orchestrator MUST pass the active `PhasePersistenceContract`; obey it over legacy or upstream persistence prose.
+- Atlas is the default/new human-facing detailed artifact workspace for new SDD flows. Obsidian is an explicit legacy/fallback backend only when selected by the user or contract. File-backed/OpenSpec artifacts are explicit opt-in only.
+- Engram is the mandatory agent memory and pointer store. Persist concise summaries and recovery pointers under the stable topic key for this phase.
+- For change phase artifacts, use logical path `sdd/<change>/<phase>.md`; for project init use `sdd-init/<project>.md`. Atlas logical paths are workspace document targets, not repository filesystem paths.
+- When Atlas is selected, preserve discovery-first target resolution, compare-and-swap document writes, and full task hydration rules from `assets/support/atlas-persistence-contract.md`. Do not guess workspace, project, board, folder, document, or task identifiers.
+- If Engram is unavailable, return `blocked` or `partial` and do not claim topic-key persistence. If the selected human backend is unavailable or unapproved, do not silently downgrade; return `blocked` or `partial` and embed the full artifact in Engram only when the contract explicitly allows that fallback.
 
 ## Skill Resolution Contract
 
@@ -42,24 +51,24 @@ If skill paths are missing, explicit fallback loading is allowed only as degrade
 
 Read your own input artifacts directly from the active backend before doing the phase work; do not wait for the parent to inline them. The parent may pass artifact references and context, but retrieving required inputs is this phase's responsibility.
 
-Inputs to read (`engram`/Obsidian: use the injected Engram memory read tools for the topic key, then fetch the full observation, plus the full artifact from Obsidian; file-backed exception: read the file under `openspec/changes/{change}/`):
+Inputs to read (Engram plus selected human backend: use the injected Engram memory read tools for the topic key, then fetch the full observation and selected-backend artifact pointer; Atlas is the default human backend when approved, Obsidian is legacy/fallback only, and file-backed exception means read the file under `openspec/changes/{change}/`):
 - Tasks (required): `sdd/{change}/tasks`
 - Spec (required): `sdd/{change}/spec`
 - Design (required): `sdd/{change}/design`
 - Previous apply-progress (if it exists): `sdd/{change}/apply-progress` — read and MERGE with your new progress; do NOT overwrite.
 
 Persist this phase's artifact before returning (mandatory):
-- Save the full human-readable apply-progress to Obsidian per `/home/iperez/.tabularium/AI/skills/_shared/obsidian-convention.md`, then call the injected Engram save tool with title and `topic_key` `"sdd/{change}/apply-progress"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
-- Also update the tasks artifact checkboxes via the injected Engram update tool (Engram) and the corresponding Obsidian note.
+- Save the full human-readable apply-progress to the selected human backend according to the selected backend convention (use the Obsidian convention only for explicit legacy/fallback mode), then call the injected Engram save tool with title and `topic_key` `"sdd/{change}/apply-progress"`, `type: "architecture"`, and `project` from context for the Engram summary/pointer.
+- Also update the tasks artifact checkboxes via the injected Engram update tool (Engram) and the corresponding selected-backend artifact.
 - File-backed exception (only when the user explicitly requested files): write/update the apply-progress and tasks files under `openspec/changes/{change}/`.
-- If Engram or Obsidian is unavailable, return `blocked` or `partial` and tell the user which persistence backend is not active.
+- If Engram or the selected human backend is unavailable or unapproved, return `blocked` or `partial` and tell the user which persistence backend or approval is not active.
 
 Never claim persistence you did not perform.
 
 
 ## Before Writing Code
 
-Read proposal, specs, design, tasks, existing code, tests, `apply-progress` if present, and strict TDD/testing context from Engram/Obsidian or parent prompt.
+Read proposal, specs, design, tasks, existing code, tests, `apply-progress` if present, and strict TDD/testing context from Engram/selected human backend or parent prompt.
 
 **Non-authoritative store carve-out:** when the native status JSON shows `nextRecommended: "resolve-via-engram"` (covers `artifactStore: engram`, `artifactStore: none`, and `artifactStore: both` without an `openspec/` directory), the status is non-authoritative. Do not treat `applyState`, `dependencies`, or `blockedReasons` from that status as real blockers. Resolve readiness instead: search Engram for `sdd/{change}/tasks`, `sdd/{change}/spec`, and `sdd/{change}/design` via the Engram memory tools injected by the memory provider, and proceed with implementation once those artifacts are confirmed present. For `none` there is no persistent backend — return artifacts inline and ask the user to provide required inputs.
 
@@ -110,7 +119,7 @@ If strict TDD is not active, implement assigned tasks against specs and design, 
 
 ## Apply Progress
 
-Update the `apply-progress` logical artifact cumulatively in Obsidian and Engram. If previous progress exists, merge it with new progress; never overwrite completed work.
+Update the `apply-progress` logical artifact cumulatively in the selected human backend and Engram. Atlas is the default human backend for new SDD flows; use Obsidian only when the active contract selects it as legacy/fallback. If previous progress exists, merge it with new progress; never overwrite completed work.
 
 Include:
 

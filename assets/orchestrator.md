@@ -145,8 +145,8 @@ Prefer delegation when fresh context improves correctness more than token saving
 - Use `scout`/`context-builder` to compress broad repo exploration into a short handoff instead of loading many files into the parent.
 - Use a single `worker` for one writer thread; do not run parallel writers unless isolated worktrees are explicitly approved.
 - Use fresh `reviewer` agents after implementation, conflict resolution, or incidents because their value is independence from the parent's assumptions.
-- Persist large child reports and inter-phase handoffs to Engram + Obsidian (the durable record); summarize only decisions, blockers, and artifact pointers in the parent thread from the returned envelope.
-- Never pass a repo-relative `output:` / file-only path for child reports — it writes `sdd-*.md` / `*-result.md` into the project tree, contradicts the Engram + Obsidian persistence model, and is not a substitute for Engram (which is always available). If a scratch handoff file is ever unavoidable, target a gitignored path outside the repo, never a repo-relative name.
+- Persist large child reports and inter-phase handoffs to selected human backend + Engram (the durable record); summarize only decisions, blockers, and artifact pointers in the parent thread from the returned envelope.
+- Never pass a repo-relative `output:` / file-only path for child reports — it writes `sdd-*.md` / `*-result.md` into the project tree, contradicts the selected human backend + Engram persistence model, and is not a substitute for Engram (which is always available). If a scratch handoff file is ever unavoidable, target a gitignored path outside the repo, never a repo-relative name.
 - Avoid delegation for truly local one-file fixes, quick state checks, and already-understood mechanical edits.
 
 ### Batch Sizing and Hydrated Handoffs
@@ -246,7 +246,7 @@ For large task lists, apply in batches. Each batch must read the existing `apply
 
 Always run `sdd-verify` after apply completes. Do not wait for the user to ask.
 
-After a successful verification, run `sdd-sync` before `sdd-archive` when a change will continue across agents or sessions. In Pi Harness, sync reconciles Obsidian full artifacts with Engram summaries/pointers; it does not create or merge OpenSpec files unless the user explicitly requested a file-backed exception.
+After a successful verification, run `sdd-sync` before `sdd-archive` when a change will continue across agents or sessions. In Pi Harness, sync reconciles selected-backend full human artifacts with Engram summaries/pointers; it does not create or merge OpenSpec files unless the user explicitly requested a file-backed exception.
 
 ### Apply Scope Contract (MANDATORY)
 
@@ -343,25 +343,27 @@ Project context is stored in Engram under topic_key `sdd-init/{project}`. Before
 
 ## Artifact Store Policy
 
-This package is Engram + Obsidian native.
+Atlas is the default/new human-facing detailed artifact workspace for new SDD flows, and Engram is the mandatory agent memory/pointer store.
 
-- Default: SDD phase artifacts are persisted to Engram under stable topic keys (see the artifact convention table above).
-- Full human-readable artifacts — exploration, proposals, specs, design notes, tasks, apply progress, verification, sync, archive reports, and long-running planning documents intended for a person to read — are kept in the Obsidian vault.
-- Do not write OpenSpec-style artifacts into a normal repository tree unless the user explicitly asks.
-- If Engram or Obsidian is unavailable, do not pretend persistence exists; block or return partial results and tell the user which persistence backend is not active.
+- Default/new path: save full human-readable SDD artifacts — exploration, proposals, specs, design notes, tasks, apply progress, verification, sync, archive reports, and long-running planning documents intended for a person to read — to Atlas at logical path `sdd/<change>/<phase>.md` when the Atlas destination is discovered and approved.
+- Engram is always required for agent memory, summaries, pointers, and status recovery. Persist SDD observations under stable topic keys (see the artifact convention table above), including selected-backend pointers when available.
+- Obsidian is an explicit legacy/fallback human backend only when selected by the user or active `PhasePersistenceContract`.
+- File-backed/OpenSpec-style artifacts are explicit opt-in only; do not write them into a normal repository tree unless the user asks.
+- Every SDD delegation MUST include the active `PhasePersistenceContract`: human backend, logical path, Engram topic key, backend availability, approval state, and failure behavior.
+- If Engram is unavailable, do not pretend persistence exists; block or return partial results. If the selected human backend is unavailable or unapproved, do not silently downgrade; block/partial unless the contract explicitly allows Engram-only embedded full artifact fallback.
 
 ## Atlas Persistence Contract
 
-Atlas is an optional, first-class persistence backend for collaborative workspace knowledge and task/project records. Follow `assets/support/atlas-persistence-contract.md` in this repository, or the globally installed `/home/iperez/.pi/agent/skills/_shared/atlas-persistence-contract.md`, whenever the user asks to create, read, update, or organize durable records in Atlas.
+Atlas is the default/new human-facing detailed backend for SDD artifacts and an optional, approval-gated backend for human task/project records. Follow `assets/support/atlas-persistence-contract.md` in this repository, or the globally installed Atlas persistence contract, whenever the user asks to create, read, update, or organize durable records in Atlas.
 
 - Prefer the `atlas` MCP tools when available; they are the agent-facing surface over the same Atlas REST API and `atlas_client` used by the CLI.
 - Discover before mutating with `atlas_search`, `atlas_list_*`, `atlas_get_document`, or `atlas_get_task`; never guess workspace/project/board/column/document identifiers.
+- For Atlas SDD documents, resolve logical path `sdd/<change>/<phase>.md` through discovered workspace/project/folder/document records. Read full document content first, preserve the returned revision ID, then write via compare-and-swap; handle conflicts explicitly instead of overwriting.
+- SDD does not automatically create human Atlas tasks. Atlas epics/tasks/subtasks may be created or updated only when task tracking is explicitly requested and approved in the phase contract.
 - When retrieving Atlas tasks for planning, implementation, status, editing, or summary work, treat list/search as discovery only; call `atlas_get_task` with `detail: "full"` for each relevant readable ID, then fetch useful relationships such as references, backlinks, checklists, activity, and `atlas_list_task_attachments` metadata (`workspace`, `readable_id`).
-- For Atlas document content edits, read full content first, preserve the returned revision ID, then write via compare-and-swap; handle conflicts explicitly instead of overwriting.
 - Destructive Atlas tools require an explicit user decision and the relevant `confirm: true` flag.
 - Never print or log Atlas tokens/API keys/session tokens.
-- Atlas does not replace Engram session memory or Obsidian SDD artifact storage by default. Use Atlas for SDD/public artifacts only when the user explicitly chooses Atlas or names an Atlas workspace/project as the destination.
-- When saving important work to Atlas, also save an Engram pointer with the Atlas workspace, object type, slug/readable ID, and why it matters so future agents can recover the context.
+- When saving important work to Atlas, also save an Engram pointer with the Atlas workspace, object type, slug/readable ID, revision when applicable, and why it matters so future agents can recover the context.
 
 ## Engram Persistent Memory — Protocol
 
@@ -395,7 +397,7 @@ Each SDD phase subagent reads its own required inputs directly from the active b
 | `sdd-status`   | change artifacts (read-only)                            | nothing          |
 
 - SDD artifact keys: phase artifacts use the stable topic keys `sdd/{change}/explore`, `sdd/{change}/proposal`, `sdd/{change}/spec`, `sdd/{change}/design`, `sdd/{change}/tasks`, `sdd/{change}/apply-progress`, `sdd/{change}/verify-report`, `sdd/{change}/sync-report`, and `sdd/{change}/archive-report`.
-- If memory tools are unavailable, do not pretend persistence exists; return artifacts inline and/or write OpenSpec files.
+- If Engram memory tools are unavailable, do not pretend agent-memory persistence exists; return `blocked` or `partial` and include the artifact inline only as an emergency handoff. Do not write OpenSpec/file-backed artifacts unless the active contract contains an explicit user-approved file-backed exception.
 - First-turn search: when the user's FIRST message references the project, a feature, or a problem, the orchestrator (not subagents) calls the injected Engram search and context tools before jumping to `git`, `gh`, grep, or file reads, and passes any relevant observations into delegations.
 
 ### Memory lifecycle
@@ -446,7 +448,7 @@ Do not skip step 1. Without it, everything done before compaction is lost from m
 
 ### Memory unavailability
 
-If Engram or Obsidian is unavailable, do not pretend persistence exists. Block or return partial results, tell the user which persistence backend is not active, and skip save/search steps only for the unavailable backend.
+If Engram or the selected human backend is unavailable, do not pretend persistence exists. Block or return partial results, tell the user which persistence backend is not active, and skip save/search steps only for the unavailable backend.
 
 ## Execution Mode
 
@@ -472,7 +474,7 @@ In `auto` mode the orchestrator is the gatekeeper between phases. When a delegat
 Check every phase against the Result Contract:
 
 - **Contract conformance**: the phase returned the expected fields and `status` indicates success, not partial/failed/blocked.
-- **Artifact existence**: the declared artifact actually exists and is readable in the active backend — read it back (Engram: use the injected Engram memory read tools on the topic key; Obsidian/file: read the path). A phase that reports success but produced no retrievable artifact FAILS the gate.
+- **Artifact existence**: the declared artifact actually exists and is readable in the active backend — read it back (Engram: use the injected Engram memory read tools on the topic key; Atlas: use the declared document pointer/logical path after discovery; Obsidian/file: only when explicitly selected by the active contract). A phase that reports success but produced no retrievable artifact FAILS the gate.
 - **No hallucination**: spot-check the concrete file paths, symbols, commands, or artifacts the phase claims it created or referenced; a path that does not resolve FAILS the gate.
 - **No drift from inputs**: output stays consistent with the phase's required inputs per the dependency graph — spec within proposal scope, design answers the proposal, tasks cover spec and design, apply implements the tasks. Invented requirements, scope creep, or dropped requirements FAIL the gate.
 - **Routing coherence**: the recommended next action follows the dependency graph and risks are within tolerance (no unaddressed CRITICAL).
