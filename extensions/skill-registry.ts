@@ -441,27 +441,36 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		if (shouldSkipSkillRegistryStartup(pi)) return;
 
+		const cwd = ctx.cwd;
+		const notify = (message: string, level: "info" | "warning") => {
+			try {
+				if (ctx.hasUI) ctx.ui.notify(message, level);
+			} catch {
+				// The startup refresh runs asynchronously; if the session has already
+				// been replaced or closed, Pi marks this ctx stale. Registry refreshes
+				// are best-effort, so never let a late notification crash startup.
+			}
+		};
+
 		// Keep Pi startup non-blocking. The cached registry is available
 		// immediately; refresh happens after the UI/session has opened.
 		setTimeout(() => {
 			try {
-				ensureAgentIgnored(ctx.cwd);
-				const quarantinedLegacy = quarantineLegacyProjectRegistry(ctx.cwd);
-				const result = regenerateRegistry(ctx.cwd, quarantinedLegacy);
-				if (result.regenerated && ctx.hasUI) {
-					ctx.ui.notify(`Skill registry refreshed (${result.skillCount} skills)`, "info");
+				ensureAgentIgnored(cwd);
+				const quarantinedLegacy = quarantineLegacyProjectRegistry(cwd);
+				const result = regenerateRegistry(cwd, quarantinedLegacy);
+				if (result.regenerated) {
+					notify(`Skill registry refreshed (${result.skillCount} skills)`, "info");
 				}
-				if (quarantinedLegacy && ctx.hasUI) {
-					ctx.ui.notify(
+				if (quarantinedLegacy) {
+					notify(
 						"Disabled stale project-local skill registry extension; using package registry with project skills first.",
 						"warning",
 					);
 				}
 			} catch (error) {
-				if (ctx.hasUI) {
-					const message = error instanceof Error ? error.message : String(error);
-					ctx.ui.notify(`Skill registry refresh failed: ${message}`, "warning");
-				}
+				const message = error instanceof Error ? error.message : String(error);
+				notify(`Skill registry refresh failed: ${message}`, "warning");
 			}
 		}, 0);
 	});
