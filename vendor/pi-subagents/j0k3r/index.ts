@@ -482,7 +482,7 @@ export default function subagentsExtension(pi: any): void {
             truncateToWidth,
             getToolDefinition: (name: string) => resolveRegisteredToolDefinition(ctx, pi, name),
             getMessageRenderer: (customType: string) => ctx?.pi?.getMessageRenderer?.(customType) ?? ctx?.pi?.customMessageRenderers?.get?.(customType) ?? ctx?.customMessageRenderers?.get?.(customType),
-            showImages: ctx?.showImages,
+            showImages: ctx?.showImages === true,
             imageWidthCells: ctx?.imageWidthCells,
           },
           () => Math.max(12, process.stdout.rows || 42),

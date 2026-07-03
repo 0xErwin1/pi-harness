@@ -174,6 +174,45 @@ function hasKittyImages(lines: string[]): boolean {
 	return lines.some(isKittyImageLine);
 }
 
+function kittyImageIdsForLine(line: string): Set<number> {
+	const ids = new Set<number>();
+	let start = line.indexOf("\x1b_G");
+	while (start !== -1) {
+		const paramsEnd = line.indexOf(";", start);
+		if (paramsEnd === -1) break;
+		for (const param of line.slice(start + "\x1b_G".length, paramsEnd).split(",")) {
+			const [key, value] = param.split("=", 2);
+			const id = value === undefined ? NaN : Number(value);
+			if (key === "i" && Number.isInteger(id) && id > 0) ids.add(id);
+		}
+		start = line.indexOf("\x1b_G", paramsEnd);
+	}
+	return ids;
+}
+
+function staleKittyImageIds(previousLines: string[], currentLines: string[]): Set<number> {
+	const stale = new Set<number>();
+	const lineCount = Math.max(previousLines.length, currentLines.length);
+	for (let i = 0; i < lineCount; i++) {
+		const previous = previousLines[i] ?? "";
+		if (!isKittyImageLine(previous) || previous === (currentLines[i] ?? "")) continue;
+		for (const id of kittyImageIdsForLine(previous)) stale.add(id);
+	}
+	return stale;
+}
+
+function removedKittyImageIds(previous: Set<number>, current: Set<number>): Set<number> {
+	const removed = new Set<number>();
+	for (const id of previous) {
+		if (!current.has(id)) removed.add(id);
+	}
+	return removed;
+}
+
+function idsToDeleteForKittyRepaint(previousLines: string[], previousIds: Set<number>, currentLines: string[], currentIds: Set<number>): Set<number> {
+	return new Set([...removedKittyImageIds(previousIds, currentIds), ...staleKittyImageIds(previousLines, currentLines)]);
+}
+
 function writeFullViewport(tui: TuiInternals, lines: string[], height: number, prelude = ""): number {
 	let buffer = `\x1b[?2026h${prelude}\x1b[H`;
 	let written = 0;
@@ -282,7 +321,10 @@ function viewportDoRender(this: TuiInternals): void {
 	visibleLines = this.applyLineResets(visibleLines);
 
 	this.fullRedrawCount += reason === "diff" ? 0 : 1;
-	const deletePreviousImages = this.deleteKittyImages(this.previousKittyImageIds);
+	const currentKittyImageIds = this.collectKittyImageIds(visibleLines);
+	const deletePreviousImages = this.deleteKittyImages(
+		idsToDeleteForKittyRepaint(this.previousLines, this.previousKittyImageIds, visibleLines, currentKittyImageIds),
+	);
 	const writtenLineCount = writeViewport(this, visibleLines, height, reason, deletePreviousImages);
 
 	recordMetrics(this, startedAt, reason, logicalLines, visibleLines, viewportTop, writtenLineCount);
@@ -290,7 +332,7 @@ function viewportDoRender(this: TuiInternals): void {
 	this.hardwareCursorRow = this.cursorRow;
 	this.previousViewportTop = viewportTop;
 	this.previousLines = visibleLines;
-	this.previousKittyImageIds = this.collectKittyImageIds(visibleLines);
+	this.previousKittyImageIds = currentKittyImageIds;
 	this.previousWidth = width;
 	this.previousHeight = height;
 	this.positionHardwareCursor(cursorPos, visibleLines.length);

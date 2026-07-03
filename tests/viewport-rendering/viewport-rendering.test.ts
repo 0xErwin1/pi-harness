@@ -176,10 +176,43 @@ test("deleted visible rows are cleared without replaying older scrollback", () =
 	assert.ok(!secondRender.includes("row-0"));
 });
 
-test("removed kitty images emit deletion escapes before the next viewport write", () => {
+test("unchanged visible kitty images are not deleted before repaint", () => {
 	const terminal = new FakeTerminal(40, 4);
 	const tui = new TUI(terminal);
 	const imageLine = "\x1b_Gi=456,r=2;payload\x1b\\";
+	const component = new LinesComponent(["head", imageLine, "image-reserved", "tail"]);
+	tui.addChild(component);
+
+	renderNow(tui);
+	const secondRenderStart = terminal.writes.length;
+	renderNow(tui);
+
+	const secondRender = joinedWrites(terminal, secondRenderStart);
+	assert.ok(!secondRender.includes("\x1b_Ga=d,d=I,i=456,q=2\x1b\\"));
+	assert.ok(secondRender.includes(imageLine));
+});
+
+test("moved kitty images emit deletion escapes before repaint", () => {
+	const terminal = new FakeTerminal(40, 5);
+	const tui = new TUI(terminal);
+	const imageLine = "\x1b_Gi=789,r=2;payload\x1b\\";
+	const component = new LinesComponent(["head", imageLine, "image-reserved", "tail"]);
+	tui.addChild(component);
+
+	renderNow(tui);
+	const secondRenderStart = terminal.writes.length;
+	component.lines = ["new-head", "head", imageLine, "image-reserved", "tail"];
+	renderNow(tui);
+
+	const secondRender = joinedWrites(terminal, secondRenderStart);
+	assert.ok(secondRender.includes("\x1b_Ga=d,d=I,i=789,q=2\x1b\\"));
+	assert.ok(secondRender.includes(imageLine));
+});
+
+test("removed kitty images emit deletion escapes before the next viewport write", () => {
+	const terminal = new FakeTerminal(40, 4);
+	const tui = new TUI(terminal);
+	const imageLine = "\x1b_Gi=790,r=2;payload\x1b\\";
 	const component = new LinesComponent(["head", imageLine, "image-reserved", "tail"]);
 	tui.addChild(component);
 
@@ -189,6 +222,6 @@ test("removed kitty images emit deletion escapes before the next viewport write"
 	renderNow(tui);
 
 	const secondRender = joinedWrites(terminal, secondRenderStart);
-	assert.ok(secondRender.includes("\x1b_Ga=d,d=I,i=456,q=2\x1b\\"));
+	assert.ok(secondRender.includes("\x1b_Ga=d,d=I,i=790,q=2\x1b\\"));
 	assert.ok(!secondRender.includes(imageLine));
 });
