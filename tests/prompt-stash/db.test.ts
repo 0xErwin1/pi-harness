@@ -3,191 +3,197 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PromptDb } from "../../packages/prompt-stash/db.ts";
 
-/** A monotonic clock so `createdAt` values are deterministic and strictly ordered. */
-function fakeClock(): () => string {
-	let n = 0;
-	return () => `2024-01-01T00:00:${String(n++).padStart(2, "0")}.000Z`;
-}
+const sqliteAvailable = await import("node:sqlite")
+	.then(() => true)
+	.catch(() => false);
 
-function freshDb(): PromptDb {
-	return new PromptDb(":memory:", { now: fakeClock() });
-}
+if (!sqliteAvailable) {
+	test(
+		"PromptDb tests require node:sqlite",
+		{ skip: "node:sqlite unavailable in this Node runtime" },
+		() => {},
+	);
+} else {
+	const { PromptDb } = await import("../../packages/prompt-stash/db.ts");
 
-// ── stash ─────────────────────────────────────────────────────────────────────
-
-test("saveStash + listStash: entries come back newest-first, scoped by session", () => {
-	const db = freshDb();
-	db.saveStash("s1", "first");
-	db.saveStash("s1", "second");
-	db.saveStash("s2", "other-session");
-
-	const s1 = db.listStash("s1");
-	assert.deepEqual(s1.map((e) => e.text), ["second", "first"]);
-	assert.deepEqual(db.listStash("s2").map((e) => e.text), ["other-session"]);
-	db.close();
-});
-
-test("saveStash: dedup (default) removes a prior identical entry so the freshest wins", () => {
-	const db = freshDb();
-	db.saveStash("s1", "dup");
-	db.saveStash("s1", "keep");
-	db.saveStash("s1", "dup");
-
-	assert.deepEqual(db.listStash("s1").map((e) => e.text), ["dup", "keep"], "only one 'dup', now newest");
-	db.close();
-});
-
-test("two connections on the same file: a read does not collide with the other's write", () => {
-	const dir = mkdtempSync(join(tmpdir(), "prompt-stash-"));
-	const file = join(dir, "prompts.db");
-
-	const writer = new PromptDb(file, { now: fakeClock() });
-	const reader = new PromptDb(file, { now: fakeClock() });
-
-	try {
-		writer.saveStash("s1", "draft from writer");
-		// Under WAL + busy_timeout this read sees the committed write and never
-		// throws SQLITE_BUSY ("database is locked"), which previously crashed pi.
-		assert.equal(reader.countStash("s1"), 1);
-
-		reader.addHistory({ sessionId: "s1", text: "from reader" });
-		assert.deepEqual(writer.listHistory().map((e) => e.text), ["from reader"]);
-	} finally {
-		writer.close();
-		reader.close();
-		rmSync(dir, { recursive: true, force: true });
+	function fakeClock(): () => string {
+		let n = 0;
+		return () => `2024-01-01T00:00:${String(n++).padStart(2, "0")}.000Z`;
 	}
-});
 
-test("countStash: counts a session's entries, scoped and live after removal", () => {
-	const db = freshDb();
-	assert.equal(db.countStash("s1"), 0, "empty session counts zero");
+	function freshDb(): InstanceType<typeof PromptDb> {
+		return new PromptDb(":memory:", { now: fakeClock() });
+	}
 
-	db.saveStash("s1", "a");
-	db.saveStash("s1", "b");
-	db.saveStash("s2", "other");
+	test("saveStash + listStash: entries come back newest-first, scoped by session", () => {
+		const db = freshDb();
+		db.saveStash("s1", "first");
+		db.saveStash("s1", "second");
+		db.saveStash("s2", "other-session");
 
-	assert.equal(db.countStash("s1"), 2);
-	assert.equal(db.countStash("s2"), 1, "count is per-session");
+		const s1 = db.listStash("s1");
+		assert.deepEqual(s1.map((e) => e.text), ["second", "first"]);
+		assert.deepEqual(db.listStash("s2").map((e) => e.text), ["other-session"]);
+		db.close();
+	});
 
-	db.popLast("s1");
-	assert.equal(db.countStash("s1"), 1, "count drops after a pop");
-	db.close();
-});
+	test("saveStash: dedup (default) removes a prior identical entry so the freshest wins", () => {
+		const db = freshDb();
+		db.saveStash("s1", "dup");
+		db.saveStash("s1", "keep");
+		db.saveStash("s1", "dup");
 
-test("saveStash: dedup can be disabled to keep identical copies", () => {
-	const db = freshDb();
-	db.saveStash("s1", "dup", { dedup: false });
-	db.saveStash("s1", "dup", { dedup: false });
-	assert.equal(db.listStash("s1").length, 2);
-	db.close();
-});
+		assert.deepEqual(db.listStash("s1").map((e) => e.text), ["dup", "keep"], "only one 'dup', now newest");
+		db.close();
+	});
 
-test("popLast: removes and returns the newest entry; undefined when empty", () => {
-	const db = freshDb();
-	db.saveStash("s1", "old");
-	db.saveStash("s1", "new");
+	test("two connections on the same file: a read does not collide with the other's write", () => {
+		const dir = mkdtempSync(join(tmpdir(), "prompt-stash-"));
+		const file = join(dir, "prompts.db");
 
-	assert.equal(db.popLast("s1")?.text, "new");
-	assert.deepEqual(db.listStash("s1").map((e) => e.text), ["old"]);
-	assert.equal(db.popLast("s1")?.text, "old");
-	assert.equal(db.popLast("s1"), undefined);
-	db.close();
-});
+		const writer = new PromptDb(file, { now: fakeClock() });
+		const reader = new PromptDb(file, { now: fakeClock() });
 
-test("removeStash and clearStash", () => {
-	const db = freshDb();
-	const a = db.saveStash("s1", "a");
-	db.saveStash("s1", "b");
+		try {
+			writer.saveStash("s1", "draft from writer");
+			assert.equal(reader.countStash("s1"), 1);
 
-	assert.equal(db.removeStash(a.id), true);
-	assert.equal(db.removeStash(a.id), false, "already gone");
-	assert.deepEqual(db.listStash("s1").map((e) => e.text), ["b"]);
+			reader.addHistory({ sessionId: "s1", text: "from reader" });
+			assert.deepEqual(writer.listHistory().map((e) => e.text), ["from reader"]);
+		} finally {
+			writer.close();
+			reader.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 
-	db.saveStash("s1", "c");
-	assert.equal(db.clearStash("s1"), 2);
-	assert.deepEqual(db.listStash("s1"), []);
-	db.close();
-});
+	test("countStash: counts a session's entries, scoped and live after removal", () => {
+		const db = freshDb();
+		assert.equal(db.countStash("s1"), 0, "empty session counts zero");
 
-test("searchStash: case-insensitive substring, treats wildcards literally", () => {
-	const db = freshDb();
-	db.saveStash("s1", "Fix the LOGIN bug");
-	db.saveStash("s1", "refactor parser");
-	db.saveStash("s1", "100% done");
+		db.saveStash("s1", "a");
+		db.saveStash("s1", "b");
+		db.saveStash("s2", "other");
 
-	assert.deepEqual(db.searchStash("s1", "login").map((e) => e.text), ["Fix the LOGIN bug"]);
-	assert.deepEqual(db.searchStash("s1", "100%").map((e) => e.text), ["100% done"], "% is literal, not a wildcard");
-	assert.deepEqual(db.searchStash("s1", "  ").map((e) => e.text).length, 3, "blank query lists all");
-	db.close();
-});
+		assert.equal(db.countStash("s1"), 2);
+		assert.equal(db.countStash("s2"), 1, "count is per-session");
 
-// ── history ───────────────────────────────────────────────────────────────────
+		db.popLast("s1");
+		assert.equal(db.countStash("s1"), 1, "count drops after a pop");
+		db.close();
+	});
 
-test("addHistory: records prompts, newest-first, with project/cwd", () => {
-	const db = freshDb();
-	db.addHistory({ sessionId: "s1", project: "pi-harness", cwd: "/repo", text: "do a thing" });
-	db.addHistory({ sessionId: "s1", project: "pi-harness", cwd: "/repo", text: "then another" });
+	test("saveStash: dedup can be disabled to keep identical copies", () => {
+		const db = freshDb();
+		db.saveStash("s1", "dup", { dedup: false });
+		db.saveStash("s1", "dup", { dedup: false });
+		assert.equal(db.listStash("s1").length, 2);
+		db.close();
+	});
 
-	const all = db.listHistory();
-	assert.deepEqual(all.map((e) => e.text), ["then another", "do a thing"]);
-	assert.equal(all[0].project, "pi-harness");
-	assert.equal(all[0].cwd, "/repo");
-	db.close();
-});
+	test("popLast: removes and returns the newest entry; undefined when empty", () => {
+		const db = freshDb();
+		db.saveStash("s1", "old");
+		db.saveStash("s1", "new");
 
-test("addHistory: skips a prompt identical to the immediately previous one, and blank text", () => {
-	const db = freshDb();
-	assert.ok(db.addHistory({ sessionId: "s1", text: "same" }));
-	assert.equal(db.addHistory({ sessionId: "s1", text: "same" }), undefined, "consecutive duplicate skipped");
-	assert.ok(db.addHistory({ sessionId: "s1", text: "different" }));
-	assert.ok(db.addHistory({ sessionId: "s1", text: "same" }), "non-consecutive duplicate is allowed");
-	assert.equal(db.addHistory({ sessionId: "s1", text: "   " }), undefined, "blank skipped");
+		assert.equal(db.popLast("s1")?.text, "new");
+		assert.deepEqual(db.listStash("s1").map((e) => e.text), ["old"]);
+		assert.equal(db.popLast("s1")?.text, "old");
+		assert.equal(db.popLast("s1"), undefined);
+		db.close();
+	});
 
-	assert.deepEqual(db.listHistory().map((e) => e.text), ["same", "different", "same"]);
-	db.close();
-});
+	test("removeStash and clearStash", () => {
+		const db = freshDb();
+		const a = db.saveStash("s1", "a");
+		db.saveStash("s1", "b");
 
-test("removeHistory: deletes a single entry by id", () => {
-	const db = freshDb();
-	const a = db.addHistory({ sessionId: "s1", text: "keep" });
-	const b = db.addHistory({ sessionId: "s1", text: "drop" });
+		assert.equal(db.removeStash(a.id), true);
+		assert.equal(db.removeStash(a.id), false, "already gone");
+		assert.deepEqual(db.listStash("s1").map((e) => e.text), ["b"]);
 
-	assert.equal(db.removeHistory(b!.id), true);
-	assert.equal(db.removeHistory(b!.id), false, "already gone");
-	assert.deepEqual(db.listHistory().map((e) => e.text), ["keep"]);
-	assert.ok(a, "first insert returned an entry");
-	db.close();
-});
+		db.saveStash("s1", "c");
+		assert.equal(db.clearStash("s1"), 2);
+		assert.deepEqual(db.listStash("s1"), []);
+		db.close();
+	});
 
-test("addHistory: consecutive-dedup can be disabled", () => {
-	const db = freshDb();
-	db.addHistory({ sessionId: "s1", text: "x" }, { dedupConsecutive: false });
-	db.addHistory({ sessionId: "s1", text: "x" }, { dedupConsecutive: false });
-	assert.equal(db.listHistory().length, 2);
-	db.close();
-});
+	test("searchStash: case-insensitive substring, treats wildcards literally", () => {
+		const db = freshDb();
+		db.saveStash("s1", "Fix the LOGIN bug");
+		db.saveStash("s1", "refactor parser");
+		db.saveStash("s1", "100% done");
 
-test("listHistory: query filter and limit", () => {
-	const db = freshDb();
-	for (let i = 0; i < 5; i++) db.addHistory({ sessionId: "s1", text: `entry ${i}` });
-	db.addHistory({ sessionId: "s1", text: "special token" });
+		assert.deepEqual(db.searchStash("s1", "login").map((e) => e.text), ["Fix the LOGIN bug"]);
+		assert.deepEqual(db.searchStash("s1", "100%").map((e) => e.text), ["100% done"], "% is literal, not a wildcard");
+		assert.deepEqual(db.searchStash("s1", "  ").map((e) => e.text).length, 3, "blank query lists all");
+		db.close();
+	});
 
-	assert.deepEqual(db.listHistory({ query: "special" }).map((e) => e.text), ["special token"]);
-	assert.equal(db.listHistory({ limit: 2 }).length, 2);
-	assert.equal(db.listHistory({ limit: 2 })[0].text, "special token", "limit keeps the newest");
-	db.close();
-});
+	test("addHistory: records prompts, newest-first, with project/cwd", () => {
+		const db = freshDb();
+		db.addHistory({ sessionId: "s1", project: "pi-harness", cwd: "/repo", text: "do a thing" });
+		db.addHistory({ sessionId: "s1", project: "pi-harness", cwd: "/repo", text: "then another" });
 
-test("history is permanent across sessions; stash is per-session", () => {
-	const db = freshDb();
-	db.saveStash("s1", "draft-a");
-	db.addHistory({ sessionId: "s1", text: "p1" });
-	db.addHistory({ sessionId: "s2", text: "p2" });
+		const all = db.listHistory();
+		assert.deepEqual(all.map((e) => e.text), ["then another", "do a thing"]);
+		assert.equal(all[0].project, "pi-harness");
+		assert.equal(all[0].cwd, "/repo");
+		db.close();
+	});
 
-	assert.deepEqual(db.listStash("s2"), [], "stash does not leak across sessions");
-	assert.deepEqual(db.listHistory().map((e) => e.text), ["p2", "p1"], "history spans every session");
-	db.close();
-});
+	test("addHistory: skips a prompt identical to the immediately previous one, and blank text", () => {
+		const db = freshDb();
+		assert.ok(db.addHistory({ sessionId: "s1", text: "same" }));
+		assert.equal(db.addHistory({ sessionId: "s1", text: "same" }), undefined, "consecutive duplicate skipped");
+		assert.ok(db.addHistory({ sessionId: "s1", text: "different" }));
+		assert.ok(db.addHistory({ sessionId: "s1", text: "same" }), "non-consecutive duplicate is allowed");
+		assert.equal(db.addHistory({ sessionId: "s1", text: "   " }), undefined, "blank skipped");
+
+		assert.deepEqual(db.listHistory().map((e) => e.text), ["same", "different", "same"]);
+		db.close();
+	});
+
+	test("removeHistory: deletes a single entry by id", () => {
+		const db = freshDb();
+		const a = db.addHistory({ sessionId: "s1", text: "keep" });
+		const b = db.addHistory({ sessionId: "s1", text: "drop" });
+
+		assert.equal(db.removeHistory(b!.id), true);
+		assert.equal(db.removeHistory(b!.id), false, "already gone");
+		assert.deepEqual(db.listHistory().map((e) => e.text), ["keep"]);
+		assert.ok(a, "first insert returned an entry");
+		db.close();
+	});
+
+	test("addHistory: consecutive-dedup can be disabled", () => {
+		const db = freshDb();
+		db.addHistory({ sessionId: "s1", text: "x" }, { dedupConsecutive: false });
+		db.addHistory({ sessionId: "s1", text: "x" }, { dedupConsecutive: false });
+		assert.equal(db.listHistory().length, 2);
+		db.close();
+	});
+
+	test("listHistory: query filter and limit", () => {
+		const db = freshDb();
+		for (let i = 0; i < 5; i++) db.addHistory({ sessionId: "s1", text: `entry ${i}` });
+		db.addHistory({ sessionId: "s1", text: "special token" });
+
+		assert.deepEqual(db.listHistory({ query: "special" }).map((e) => e.text), ["special token"]);
+		assert.equal(db.listHistory({ limit: 2 }).length, 2);
+		assert.equal(db.listHistory({ limit: 2 })[0].text, "special token", "limit keeps the newest");
+		db.close();
+	});
+
+	test("history is permanent across sessions; stash is per-session", () => {
+		const db = freshDb();
+		db.saveStash("s1", "draft-a");
+		db.addHistory({ sessionId: "s1", text: "p1" });
+		db.addHistory({ sessionId: "s2", text: "p2" });
+
+		assert.deepEqual(db.listStash("s2"), [], "stash does not leak across sessions");
+		assert.deepEqual(db.listHistory().map((e) => e.text), ["p2", "p1"], "history spans every session");
+		db.close();
+	});
+}

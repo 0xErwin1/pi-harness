@@ -12,7 +12,8 @@
   "scripts": {
     "relink": "bash scripts/link.sh",
     "check": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "tsx --test tests/**/*.test.ts",
+    "verify:runtime": "node scripts/verify-runtime-surface.mjs"
   },
   "pi": {
     "extensions": [
