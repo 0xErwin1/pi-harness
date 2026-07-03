@@ -36,6 +36,7 @@ test("flake exposes the Home Manager consumption surface", () => {
 	assert.equal(show.homeModules.type, "unknown");
 	assert.equal(show.homeManagerModules.type, "unknown");
 	assert.equal(show.apps["x86_64-linux"].relink.type, "app");
+	assert.equal(show.apps["x86_64-linux"]["dev-pi"].type, "app");
 });
 
 test("flake helper library exposes assets, projections, JSON merge, and wrappers", () => {

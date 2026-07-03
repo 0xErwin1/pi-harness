@@ -68,8 +68,20 @@
               exec bash ${./scripts/link.sh} "$@"
             '';
           };
+          devPi = pkgs.writeShellApplication {
+            name = "pi-harness-dev-pi";
+            runtimeInputs = [ pkgs.bash ];
+            text = ''
+              export PI_HARNESS_REPO_DIR=${./.}
+              exec bash ${./scripts/dev-pi.sh} "$@"
+            '';
+          };
         in
         {
+          dev-pi = {
+            type = "app";
+            program = nixpkgs.lib.getExe devPi;
+          };
           relink = {
             type = "app";
             program = nixpkgs.lib.getExe relink;
