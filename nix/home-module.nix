@@ -124,7 +124,7 @@ let
   vendorExtensionFile = vendorExtension: {
     name = ".pi/agent/extensions/${vendorExtension.name}";
     value.text = ''
-      export { default } from "${vendorExtension.entry}";
+      export { default } from "${vendorExtension.root}/${vendorExtension.entry}";
     '';
   };
 

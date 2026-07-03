@@ -19,11 +19,13 @@ let
     vendorExtensions = [
       {
         name = "pi-tool-renderer.ts";
-        entry = ../vendor/pi-tool-renderer/extensions/tool-renderer.ts;
+        root = ../vendor/pi-tool-renderer;
+        entry = "extensions/tool-renderer.ts";
       }
       {
         name = "pi-subagents.ts";
-        entry = ../vendor/pi-subagents/src/index.ts;
+        root = ../.;
+        entry = "vendor/pi-subagents/src/index.ts";
       }
     ];
   };
