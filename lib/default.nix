@@ -16,6 +16,16 @@ let
     orchestrator = ../assets/orchestrator.md;
     extensions = ../extensions;
     packages = ../packages;
+    vendorExtensions = [
+      {
+        name = "pi-tool-renderer.ts";
+        entry = ../vendor/pi-tool-renderer/extensions/tool-renderer.ts;
+      }
+      {
+        name = "pi-subagents.ts";
+        entry = ../vendor/pi-subagents/src/index.ts;
+      }
+    ];
   };
 
   pathFlags =

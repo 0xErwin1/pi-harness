@@ -120,6 +120,15 @@ let
       };
     };
   };
+
+  vendorExtensionFile = vendorExtension: {
+    name = ".pi/agent/extensions/${vendorExtension.name}";
+    value.text = ''
+      export { default } from "${vendorExtension.entry}";
+    '';
+  };
+
+  vendorExtensionFiles = lib.listToAttrs (map vendorExtensionFile harnessLib.assets.vendorExtensions);
 in
 {
   options.programs.pi.coding-agent = {
@@ -236,7 +245,7 @@ in
     lib.mkMerge [
       {
         home.packages = lib.optional (cfg.package != null) cfg.package;
-        home.file = resourceFiles;
+        home.file = resourceFiles // vendorExtensionFiles;
       }
       (lib.mkIf hasMutableConfig {
         home.activation.piCodingAgentMutableConfig = mutableConfigActivation;

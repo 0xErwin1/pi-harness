@@ -93,7 +93,7 @@ test("flake helper library exposes assets, projections, JSON merge, and wrappers
 	`;
 	const result = nixJson(["eval", "--json", "--impure", "--no-write-lock-file", "--expr", expression]) as any;
 
-	for (const key of ["agents", "chains", "support", "orchestrator", "extensions", "packages"]) {
+	for (const key of ["agents", "chains", "support", "orchestrator", "extensions", "packages", "vendorExtensions"]) {
 		assert.ok(result.assetKeys.includes(key), `assets includes ${key}`);
 		assert.ok(result.libAssetKeys.includes(key), `lib.assets includes ${key}`);
 	}

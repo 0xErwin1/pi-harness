@@ -91,6 +91,8 @@ test("Pi mutable activation preserves local fields while applying generated sett
 	const result = moduleEval();
 	assert.ok(result.optionKeys.includes("models"));
 	assert.ok(result.optionKeys.includes("wrapper"));
+	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-subagents.ts"));
+	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-tool-renderer.ts"));
 	assert.ok(!result.homeFileKeys.includes(".pi/agent/settings.nix-generated.json"));
 	assert.match(result.activationText, /if \[ -L "\$target" \]; then/);
 	const home = mkdtempSync(join(tmpdir(), "pi-harness-home-"));

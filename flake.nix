@@ -30,6 +30,7 @@
             cp -R ${./assets} $out/share/pi-harness/assets
             cp -R ${./extensions} $out/share/pi-harness/extensions
             cp -R ${./packages} $out/share/pi-harness/packages
+            cp -R ${./vendor} $out/share/pi-harness/vendor
             cp ${./package.json} $out/share/pi-harness/package.json
           '';
         in
