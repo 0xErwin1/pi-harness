@@ -188,6 +188,13 @@ if [ -d "${REPO_DIR}/assets/support" ]; then
 	done
 fi
 
+if [ -d "${REPO_DIR}/assets/themes" ]; then
+	for f in "${REPO_DIR}"/assets/themes/*.json; do
+		[ -e "$f" ] || continue
+		link_file "$f" "${PI_AGENT}/themes/$(basename "$f")"
+	done
+fi
+
 configure_atlas_mcp
 
 echo "Done."

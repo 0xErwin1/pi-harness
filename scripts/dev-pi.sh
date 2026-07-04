@@ -122,13 +122,18 @@ for f in "$REPO_DIR"/assets/support/*; do
 	link_file "$f" "$AGENT_DIR/support/$(basename "$f")"
 done
 
+for f in "$REPO_DIR"/assets/themes/*.json; do
+	[ -e "$f" ] || continue
+	link_file "$f" "$AGENT_DIR/themes/$(basename "$f")"
+done
+
 cat > "$AGENT_DIR/settings.json" <<'JSON'
 {
   "harness": {
     "managedBy": "pi-harness-dev-pi",
     "source": "repo"
   },
-  "theme": "dark"
+  "theme": "ayu-dark"
 }
 JSON
 

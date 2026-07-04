@@ -99,8 +99,11 @@ function moduleEval(): any {
 test("Pi mutable activation preserves local fields while applying generated settings and models", () => {
 	const result = moduleEval();
 	assert.ok(result.optionKeys.includes("models"));
+	assert.ok(result.optionKeys.includes("theme"));
 	assert.ok(result.optionKeys.includes("wrapper"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-subagents.ts"));
+	assert.ok(result.homeFileKeys.includes(".pi/agent/themes/ayu-dark.json"));
+	assert.ok(result.homeFileKeys.includes(".pi/agent/themes/ayu-light.json"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-tool-renderer.ts"));
 	assert.equal(result.managedResourceForce, true);
 	assert.equal(result.managedExtensionsForce, true);
@@ -129,7 +132,7 @@ test("Pi mutable activation preserves local fields while applying generated sett
 	const models = JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8"));
 	assert.deepEqual(settings.harness, { localOnly: true, source: "pi-harness" });
 	assert.equal(settings.model, "sonnet");
-	assert.equal(settings.theme, "kept");
+	assert.equal(settings.theme, "ayu-dark");
 	assert.equal(models.default, "sonnet");
 	assert.equal(models.providers.local.displayName, "Local");
 	assert.equal(models.providers.anthropic.displayName, "Anthropic");
@@ -145,6 +148,7 @@ test("Pi runtime wrapper carries resources and mutable config paths without taki
 	assert.match(result.wrapperText, /export PI_HARNESS_MODELS_FILE="\$HOME\/\.pi\/agent\/models\.json"/);
 	assert.match(result.wrapperText, /export PI_HARNESS_RESOURCES_JSON=/);
 	assert.match(result.wrapperText, /--extension/);
+	assert.match(result.wrapperText, /--theme .*assets\/themes/);
 	assert.match(result.wrapperText, /--model sonnet/);
 	assert.match(result.wrapperText, /exec \/nix\/store\/.+-hello-.+\/bin\/hello/);
 	assert.doesNotMatch(result.wrapperText, /\.pi\/agent\/(cache|session|auth|logs|history|telemetry|db)/);

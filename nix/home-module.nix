@@ -20,16 +20,34 @@ let
 
   resourceFiles = lib.listToAttrs (map resourceFile cfg.resources);
 
+  bundledThemeFiles =
+    lib.mapAttrs'
+      (name: _: {
+        name = ".pi/agent/themes/${name}";
+        value = {
+          source = harnessLib.assets.themes + "/${name}";
+          force = true;
+        };
+      })
+      (
+        lib.filterAttrs (name: type: type == "regular" && lib.hasSuffix ".json" name) (
+          builtins.readDir harnessLib.assets.themes
+        )
+      );
+
   activationEntry =
     script:
     if lib ? hm && lib.hm ? dag then lib.hm.dag.entryAfter [ "writeBoundary" ] script else script;
 
-  hasMutableConfig = cfg.settings != { } || cfg.models != null;
-  settingsJson = builtins.toJSON cfg.settings;
+  managedSettings = lib.recursiveUpdate (lib.optionalAttrs (cfg.theme != null) {
+    theme = cfg.theme;
+  }) cfg.settings;
+  hasMutableConfig = managedSettings != { } || cfg.models != null;
+  settingsJson = builtins.toJSON managedSettings;
   modelsIsAttrs = cfg.models != null && builtins.isAttrs cfg.models;
   modelsJson = if modelsIsAttrs then builtins.toJSON cfg.models else null;
 
-  settingsActivation = lib.optionalString (cfg.settings != { }) ''
+  settingsActivation = lib.optionalString (managedSettings != { }) ''
         cat > "$generated_dir/settings.json" <<'PI_HARNESS_JSON'
     ${settingsJson}
     PI_HARNESS_JSON
@@ -103,6 +121,8 @@ let
         ${modelsActivation}
   '';
 
+  wrapperThemes = [ harnessLib.assets.themes ] ++ cfg.themes;
+
   wrapperFile = {
     name = cfg.wrapper.target;
     value = {
@@ -113,10 +133,10 @@ let
           resources
           skills
           extensions
-          themes
           promptTemplates
           extraArgs
           ;
+        themes = wrapperThemes;
         command = cfg.wrapper.command;
       };
     };
@@ -148,6 +168,12 @@ in
       type = lib.types.attrs;
       default = { };
       description = "Settings merged into the mutable ~/.pi/agent/settings.json file at activation time.";
+    };
+
+    theme = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = "ayu-dark";
+      description = "Theme selected in generated Pi settings; set to null to leave the setting unmanaged.";
     };
 
     models = lib.mkOption {
@@ -249,7 +275,7 @@ in
     lib.mkMerge [
       {
         home.packages = lib.optional (cfg.package != null) cfg.package;
-        home.file = resourceFiles // vendorExtensionFiles;
+        home.file = bundledThemeFiles // resourceFiles // vendorExtensionFiles;
       }
       (lib.mkIf hasMutableConfig {
         home.activation.piCodingAgentMutableConfig = mutableConfigActivation;

@@ -13,6 +13,7 @@ let
     agents = ../assets/agents;
     chains = ../assets/chains;
     support = ../assets/support;
+    themes = ../assets/themes;
     orchestrator = ../assets/orchestrator.md;
     extensions = ../extensions;
     packages = ../packages;

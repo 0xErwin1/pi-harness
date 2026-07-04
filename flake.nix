@@ -103,6 +103,7 @@
             test -d ${assets.agents}
             test -d ${assets.chains}
             test -d ${assets.support}
+            test -d ${assets.themes}
             test -d ${assets.extensions}
             test -d ${assets.packages}
             touch $out
