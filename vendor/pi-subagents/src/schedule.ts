@@ -16,8 +16,31 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Cron } from "croner";
-import { nanoid } from "nanoid";
+import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+
+type CronInstance = { stop: () => void };
+type CronConstructor = new (expression: string, callback: () => void) => CronInstance;
+
+let cachedCron: CronConstructor | undefined;
+let cronerLoadError: unknown;
+
+function loadCron(): CronConstructor {
+  if (cachedCron) return cachedCron;
+  if (cronerLoadError) throw cronerLoadError;
+
+  const requireFromCwd = createRequire(`${process.cwd()}/package.json`);
+  try {
+    const module = requireFromCwd("croner") as { Cron?: CronConstructor; default?: CronConstructor };
+    const Cron = module.Cron ?? module.default;
+    if (!Cron) throw new Error("croner module does not export Cron");
+    cachedCron = Cron;
+    return Cron;
+  } catch (err) {
+    cronerLoadError = err;
+    throw err;
+  }
+}
 import type { AgentManager } from "./agent-manager.ts";
 import { resolveModel } from "./model-resolver.ts";
 import type { ScheduleStore } from "./schedule-store.ts";
@@ -46,7 +69,7 @@ export interface NewJobInput {
 }
 
 export class SubagentScheduler {
-  private jobs = new Map<string, Cron>();
+  private jobs = new Map<string, CronInstance>();
   private intervals = new Map<string, NodeJS.Timeout>();
   private store: ScheduleStore | undefined;
   private pi: ExtensionAPI | undefined;
@@ -93,7 +116,7 @@ export class SubagentScheduler {
   buildJob(input: NewJobInput): ScheduledSubagent {
     const detected = SubagentScheduler.detectSchedule(input.schedule);
     return {
-      id: nanoid(10),
+      id: randomUUID().replace(/-/g, "").slice(0, 10),
       name: input.name,
       description: input.description,
       schedule: detected.normalized,
@@ -189,6 +212,7 @@ export class SubagentScheduler {
           this.emit({ type: "error", jobId: job.id, error: `Scheduled time ${job.schedule} is in the past` });
         }
       } else {
+        const Cron = loadCron();
         const cron = new Cron(job.schedule, () => this.executeJob(job.id));
         this.jobs.set(job.id, cron);
       }
@@ -340,10 +364,14 @@ export class SubagentScheduler {
       };
     }
     try {
-      // Croner validates by construction.
+      // Croner validates by construction when it is available from the active
+      // project/runtime. If it is not installed, keep extension loading intact
+      // and fail only when cron scheduling is actually used.
+      const Cron = loadCron();
       new Cron(expr, () => {});
       return { valid: true };
     } catch (e) {
+      if (e === cronerLoadError) return { valid: true };
       return { valid: false, error: e instanceof Error ? e.message : "Invalid cron expression" };
     }
   }

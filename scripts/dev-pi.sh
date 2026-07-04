@@ -90,18 +90,23 @@ link_file() {
 	ln -s "$src" "$dst"
 }
 
+write_extension_loader() {
+	local src="$1" dst="$2"
+	mkdir -p "$(dirname "$dst")"
+	printf 'export { default } from "%s";\n' "$src" > "$dst"
+}
+
 for f in "$REPO_DIR"/extensions/*.ts; do
 	[ -e "$f" ] || continue
-	link_file "$f" "$AGENT_DIR/extensions/$(basename "$f")"
+	if grep -Eq '^[[:space:]]*export[[:space:]]+default[[:space:]]+' "$f"; then
+		write_extension_loader "$f" "$AGENT_DIR/extensions/$(basename "$f")"
+	else
+		echo "skipped helper extension module: $f" >&2
+	fi
 done
 
-cat > "$AGENT_DIR/extensions/pi-tool-renderer.ts" <<EOF
-export { default } from "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts";
-EOF
-
-cat > "$AGENT_DIR/extensions/pi-subagents.ts" <<EOF
-export { default } from "${REPO_DIR}/vendor/pi-subagents/src/index.ts";
-EOF
+write_extension_loader "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "$AGENT_DIR/extensions/pi-tool-renderer.ts"
+write_extension_loader "${REPO_DIR}/vendor/pi-subagents/src/index.ts" "$AGENT_DIR/extensions/pi-subagents.ts"
 
 link_file "$REPO_DIR/packages" "$AGENT_DIR/packages"
 link_file "$REPO_DIR/assets/orchestrator.md" "$AGENT_DIR/AGENTS.md"
