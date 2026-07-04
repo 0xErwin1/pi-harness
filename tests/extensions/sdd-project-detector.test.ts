@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
 	detectSddProject,
 	renderSddInitMarkdown,
-} from "../../extensions/sdd-project-detector.ts";
+} from "../../extensions/sdd/project-detector.ts";
 
 const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 

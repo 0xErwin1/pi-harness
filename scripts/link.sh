@@ -140,11 +140,7 @@ mkdir -p "${PI_EXT}"
 
 for f in "${REPO_DIR}"/extensions/*.ts; do
 	[ -e "$f" ] || continue
-	if grep -Eq '^[[:space:]]*export[[:space:]]+default[[:space:]]+' "$f"; then
-		write_vendor_loader "$f" "${PI_EXT}/$(basename "$f")"
-	else
-		echo "skipped:   ${f} (helper module; no default extension export)"
-	fi
+	write_vendor_loader "$f" "${PI_EXT}/$(basename "$f")"
 done
 
 # Vendored third-party extensions: loaded via generated absolute-path re-export

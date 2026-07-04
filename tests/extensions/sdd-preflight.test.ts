@@ -9,7 +9,7 @@ import {
 	getCachedPreflightState,
 	normalizePreflightState,
 	setCachedPreflightState,
-} from "../../extensions/sdd-preflight.ts";
+} from "../../extensions/sdd/preflight.ts";
 
 test("defaultPreflightState separates session preferences from project facts", () => {
 	const state = defaultPreflightState({

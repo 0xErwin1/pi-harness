@@ -1,12 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { resolveAgentInvocationConfig } from "../../vendor/pi-subagents/src/invocation-config.ts";
 
 const entrypointUrl = new URL("../../vendor/pi-subagents/src/index.ts", import.meta.url);
 const scheduleUrl = new URL("../../vendor/pi-subagents/src/schedule.ts", import.meta.url);
 const linkScriptUrl = new URL("../../scripts/link.sh", import.meta.url);
 const devPiScriptUrl = new URL("../../scripts/dev-pi.sh", import.meta.url);
+const legacyPreflightHelperUrl = new URL("../../extensions/sdd-preflight.ts", import.meta.url);
+const legacyProjectDetectorHelperUrl = new URL("../../extensions/sdd-project-detector.ts", import.meta.url);
+
+async function exists(url: URL): Promise<boolean> {
+	try {
+		await access(url);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 async function entrypointSource() {
 	return readFile(entrypointUrl, "utf8");
@@ -43,17 +54,16 @@ test("native scheduler does not require optional runtime dependencies at extensi
 	assert.match(source, /randomUUID\(\)/);
 });
 
-test("link and dev-pi scripts load extension factories via absolute re-export loaders and skip helpers", async () => {
+test("link, dev-pi, and Home Manager can load every top-level extension without helper filters", async () => {
 	const linkSource = await readFile(linkScriptUrl, "utf8");
 	const devPiSource = await readFile(devPiScriptUrl, "utf8");
 
-	for (const source of [linkSource, devPiSource]) {
-		assert.match(source, /export\[\[:space:\]\]\+default/);
-	}
+	assert.equal(await exists(legacyPreflightHelperUrl), false);
+	assert.equal(await exists(legacyProjectDetectorHelperUrl), false);
 	assert.match(linkSource, /write_vendor_loader "\$f"/);
 	assert.match(devPiSource, /write_extension_loader "\$f"/);
-	assert.match(linkSource, /helper module; no default extension export/);
-	assert.match(devPiSource, /skipped helper extension module/);
+	assert.doesNotMatch(linkSource, /helper module; no default extension export/);
+	assert.doesNotMatch(devPiSource, /skipped helper extension module/);
 });
 
 test("invocation config passes through native execution controls and lets agent config take precedence", () => {

@@ -62,6 +62,11 @@ function moduleEval(): any {
 		              source = flake.assets.orchestrator;
 		              target = ".local/share/pi-harness/assets/orchestrator.md";
 		            }
+		            {
+		              source = flake.assets.extensions;
+		              target = ".pi/agent/extensions";
+		              recursive = true;
+		            }
 		          ];
 		          extensions = [ flake.assets.extensions ];
 		          extraArgs = [ "--model" "sonnet" ];
@@ -81,6 +86,8 @@ function moduleEval(): any {
 		  homeFileKeys = builtins.attrNames evaluated.config.home.file;
 		  activationText = activationText;
 		  managedResourceForce = evaluated.config.home.file.".local/share/pi-harness/assets/orchestrator.md".force;
+		  managedExtensionsForce = evaluated.config.home.file.".pi/agent/extensions".force;
+		  managedExtensionsRecursive = evaluated.config.home.file.".pi/agent/extensions".recursive;
 		  vendorExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-subagents.ts".force;
 		  wrapperText = evaluated.config.home.file.".local/bin/pi-harness-pi".text;
 		  wrapperExecutable = evaluated.config.home.file.".local/bin/pi-harness-pi".executable;
@@ -96,6 +103,8 @@ test("Pi mutable activation preserves local fields while applying generated sett
 	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-subagents.ts"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-tool-renderer.ts"));
 	assert.equal(result.managedResourceForce, true);
+	assert.equal(result.managedExtensionsForce, true);
+	assert.equal(result.managedExtensionsRecursive, true);
 	assert.equal(result.vendorExtensionForce, true);
 	assert.ok(!result.homeFileKeys.includes(".pi/agent/settings.nix-generated.json"));
 	assert.match(result.activationText, /if \[ -L "\$target" \]; then/);

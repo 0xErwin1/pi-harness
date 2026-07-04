@@ -17,7 +17,7 @@ import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import { detectSddProject, renderSddInitMarkdown, type SddProjectDetection } from "./sdd-project-detector.ts";
+import { detectSddProject, renderSddInitMarkdown, type SddProjectDetection } from "./sdd/project-detector.ts";
 import {
   buildInitPersistenceContract,
   buildPhasePersistenceContract,
@@ -27,7 +27,7 @@ import {
   setCachedPreflightState,
   type PhasePersistenceContract,
   type SddPreflightState,
-} from "./sdd-preflight.ts";
+} from "./sdd/preflight.ts";
 
 const execAsync = promisify(execFile);
 

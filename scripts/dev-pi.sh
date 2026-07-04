@@ -98,11 +98,7 @@ write_extension_loader() {
 
 for f in "$REPO_DIR"/extensions/*.ts; do
 	[ -e "$f" ] || continue
-	if grep -Eq '^[[:space:]]*export[[:space:]]+default[[:space:]]+' "$f"; then
-		write_extension_loader "$f" "$AGENT_DIR/extensions/$(basename "$f")"
-	else
-		echo "skipped helper extension module: $f" >&2
-	fi
+	write_extension_loader "$f" "$AGENT_DIR/extensions/$(basename "$f")"
 done
 
 write_extension_loader "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "$AGENT_DIR/extensions/pi-tool-renderer.ts"
