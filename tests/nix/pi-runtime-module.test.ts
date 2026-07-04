@@ -80,6 +80,8 @@ function moduleEval(): any {
 		  optionKeys = builtins.attrNames evaluated.options.programs.pi.coding-agent;
 		  homeFileKeys = builtins.attrNames evaluated.config.home.file;
 		  activationText = activationText;
+		  managedResourceForce = evaluated.config.home.file.".local/share/pi-harness/assets/orchestrator.md".force;
+		  vendorExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-subagents.ts".force;
 		  wrapperText = evaluated.config.home.file.".local/bin/pi-harness-pi".text;
 		  wrapperExecutable = evaluated.config.home.file.".local/bin/pi-harness-pi".executable;
 		}
@@ -93,6 +95,8 @@ test("Pi mutable activation preserves local fields while applying generated sett
 	assert.ok(result.optionKeys.includes("wrapper"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-subagents.ts"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-tool-renderer.ts"));
+	assert.equal(result.managedResourceForce, true);
+	assert.equal(result.vendorExtensionForce, true);
 	assert.ok(!result.homeFileKeys.includes(".pi/agent/settings.nix-generated.json"));
 	assert.match(result.activationText, /if \[ -L "\$target" \]; then/);
 	const home = mkdtempSync(join(tmpdir(), "pi-harness-home-"));

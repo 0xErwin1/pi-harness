@@ -13,6 +13,7 @@ let
     name = resource.target;
     value = {
       source = resource.source;
+      force = true;
     }
     // lib.optionalAttrs resource.recursive { recursive = true; };
   };
@@ -123,9 +124,12 @@ let
 
   vendorExtensionFile = vendorExtension: {
     name = ".pi/agent/extensions/${vendorExtension.name}";
-    value.text = ''
-      export { default } from "${vendorExtension.root}/${vendorExtension.entry}";
-    '';
+    value = {
+      force = true;
+      text = ''
+        export { default } from "${vendorExtension.root}/${vendorExtension.entry}";
+      '';
+    };
   };
 
   vendorExtensionFiles = lib.listToAttrs (map vendorExtensionFile harnessLib.assets.vendorExtensions);
