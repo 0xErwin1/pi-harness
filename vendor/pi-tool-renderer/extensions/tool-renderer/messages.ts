@@ -198,10 +198,6 @@ export function installUserMessageRenderer(pi: ExtensionAPI, UserMessageComponen
 		state!.activeCtx = ctx;
 	});
 	pi.on("session_shutdown", () => {
-		if (prototype[USER_MESSAGE_PATCH_SYMBOL] === state) {
-			prototype.render = state!.originalRender as unknown;
-			delete prototype[USER_MESSAGE_PATCH_SYMBOL];
-		}
 		state!.activeCtx = undefined;
 	});
 }

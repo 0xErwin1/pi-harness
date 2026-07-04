@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { Markdown } from "@earendil-works/pi-tui";
 
@@ -10,6 +13,19 @@ import {
 	installSkillInvocationRenderer,
 	installUserMessageRenderer,
 } from "../tool-renderer/messages.ts";
+import { recordProjectTrust } from "../tool-renderer/settings.ts";
+
+const ANSI_RE = /\x1b(?:\[[0-9;:]*m|\]133;[ABC]\x07)/g;
+const USER_MESSAGE_COMPACT_CONFIG = {
+	compactUserMessages: true,
+	globalGlyphStyleOverride: "unicode",
+	userMessageTrailingBlankLine: true,
+};
+const createdDirs: string[] = [];
+
+afterEach(() => {
+	for (const dir of createdDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 function staleCtx(): any {
 	return Object.defineProperties({}, {
@@ -29,6 +45,29 @@ function staleCtx(): any {
 			},
 		},
 	});
+}
+
+function tempCwd(config: Record<string, unknown>): string {
+	const dir = mkdtempSync(join(tmpdir(), "pi-tool-renderer-messages-"));
+	createdDirs.push(dir);
+	mkdirSync(join(dir, ".pi"), { recursive: true });
+	writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify({
+		vstack: { extensionManager: { config: { "@vanillagreen/pi-tool-renderer": config } } },
+	}));
+	recordProjectTrust({ cwd: dir, isProjectTrusted: () => true });
+	return dir;
+}
+
+function uiCtx(cwd = tempCwd(USER_MESSAGE_COMPACT_CONFIG)): any {
+	return {
+		cwd,
+		hasUI: true,
+		ui: { theme: markdownTheme },
+	};
+}
+
+function stripControl(text: string): string {
+	return text.replace(ANSI_RE, "");
 }
 
 function createPi() {
@@ -87,6 +126,8 @@ describe("stale ExtensionContext fallbacks", () => {
 		userPi.emit("session_start", {}, staleCtx());
 		expect(() => new UserMessageComponent().render(20)).not.toThrow();
 		userPi.emit("session_shutdown");
+
+		expect(() => new UserMessageComponent().render(20)).not.toThrow();
 
 		const assistantPi = createPi();
 		class AssistantMessageComponent {
@@ -148,6 +189,39 @@ describe("stale ExtensionContext fallbacks", () => {
 		skillPi.emit("session_start", {}, staleCtx());
 		expect(() => new SkillInvocationComponent().updateDisplay()).not.toThrow();
 		skillPi.emit("session_shutdown");
+	});
+
+	test("user message renderer stays compact across session restarts", () => {
+		const pi = createPi();
+		class UserMessageComponent {
+			contentBox = {
+				paddingY: 1,
+				invalidateCache() {},
+				setBgFn(_fn?: unknown) {},
+			};
+			render(_width: number) {
+				return ["hello"];
+			}
+		}
+		installUserMessageRenderer(pi.api as any, UserMessageComponent);
+
+		const renderFrame = () => new UserMessageComponent().render(20).map((line) => stripControl(line));
+
+		const cwd = tempCwd(USER_MESSAGE_COMPACT_CONFIG);
+
+		pi.emit("session_start", {}, uiCtx(cwd));
+		const firstRender = renderFrame();
+		expect(firstRender).toHaveLength(4);
+		expect(firstRender[0]).toMatch(/^┏.*┓$/);
+		expect(firstRender[1]).toMatch(/^┃hello +┃$/);
+		expect(firstRender[2]).toMatch(/^┗.*┛$/);
+
+		pi.emit("session_shutdown");
+		expect(() => new UserMessageComponent().render(20)).not.toThrow();
+		pi.emit("session_start", {}, uiCtx(cwd));
+
+		const secondRender = renderFrame();
+		expect(secondRender).toEqual(firstRender);
 	});
 
 	test("styled markdown code blocks survive a stale active context", () => {
