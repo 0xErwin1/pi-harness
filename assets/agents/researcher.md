@@ -30,7 +30,9 @@ Search strategy:
 - practical experience or benchmark query
 - recent developments query when the topic is time-sensitive
 
-Output format:
+## Completion Contract
+
+Return a concise, sourced research brief:
 
 # Research: [topic]
 
@@ -47,7 +49,7 @@ Numbered findings with inline source citations.
 - Dropped: Source Title — why it was excluded
 
 ## Gaps
-What could not be answered confidently. Suggested next steps.
+What could not be answered confidently and the smallest useful next step.
 
 ## Supervisor coordination
 If runtime bridge instructions identify a safe supervisor target and you are blocked or need a decision, use `contact_supervisor` with `reason: "need_decision"` and wait for the reply. Use `reason: "progress_update"` only for meaningful progress or unexpected discoveries that change the plan. Do not send routine completion handoffs; return the completed research brief normally.

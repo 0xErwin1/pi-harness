@@ -141,14 +141,14 @@ function hasSddInit(data: EngramExportData, project: string): boolean {
 }
 
 function nextPhaseForStatus(status: Record<ArtifactPhase, EngramObservation | undefined>): ArtifactPhase | undefined {
+  if (status["verify-report"] && !status["archive-report"]) return "archive-report";
+  if (status["apply-progress"] && !status["verify-report"]) return "verify-report";
+  if (status.spec && status.design && status.tasks && !status["apply-progress"]) return "apply-progress";
+  if (status.spec && status.design && !status.tasks) return "tasks";
+  if (status.proposal && !status.spec) return "spec";
+  if (status.proposal && !status.design) return "design";
+  if (status.explore && !status.proposal) return "proposal";
   if (!status.explore) return "explore";
-  if (!status.proposal) return "proposal";
-  if (!status.spec) return "spec";
-  if (!status.design) return "design";
-  if (!status.tasks) return "tasks";
-  if (!status["apply-progress"]) return "apply-progress";
-  if (!status["verify-report"]) return "verify-report";
-  if (!status["archive-report"]) return "archive-report";
   return undefined;
 }
 
@@ -189,6 +189,38 @@ function dependencyObservations(
   }
 }
 
+export interface ResolvedSddStatus {
+  changeName?: string;
+  status: Record<ArtifactPhase, EngramObservation | undefined>;
+  nextPhase?: ArtifactPhase;
+  dependencies: EngramObservation[];
+}
+
+export function resolveSddStatus(options: {
+  data: EngramExportData;
+  project: string;
+  changeName?: string;
+}): ResolvedSddStatus {
+  const changeName = options.changeName?.trim() || inferLatestChange(options.data, options.project);
+  const emptyStatus = Object.fromEntries(PHASES.map(({ phase }) => [phase, undefined])) as Record<
+    ArtifactPhase,
+    EngramObservation | undefined
+  >;
+
+  if (!changeName) {
+    return { status: emptyStatus, dependencies: [] };
+  }
+
+  const status = phaseStatus(options.data, options.project, changeName);
+  const nextPhase = nextPhaseForStatus(status);
+  return {
+    changeName,
+    status,
+    nextPhase,
+    dependencies: nextPhase ? dependencyObservations(status, nextPhase) : [],
+  };
+}
+
 function buildDependencyText(dependencies: EngramObservation[]): string {
   if (dependencies.length === 0) {
     return "- No dependency artifacts found. If the phase requires one, fail explicitly instead of inventing missing context.";
@@ -197,6 +229,32 @@ function buildDependencyText(dependencies: EngramObservation[]): string {
   return dependencies
     .map((dependency) => `- #${dependency.id} ${dependency.topic_key || dependency.title} (${dependency.created_at})`)
     .join("\n");
+}
+
+function dependencyPhases(target: ArtifactPhase): ArtifactPhase[] {
+  switch (target) {
+    case "proposal":
+      return ["explore"];
+    case "spec":
+    case "design":
+      return ["proposal"];
+    case "tasks":
+      return ["spec", "design"];
+    case "apply-progress":
+      return ["tasks", "spec", "design", "apply-progress"];
+    case "verify-report":
+      return ["spec", "tasks", "apply-progress"];
+    case "archive-report":
+      return PHASES.map(({ phase }) => phase).filter((phase) => phase !== "archive-report");
+    default:
+      return [];
+  }
+}
+
+function buildDependencyTopicKeyText(changeName: string, target: ArtifactPhase): string {
+  const phases = dependencyPhases(target);
+  if (phases.length === 0) return "- No dependency topic keys required for this phase.";
+  return phases.map((phase) => `- sdd/${changeName}/${phase}`).join("\n");
 }
 
 function preflightFor(options: { project: string; cwd: string; preflight?: SddPreflightState }): SddPreflightState {
@@ -295,6 +353,7 @@ export function buildDelegationMessage(options: {
   );
   const topicKey = contract.engram.topicKey;
   const depText = buildDependencyText(options.dependencies);
+  const depTopicKeyText = buildDependencyTopicKeyText(options.changeName, options.phase);
 
   const taskLines = [
     `    You are executing the SDD ${info.label} phase.`,
@@ -306,6 +365,8 @@ export function buildDelegationMessage(options: {
     ``,
     `    Dependency artifacts (retrieve via mem_get_observation):`,
     ...depText.split("\n").map((l) => `    ${l}`),
+    `    Required dependency topic keys:`,
+    ...depTopicKeyText.split("\n").map((l) => `    ${l}`),
     ``,
     `    Instructions: Read and follow /home/iperez/.tabularium/AI/skills/${info.skill}/SKILL.md.`,
     `    Save agent memory to Engram with topic_key "${topicKey}" and project "${options.project}".`,
@@ -384,6 +445,7 @@ export function buildMultiPhaseDelegationMessage(options: {
     // retrieve the artifact saved by the preceding subagent call.
     const deps = dependencyObservations(options.status, phase);
     const depText = buildDependencyText(deps);
+    const depTopicKeyText = buildDependencyTopicKeyText(options.changeName, phase);
 
     const taskLines = [
       `      You are executing the SDD ${info.label} phase.`,
@@ -395,6 +457,8 @@ export function buildMultiPhaseDelegationMessage(options: {
       ``,
       `      Dependency artifacts (retrieve via mem_get_observation):`,
       ...depText.split("\n").map((l) => `      ${l}`),
+      `      Required dependency topic keys:`,
+      ...depTopicKeyText.split("\n").map((l) => `      ${l}`),
       ``,
       `      Instructions: Read and follow /home/iperez/.tabularium/AI/skills/${info.skill}/SKILL.md.`,
       `      Save agent memory to Engram with topic_key "${topicKey}" and project "${options.project}".`,
@@ -414,7 +478,7 @@ export function buildMultiPhaseDelegationMessage(options: {
     `[SDD] Run change '${options.changeName}': execute ${options.phases.map((p) => phaseInfo(p).label).join(" → ")} phases sequentially.`,
     "",
     `Execute each step in order. Wait for each Agent call to complete before starting the next.`,
-    `After each phase, the artifact is available in engram — pass its ID as a dependency to the following phase.`,
+    `After each phase, the artifact is available in Engram under the target topic key; use the required dependency topic keys for the following phase.`,
     "",
     ...phaseBlocks,
     "",
@@ -502,28 +566,24 @@ export default function (pi: ExtensionAPI) {
 
       try {
         const data = await loadExport();
-        const changeName = args.trim() || inferLatestChange(data, project);
+        const resolved = resolveSddStatus({ data, project, changeName: args.trim() });
 
-        if (!changeName) {
+        if (!resolved.changeName) {
           report(pi, ctx, "SDD continue failed", "No SDD change could be inferred. Pass a change name explicitly.");
           return;
         }
 
-        const status = phaseStatus(data, project, changeName);
-        const phase = nextPhaseForStatus(status);
-
-        if (!phase) {
-          report(pi, ctx, `SDD continue: ${changeName}`, "All known SDD phases already have artifacts.");
+        if (!resolved.nextPhase) {
+          report(pi, ctx, `SDD continue: ${resolved.changeName}`, "All known SDD phases already have artifacts.");
           return;
         }
 
-        const dependencies = dependencyObservations(status, phase);
         const message = buildDelegationMessage({
-          phase,
-          changeName,
+          phase: resolved.nextPhase,
+          changeName: resolved.changeName,
           project,
           cwd: ctx.cwd,
-          dependencies,
+          dependencies: resolved.dependencies,
         });
 
         await pi.sendUserMessage(message, { deliverAs: "followUp" });
@@ -676,14 +736,14 @@ export default function (pi: ExtensionAPI) {
 
       try {
         const data = await loadExport();
-        const changeName = args.trim() || inferLatestChange(data, project);
+        const resolved = resolveSddStatus({ data, project, changeName: args.trim() });
 
-        if (!changeName) {
+        if (!resolved.changeName) {
           report(pi, ctx, "SDD status", "No SDD change found for this project.");
           return;
         }
 
-        report(pi, ctx, `SDD status: ${changeName}`, formatStatus(changeName, phaseStatus(data, project, changeName)));
+        report(pi, ctx, `SDD status: ${resolved.changeName}`, formatStatus(resolved.changeName, resolved.status));
       } catch (error: any) {
         report(pi, ctx, "SDD status failed", error.message || String(error));
       }

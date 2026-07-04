@@ -6,7 +6,9 @@ import {
 	buildSddTasksAtlasContract,
 	clearPreflightCache,
 	defaultPreflightState,
+	describeHumanBackendBlocker,
 	getCachedPreflightState,
+	isHumanArtifactMutationPermitted,
 	normalizePreflightState,
 	setCachedPreflightState,
 } from "../../extensions/sdd/preflight.ts";
@@ -219,4 +221,39 @@ test("approved Atlas task tracking permits only contract-declared mutation", () 
 	assert.equal(contract.taskTracking.changeEpic.approvalState, "approved");
 	assert.equal(contract.taskTracking.changeEpic.mutationPermitted, true);
 	assert.equal(contract.taskTracking.requireFullHydration, true);
+});
+
+test("human backend mutation helpers keep unresolved Atlas targets read-only", () => {
+	const contract = buildPhasePersistenceContract(
+		defaultPreflightState({ project: "pi-harness", cwd: "/tmp/pi-harness" }),
+		{ change: "align-gentle-pi-runtime", phase: "apply-progress" },
+	);
+
+	assert.equal(isHumanArtifactMutationPermitted(contract), false);
+	assert.equal(
+		describeHumanBackendBlocker(contract),
+		"Atlas target is unresolved or not approved for document writes; use Engram-only partial persistence or request approval.",
+	);
+});
+
+test("human backend mutation helpers permit approved Atlas document targets", () => {
+	const state = normalizePreflightState(
+		{
+			atlas: {
+				discovered: true,
+				workspaceSlug: "ai",
+				projectSlug: "pi-harness",
+				creationApproved: true,
+				documentWritesApproved: true,
+			},
+		},
+		defaultPreflightState({ project: "pi-harness", cwd: "/tmp/pi-harness" }),
+	);
+	const contract = buildPhasePersistenceContract(state, {
+		change: "align-gentle-pi-runtime",
+		phase: "apply-progress",
+	});
+
+	assert.equal(isHumanArtifactMutationPermitted(contract), true);
+	assert.equal(describeHumanBackendBlocker(contract), undefined);
 });

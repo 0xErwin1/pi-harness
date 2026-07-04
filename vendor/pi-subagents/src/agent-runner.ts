@@ -23,6 +23,7 @@ import { detectEnv } from "./env.ts";
 import { buildMemoryBlock, buildReadOnlyMemoryBlock } from "./memory.ts";
 import { buildAgentPrompt, type PromptExtras } from "./prompts.ts";
 import { preloadSkills } from "./skill-loader.ts";
+import { withSubagentProcessEnv } from "./invocation-config.ts";
 import type { SubagentType, ThinkingLevel } from "./types.ts";
 
 /**
@@ -583,97 +584,99 @@ export async function runAgent(
     sessionOpts.thinkingLevel = thinkingLevel;
   }
 
-  const { session } = await createAgentSession(sessionOpts);
+  return withSubagentProcessEnv(options.agentId, async () => {
+    const { session } = await createAgentSession(sessionOpts);
 
-  const baseSessionName = agentConfig?.name ?? type;
-  session.setSessionName(
-    options.agentId ? `${baseSessionName}#${options.agentId.slice(0, 8)}` : baseSessionName,
-  );
+    const baseSessionName = agentConfig?.name ?? type;
+    session.setSessionName(
+      options.agentId ? `${baseSessionName}#${options.agentId.slice(0, 8)}` : baseSessionName,
+    );
 
-  // Bind extensions so that session_start fires and extensions can initialize
-  // (e.g. loading credentials, setting up state). Tool gating already happened
-  // at session construction via the `tools:` allowlist above — no separate
-  // post-bind filter is needed. All ExtensionBindings fields are optional.
-  await session.bindExtensions({
-    onError: (err) => {
-      options.onToolActivity?.({
-        type: "end",
-        toolName: `extension-error:${err.extensionPath}`,
-      });
-    },
-  });
+    // Bind extensions so that session_start fires and extensions can initialize
+    // (e.g. loading credentials, setting up state). Tool gating already happened
+    // at session construction via the `tools:` allowlist above — no separate
+    // post-bind filter is needed. All ExtensionBindings fields are optional.
+    await session.bindExtensions({
+      onError: (err) => {
+        options.onToolActivity?.({
+          type: "end",
+          toolName: `extension-error:${err.extensionPath}`,
+        });
+      },
+    });
 
-  options.onSessionCreated?.(session);
+    options.onSessionCreated?.(session);
 
-  // Track turns for graceful max_turns enforcement
-  let turnCount = 0;
-  const maxTurns = normalizeMaxTurns(options.maxTurns ?? agentConfig?.maxTurns ?? defaultMaxTurns);
-  let softLimitReached = false;
-  let aborted = false;
+    // Track turns for graceful max_turns enforcement
+    let turnCount = 0;
+    const maxTurns = normalizeMaxTurns(options.maxTurns ?? agentConfig?.maxTurns ?? defaultMaxTurns);
+    let softLimitReached = false;
+    let aborted = false;
 
-  let currentMessageText = "";
-  const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
-    if (event.type === "turn_end") {
-      turnCount++;
-      options.onTurnEnd?.(turnCount);
-      if (maxTurns != null) {
-        if (!softLimitReached && turnCount >= maxTurns) {
-          softLimitReached = true;
-          session.steer("You have reached your turn limit. Wrap up immediately — provide your final answer now.");
-        } else if (softLimitReached && turnCount >= maxTurns + graceTurns) {
-          aborted = true;
-          session.abort();
+    let currentMessageText = "";
+    const unsubTurns = session.subscribe((event: AgentSessionEvent) => {
+      if (event.type === "turn_end") {
+        turnCount++;
+        options.onTurnEnd?.(turnCount);
+        if (maxTurns != null) {
+          if (!softLimitReached && turnCount >= maxTurns) {
+            softLimitReached = true;
+            session.steer("You have reached your turn limit. Wrap up immediately — provide your final answer now.");
+          } else if (softLimitReached && turnCount >= maxTurns + graceTurns) {
+            aborted = true;
+            session.abort();
+          }
         }
       }
+      if (event.type === "message_start") {
+        currentMessageText = "";
+      }
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+        currentMessageText += event.assistantMessageEvent.delta;
+        options.onTextDelta?.(event.assistantMessageEvent.delta, currentMessageText);
+      }
+      if (event.type === "tool_execution_start") {
+        options.onToolActivity?.({ type: "start", toolName: event.toolName });
+      }
+      if (event.type === "tool_execution_end") {
+        options.onToolActivity?.({ type: "end", toolName: event.toolName });
+      }
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        const u = (event.message as any).usage;
+        if (u) options.onAssistantUsage?.({
+          input: u.input ?? 0,
+          output: u.output ?? 0,
+          cacheWrite: u.cacheWrite ?? 0,
+        });
+      }
+      if (event.type === "compaction_end" && !event.aborted && event.result) {
+        options.onCompaction?.({ reason: event.reason, tokensBefore: event.result.tokensBefore });
+      }
+    });
+
+    const collector = collectResponseText(session);
+    const cleanupAbort = forwardAbortSignal(session, options.signal);
+
+    // Build the effective prompt: optionally prepend parent context
+    let effectivePrompt = prompt;
+    if (options.inheritContext) {
+      const parentContext = buildParentContext(ctx);
+      if (parentContext) {
+        effectivePrompt = parentContext + prompt;
+      }
     }
-    if (event.type === "message_start") {
-      currentMessageText = "";
+
+    try {
+      await session.prompt(effectivePrompt);
+    } finally {
+      unsubTurns();
+      collector.unsubscribe();
+      cleanupAbort();
     }
-    if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-      currentMessageText += event.assistantMessageEvent.delta;
-      options.onTextDelta?.(event.assistantMessageEvent.delta, currentMessageText);
-    }
-    if (event.type === "tool_execution_start") {
-      options.onToolActivity?.({ type: "start", toolName: event.toolName });
-    }
-    if (event.type === "tool_execution_end") {
-      options.onToolActivity?.({ type: "end", toolName: event.toolName });
-    }
-    if (event.type === "message_end" && event.message.role === "assistant") {
-      const u = (event.message as any).usage;
-      if (u) options.onAssistantUsage?.({
-        input: u.input ?? 0,
-        output: u.output ?? 0,
-        cacheWrite: u.cacheWrite ?? 0,
-      });
-    }
-    if (event.type === "compaction_end" && !event.aborted && event.result) {
-      options.onCompaction?.({ reason: event.reason, tokensBefore: event.result.tokensBefore });
-    }
+
+    const responseText = collector.getText().trim() || getLastAssistantText(session);
+    return { responseText, session, aborted, steered: softLimitReached };
   });
-
-  const collector = collectResponseText(session);
-  const cleanupAbort = forwardAbortSignal(session, options.signal);
-
-  // Build the effective prompt: optionally prepend parent context
-  let effectivePrompt = prompt;
-  if (options.inheritContext) {
-    const parentContext = buildParentContext(ctx);
-    if (parentContext) {
-      effectivePrompt = parentContext + prompt;
-    }
-  }
-
-  try {
-    await session.prompt(effectivePrompt);
-  } finally {
-    unsubTurns();
-    collector.unsubscribe();
-    cleanupAbort();
-  }
-
-  const responseText = collector.getText().trim() || getLastAssistantText(session);
-  return { responseText, session, aborted, steered: softLimitReached };
 }
 
 /**
@@ -711,7 +714,7 @@ export async function resumeAgent(
     : () => {};
 
   try {
-    await session.prompt(prompt);
+    await withSubagentProcessEnv(undefined, () => session.prompt(prompt));
   } finally {
     collector.unsubscribe();
     unsubEvents();

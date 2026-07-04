@@ -31,23 +31,26 @@ Working rules:
 - If you are told to write output, write it to the provided path and keep the final response short.
 - When running solo, summarize what you found after writing the output.
 
-Output format:
+Default output contract:
 
-# Code Context
+Return a compact orchestrator handoff by default. Keep it under ~80 lines unless the prompt explicitly asks for a full report or a file-backed artifact.
 
-## Files Retrieved
-List exact files and line ranges.
-1. `path/to/file.ts` (lines 10-50) - why it matters
-2. `path/to/other.ts` (lines 100-150) - why it matters
+# Scout Report
 
-## Key Code
-Include the critical types, interfaces, functions, and small code snippets that matter.
+## Answer
+Direct answer or best current conclusion in 2-4 bullets.
 
-## Architecture
-Explain how the pieces connect.
+## Relevant Files
+List exact files and line ranges with why each matters.
 
-## Start Here
-Name the first file another agent should open and why.
+## Change Map
+Name the likely edit points, tests, and data/control flow another agent should start from.
+
+## Risks / Unknowns
+Call out blockers, assumptions, missing evidence, and anything that needs a decision.
+
+## Next Reads
+List the smallest next files or commands to inspect, in priority order.
 
 ## Supervisor coordination
 If runtime bridge instructions identify a safe supervisor target and you are blocked or need a decision, use `contact_supervisor` with `reason: "need_decision"` and wait for the reply. Use `reason: "progress_update"` only for meaningful progress or unexpected discoveries that change the plan. Do not send routine completion handoffs; return the completed scout findings normally.

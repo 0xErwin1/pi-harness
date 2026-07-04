@@ -70,8 +70,9 @@ If runtime bridge instructions identify a safe supervisor target and you are blo
 
 Fall back to generic `intercom` only if `contact_supervisor` is unavailable and the runtime bridge instructions identify a safe target. If no safe target is discoverable, do not guess.
 
-## Review output format
-Structure your findings clearly:
+## Completion Contract
+
+Structure your findings clearly and keep the report focused on decisions the parent can act on:
 
 ```
 ## Review
@@ -81,7 +82,7 @@ Structure your findings clearly:
 - Note: observation, risk, or follow-up item
 ```
 
-When reviewing code, cite file paths and line numbers. When reviewing plans, cite specific sections and assumptions.
+When reviewing code, cite file paths and line numbers. When reviewing plans, cite specific sections and assumptions. If no issues are found, say so directly and include the verification evidence.
 
 ## Quality Contract
 

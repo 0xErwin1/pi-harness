@@ -8,6 +8,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const ASSETS_DIR = join(PACKAGE_ROOT, "assets");
 const ORCHESTRATOR_PROMPT_PATH = join(ASSETS_DIR, "orchestrator.md");
+const SUBAGENT_INVOCATION_KEY = Symbol.for("pi-harness.subagentInvocationContext");
 const REQUIRED_ASSET_DIRS = [
 	"assets/agents",
 	"assets/chains",
@@ -20,9 +21,14 @@ const REQUIRED_EXTENSION_FILES = [
 	"extensions/engram.ts",
 	"extensions/sdd-orchestrator.ts",
 	"extensions/skill-registry.ts",
+	"extensions/btw.ts",
 ] as const;
 const REQUIRED_VENDOR_SURFACE = [
 	{ path: "vendor/pi-subagents", kind: "dir" as const, status: "fail" as const },
+	{ path: "vendor/pi-subagents/src/index.ts", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/rpiv-ask-user-question", kind: "dir" as const, status: "fail" as const },
+	{ path: "vendor/rpiv-ask-user-question/index.ts", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/rpiv-ask-user-question/README.md", kind: "file" as const, status: "fail" as const },
 	{
 		path: "packages/subagents-compat/index.ts",
 		kind: "file" as const,
@@ -196,8 +202,24 @@ export function buildHarnessDoctorReport(options: HarnessDoctorOptions): Harness
 	};
 }
 
+function hasAsyncLocalSubagentInvocation(): boolean {
+	const storage = (globalThis as Record<symbol, { getStore?: () => { depth?: number; native?: boolean } | undefined } | undefined>)[SUBAGENT_INVOCATION_KEY];
+	const context = storage?.getStore?.();
+	return context?.native === true || (context?.depth ?? 0) > 0;
+}
+
+export function isSubagentProcess(env: Record<string, string | undefined> = process.env): boolean {
+	if (env === process.env && hasAsyncLocalSubagentInvocation()) return true;
+	const depth = Number.parseInt(env.PI_HARNESS_SUBAGENT_DEPTH ?? "0", 10);
+	return env.PI_HARNESS_PARENT_AGENT_ID !== undefined || env.PI_HARNESS_NATIVE_SUBAGENT === "1" || depth > 0;
+}
+
+export function shouldInjectOrchestratorPrompt(env: Record<string, string | undefined> = process.env): boolean {
+	return !isSubagentProcess(env);
+}
+
 export function isOrchestratorRoot(): boolean {
-	return true;
+	return shouldInjectOrchestratorPrompt();
 }
 
 export const __testing = {

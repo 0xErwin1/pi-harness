@@ -143,6 +143,7 @@ These are parent-orchestrator stop rules. Once any trigger fires, the parent MUS
 Prefer delegation when fresh context improves correctness more than token savings:
 
 - Use `scout`/`context-builder` to compress broad repo exploration into a short handoff instead of loading many files into the parent.
+- Expect `scout` to return `# Scout Report` with compact sections for answer, relevant files, change map, risks/unknowns, and next reads; ask for a full report only when the extra detail is needed.
 - Use a single `worker` for one writer thread; do not run parallel writers unless isolated worktrees are explicitly approved.
 - Use fresh `reviewer` agents after implementation, conflict resolution, or incidents because their value is independence from the parent's assumptions.
 - Persist large child reports and inter-phase handoffs to selected human backend + Engram (the durable record); summarize only decisions, blockers, and artifact pointers in the parent thread from the returned envelope.
@@ -295,8 +296,9 @@ Generic routing rules:
 
 1. Pick the most specific generic role; do not default to `worker` or `general-purpose` when `scout`, `researcher`, or `reviewer` fits.
 2. The parent owns scope selection. Generic prompts must include exact files/areas, expected output, whether edits are allowed, and memory-write instructions when applicable.
-3. Generic agents are not SDD phase executors. Never route `proposal`, `spec`, `design`, `tasks`, `apply`, `verify`, `sync`, or `archive` phase work to generic agents when an `sdd-*` phase agent exists.
-4. Generic agents may run in background for independent work. If you need their result before proceeding, wait for or retrieve the result explicitly and summarize it for the user.
+3. Do not paste the full parent prompt into child agents. Send the smallest hydrated handoff that lets the chosen agent do its job, then rely on the agent's own compact completion contract.
+4. Generic agents are not SDD phase executors. Never route `proposal`, `spec`, `design`, `tasks`, `apply`, `verify`, `sync`, or `archive` phase work to generic agents when an `sdd-*` phase agent exists.
+5. Generic agents may run in background for independent work. If you need their result before proceeding, wait for or retrieve the result explicitly and summarize it for the user.
 
 ### Generic Subagent Model Routing
 

@@ -49,13 +49,15 @@ When running in a chain, expect instructions about:
 - where to maintain progress tracking
 - where to write output if a file target is provided
 
-Your final response should follow this shape:
+## Completion Contract
 
-Implemented X.
-Changed files: Y.
-Validation: Z.
-Open risks/questions: R.
-Recommended next step: N.
+Return a concise structured completion report:
+
+- `Implemented`: the concrete change completed, or `Blocked` with the blocker.
+- `Changed files`: exact files touched and why.
+- `Validation`: commands run and real results, including failures.
+- `Open risks/questions`: only unresolved risks, decisions, or out-of-scope findings.
+- `Recommended next step`: one actionable next step for the parent.
 
 ## Quality Contract
 

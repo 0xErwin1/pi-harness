@@ -15,15 +15,16 @@ this adds the discipline for using them well.
 | `extensions/engram.ts` | Engram persistent-memory integration. |
 | `extensions/sdd-orchestrator.ts` | Programmatic SDD orchestrator — reads the DAG state from Engram and drives phase delegation. |
 | `extensions/shell-guard.ts` | Shell safety guard — blocks destructive `bash` commands and confirms sensitive ones. |
-| `extensions/` (planned) | Skill registry, SDD init detection, harness core. |
-| `assets/chains/` (planned) | SDD phase chains. |
-| `assets/orchestrator.md` (planned) | Parent-session orchestration contract. |
+| `extensions/btw.ts` | Lazy `/btw` side-question command with isolated transcript handling. |
+| `vendor/rpiv-ask-user-question/` | Local `ask_user_question` wrapper with UI and non-UI paths. |
+| `assets/orchestrator.md` | Parent-session orchestration contract. |
 
 ## Install
 
 Delivery is by per-file symlink into the global Pi agent directory
-(`~/.pi/agent/`). The repo owns `extensions/` and `assets/chains/` only;
-`agents/` and `skills/` are managed separately by the upstream-ai-sync flow.
+(`~/.pi/agent/`). The repo owns harness files under `extensions/`, `packages/`,
+`vendor/`, and `assets/`; `agents/` and `skills/` are managed separately by the
+upstream-ai-sync flow.
 
 ```bash
 pnpm install
@@ -53,14 +54,13 @@ pnpm run test    # focused harness/package tests
 
 ## Subagent runtime
 
-The active subagent runtime is the vendored
-[`pi-subagents-j0k3r`](https://github.com/j0k3r-dev-rgl/pi-subagents-j0k3r)
-snapshot under `vendor/pi-subagents/j0k3r/`. The harness keeps compatibility
-surfaces on top of it so existing SDD flows can continue to use:
+The active subagent runtime is the native vendored entrypoint at
+`vendor/pi-subagents/src/index.ts`. It exposes the compatibility names existing
+SDD flows use while preserving native controls:
 
 - `Agent(subagent_type, prompt)`
 - `get_subagent_result`
-- `steer_subagent` (currently an explicit compatibility stub)
+- `steer_subagent`
 - `/agents` as the primary operator entrypoint
 
 `/agents` can also open the model/thinking assignment flow. Assignments are
@@ -70,8 +70,18 @@ synthetic rows save to the global Pi agent config (`~/.pi/agent/subagents.json`
 or `PI_CODING_AGENT_DIR/subagents.json`). The menu does not write project-local
 `.pi/subagents.json` model assignments.
 
-`steer_subagent` is documented but not implemented by the compatibility bridge
-yet. Use the native `/subagents` workflow when live steering is required.
+`steer_subagent` sends steering messages to running native subagent sessions.
+
+## Runtime notes
+
+- Named subagents receive isolated prompts: parent orchestration policy stays in
+  the parent session instead of being injected into every child prompt.
+- `/btw` loads its model runtime only when invoked, sends no tools, and keeps the
+  side-question transcript out of the main conversation.
+- The vendored `ask_user_question` wrapper enters the UI overlay gate for
+  interactive selection and returns `needs_user_answer` when no UI is available.
+- Atlas+Engram remains the SDD persistence authority. Atlas writes require approval;
+  OpenSpec/file-backed artifacts are opt-in only.
 
 ## Companion packages
 
@@ -79,7 +89,7 @@ Recommended companions, installed separately via `~/.pi/agent/settings.json`
 (pinned):
 
 - `pi-lens` — real-time LSP / lint / type-check feedback.
-- `@juicesharp/rpiv-ask-user-question` — structured questionnaires for SDD
-  approval gates.
+- `@juicesharp/rpiv-ask-user-question` — upstream source for structured SDD
+  questionnaire behavior; this repo vendors only a narrow adapter.
 
-This repo does not bundle them.
+This repo does not bundle the companion packages themselves.

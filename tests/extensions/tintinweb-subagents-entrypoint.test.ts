@@ -5,6 +5,11 @@ import { resolveAgentInvocationConfig } from "../../vendor/pi-subagents/src/invo
 
 const entrypointUrl = new URL("../../vendor/pi-subagents/src/index.ts", import.meta.url);
 const scheduleUrl = new URL("../../vendor/pi-subagents/src/schedule.ts", import.meta.url);
+const scoutAgentUrl = new URL("../../assets/agents/scout.md", import.meta.url);
+const workerAgentUrl = new URL("../../assets/agents/worker.md", import.meta.url);
+const researcherAgentUrl = new URL("../../assets/agents/researcher.md", import.meta.url);
+const reviewerAgentUrl = new URL("../../assets/agents/reviewer.md", import.meta.url);
+const orchestratorUrl = new URL("../../assets/orchestrator.md", import.meta.url);
 const linkScriptUrl = new URL("../../scripts/link.sh", import.meta.url);
 const devPiScriptUrl = new URL("../../scripts/dev-pi.sh", import.meta.url);
 const legacyPreflightHelperUrl = new URL("../../extensions/sdd-preflight.ts", import.meta.url);
@@ -23,10 +28,9 @@ async function entrypointSource() {
 	return readFile(entrypointUrl, "utf8");
 }
 
-test("active pi-subagents entrypoint is native tintinweb, not the inactive j0k3r bridge", async () => {
+test("active pi-subagents entrypoint is native, not the inactive compatibility bridge", async () => {
 	const source = await entrypointSource();
 
-	assert.doesNotMatch(source, /\.\.\/j0k3r\/index\.ts/);
 	assert.doesNotMatch(source, /packages\/subagents-compat/);
 	assert.match(source, /registerMessageRenderer<NotificationDetails>\(\s*\n\s*["']subagent-notification["']/);
 	assert.match(source, /name:\s*SUBAGENT_TOOL_NAMES\.AGENT/);
@@ -41,8 +45,26 @@ test("native Agent schema source exposes passthrough fields without unsupported 
 	for (const field of ["model", "thinking", "max_turns", "run_in_background", "inherit_context", "isolated", "isolation", "resume"]) {
 		assert.match(source, new RegExp(`${field}:\\s*Type\\.Optional`), `Agent schema should expose ${field}`);
 	}
-	assert.doesNotMatch(source, /NOT supported on this runtime|compatibility bridge|j0k3r/i);
+	assert.doesNotMatch(source, /NOT supported on this runtime|compatibility bridge/i);
 	assert.match(source, /Send a steering message to a running agent/);
+});
+
+test("generic agent prompts codify compact handoff and completion contracts", async () => {
+	const scout = await readFile(scoutAgentUrl, "utf8");
+	const worker = await readFile(workerAgentUrl, "utf8");
+	const researcher = await readFile(researcherAgentUrl, "utf8");
+	const reviewer = await readFile(reviewerAgentUrl, "utf8");
+	const orchestrator = await readFile(orchestratorUrl, "utf8");
+
+	for (const heading of ["# Scout Report", "## Answer", "## Relevant Files", "## Change Map", "## Risks / Unknowns", "## Next Reads"]) {
+		assert.match(scout, new RegExp(`^${heading.replace(/\//g, "\\/")}$`, "m"));
+	}
+	assert.match(scout, /under ~80 lines/i);
+	assert.match(worker, /## Completion Contract/);
+	assert.match(researcher, /## Completion Contract/);
+	assert.match(reviewer, /## Completion Contract/);
+	assert.match(orchestrator, /Expect `scout` to return `# Scout Report`/);
+	assert.match(orchestrator, /Do not paste the full parent prompt into child agents/i);
 });
 
 test("native scheduler does not require optional runtime dependencies at extension import time", async () => {

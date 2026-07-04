@@ -4,6 +4,7 @@ import {
 	buildDelegationMessage,
 	buildInitDelegationMessage,
 	buildMultiPhaseDelegationMessage,
+	resolveSddStatus,
 } from "../../extensions/sdd-orchestrator.ts";
 
 test("buildDelegationMessage emits the pi-subagents Agent tool format", () => {
@@ -20,6 +21,10 @@ test("buildDelegationMessage emits the pi-subagents Agent tool format", () => {
 	assert.match(message, /- prompt: \|/);
 	assert.match(message, /Artifact store: atlas\+engram/);
 	assert.match(message, /Target topic_key: sdd\/best-subagent-manager\/apply-progress/);
+	assert.match(message, /Required dependency topic keys:/);
+	assert.match(message, /sdd\/best-subagent-manager\/tasks/);
+	assert.match(message, /sdd\/best-subagent-manager\/spec/);
+	assert.match(message, /sdd\/best-subagent-manager\/design/);
 	assert.match(message, /Engram role: agent memory summary\/pointer/);
 	assert.match(message, /Atlas logical path: sdd\/best-subagent-manager\/apply-progress\.md/);
 	assert.match(message, /Approval state: needs-approval/);
@@ -127,6 +132,7 @@ test("buildMultiPhaseDelegationMessage emits Agent-tool steps in phase order", (
 	assert.match(message, /Atlas logical path: sdd\/demo\/proposal\.md/);
 	assert.match(message, /Target topic_key: sdd\/demo\/explore/);
 	assert.match(message, /Target topic_key: sdd\/demo\/proposal/);
+	assert.match(message, /Required dependency topic keys:\n      - sdd\/demo\/explore/);
 
 	assert.doesNotMatch(message, /Artifact store: engram\b/);
 	assert.doesNotMatch(message, /context: "fresh"/);
@@ -137,4 +143,59 @@ test("buildMultiPhaseDelegationMessage emits Agent-tool steps in phase order", (
 		exploreIdx >= 0 && proposeIdx > exploreIdx,
 		"explore step precedes proposal step",
 	);
+});
+
+test("resolveSddStatus lazily infers the active change and next Engram-backed phase", () => {
+	const resolved = resolveSddStatus({
+		project: "pi-harness",
+		data: {
+			observations: [
+				{
+					id: 1,
+					type: "architecture",
+					title: "Spec",
+					content: "spec",
+					project: "pi-harness",
+					topic_key: "sdd/align-gentle-pi-runtime/spec",
+					created_at: "2026-07-04T10:00:00.000Z",
+				},
+				{
+					id: 2,
+					type: "architecture",
+					title: "Design",
+					content: "design",
+					project: "pi-harness",
+					topic_key: "sdd/align-gentle-pi-runtime/design",
+					created_at: "2026-07-04T10:01:00.000Z",
+				},
+				{
+					id: 3,
+					type: "architecture",
+					title: "Tasks",
+					content: "tasks",
+					project: "pi-harness",
+					topic_key: "sdd/align-gentle-pi-runtime/tasks",
+					created_at: "2026-07-04T10:02:00.000Z",
+				},
+			],
+		},
+	});
+
+	assert.equal(resolved.changeName, "align-gentle-pi-runtime");
+	assert.equal(resolved.nextPhase, "apply-progress");
+	assert.deepEqual(Object.keys(resolved.status), [
+		"explore",
+		"proposal",
+		"spec",
+		"design",
+		"tasks",
+		"apply-progress",
+		"verify-report",
+		"archive-report",
+	]);
+	assert.deepEqual(resolved.dependencies.map((dependency) => dependency.topic_key), [
+		"sdd/align-gentle-pi-runtime/tasks",
+		"sdd/align-gentle-pi-runtime/spec",
+		"sdd/align-gentle-pi-runtime/design",
+	]);
 });

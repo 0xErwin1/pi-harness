@@ -147,9 +147,10 @@ done
 # files (see write_vendor_loader) so their internal relative imports resolve, and so
 # the vendored code stays out of the harness tsconfig. See vendor/*/VENDORED.md.
 write_vendor_loader "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "${PI_EXT}/pi-tool-renderer.ts"
+write_vendor_loader "${REPO_DIR}/vendor/rpiv-ask-user-question/index.ts" "${PI_EXT}/rpiv-ask-user-question.ts"
 # pi-subagents.ts points at the active native tintinweb entrypoint. The entrypoint
 # keeps compatibility names (Agent/get_subagent_result/steer_subagent and /agents)
-# while passing through native tintinweb capabilities broadly.
+# while passing through native capabilities broadly.
 write_vendor_loader "${REPO_DIR}/vendor/pi-subagents/src/index.ts" "${PI_EXT}/pi-subagents.ts"
 
 if [ -d "${REPO_DIR}/packages" ]; then

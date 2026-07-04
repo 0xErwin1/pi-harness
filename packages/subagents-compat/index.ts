@@ -52,13 +52,13 @@ function registryGet<T>(registry: Map<string, T> | Record<string, T> | undefined
 
 function requireTool(runtime: RuntimeRegistry, name: string): ToolDefinitionLike {
 	const tool = registryGet(runtime.tools, name);
-	if (!tool?.execute) throw new Error(`Required j0k3r tool not available: ${name}`);
+	if (!tool?.execute) throw new Error(`Required legacy subagent tool not available: ${name}`);
 	return tool;
 }
 
 function requireCommand(runtime: RuntimeRegistry, name: string): CommandDefinitionLike {
 	const command = registryGet(runtime.commands, name);
-	if (!command?.handler) throw new Error(`Required j0k3r command not available: ${name}`);
+	if (!command?.handler) throw new Error(`Required legacy subagent command not available: ${name}`);
 	return command;
 }
 
@@ -74,8 +74,8 @@ export function buildAgentCompatInvocation(params: CompatAgentParams) {
 	const unsupported = unsupportedFieldName(params);
 	if (unsupported) {
 		throw new Error(
-			`Agent compatibility bridge does not support the \`${unsupported}\` override on the j0k3r runtime yet. ` +
-				`Use the native subagent tools directly or wait for a later compatibility batch.`,
+			`The \`${unsupported}\` override is not forwarded by the Agent compatibility bridge to the legacy subagent runtime. ` +
+				`The native pi-subagents Agent tool supports model, thinking, max_turns, run_in_background, inherit_context, isolation, and resume.`,
 		);
 	}
 
@@ -105,7 +105,7 @@ async function runGetResult(
 				if (!params.verbose) return result;
 				const baseText = result?.content?.[0]?.text ?? "";
 				return textResult(
-					`${baseText}\n\nVerbose transcript output is not supported by the j0k3r compatibility bridge yet.`,
+					`${baseText}\n\nVerbose transcript output is not supported by the legacy compatibility bridge yet.`,
 					result?.details ?? {},
 				);
 			}
@@ -163,7 +163,7 @@ export function createCompatRuntime(runtime: RuntimeRegistry) {
 		steer_subagent: {
 			async execute(_toolCallId: string, params: { agent_id: string; message: string }) {
 				return textResult(
-					`steer_subagent is not supported by the j0k3r compatibility bridge yet for agent ${params.agent_id}. ` +
+					`steer_subagent is not supported by the legacy compatibility bridge yet for agent ${params.agent_id}. ` +
 						`Use the native /subagents workflow until steering support is added.`,
 				);
 			},
@@ -198,7 +198,7 @@ export function registerPiHarnessCompat(pi: any, runtimeRegistry?: RuntimeRegist
 			"",
 			"With `run_in_background: true` the tool returns immediately with an agent ID; fetch the outcome with get_subagent_result. Otherwise it blocks and returns the subagent's final report text in the result content, with task metadata in the details.",
 			"",
-			"Limitations: `model`, `thinking`, `max_turns`, `resume`, `isolated`, `inherit_context`, and `isolation` are NOT supported on this runtime and make the call fail — omit them. Steering a running subagent is not supported either; put everything into the initial prompt.",
+			"Compatibility bridge limitations: this legacy bridge forwards only `subagent_type`, `prompt`, `description`, and `run_in_background`. It does not forward `model`, `thinking`, `max_turns`, `resume`, `isolated`, `inherit_context`, or `isolation`; calls that set those bridge-only non-forwarded fields fail with a bridge-specific error. The native pi-subagents Agent tool supports `model`, `thinking`, `max_turns`, `run_in_background`, `inherit_context`, `isolation`, and `resume`. Steering a running subagent is not implemented by this compatibility bridge; put everything into the initial prompt or use the native pi-subagents runtime.",
 		].join("\n"),
 		promptSnippet: "Launch a subagent for focused, isolated work (needs a fully hydrated prompt)",
 		parameters: Type.Object({

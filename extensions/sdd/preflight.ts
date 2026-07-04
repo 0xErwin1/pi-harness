@@ -282,6 +282,21 @@ function buildContract(
 	};
 }
 
+export function isHumanArtifactMutationPermitted(contract: PhasePersistenceContract): boolean {
+	return contract.humanArtifact.mutationPermitted && contract.humanArtifact.approvalState === "approved";
+}
+
+export function describeHumanBackendBlocker(contract: PhasePersistenceContract): string | undefined {
+	if (isHumanArtifactMutationPermitted(contract)) return undefined;
+	if (contract.humanArtifact.backend === "atlas") {
+		return "Atlas target is unresolved or not approved for document writes; use Engram-only partial persistence or request approval.";
+	}
+	if (contract.humanArtifact.backend === "file-backed") {
+		return "File-backed artifacts require explicit opt-in before repository writes are permitted.";
+	}
+	return "Human artifact backend is not approved for mutation.";
+}
+
 export function buildPhasePersistenceContract(
 	state: SddPreflightState,
 	input: { change: string; phase: string },

@@ -22,7 +22,7 @@ test("buildAgentCompatInvocation maps Agent params to subagent_run", () => {
 	);
 });
 
-test("buildAgentCompatInvocation rejects unsupported overrides explicitly", () => {
+test("buildAgentCompatInvocation rejects bridge-only non-forwarded overrides with native guidance", () => {
 	assert.throws(
 		() =>
 			buildAgentCompatInvocation({
@@ -30,11 +30,11 @@ test("buildAgentCompatInvocation rejects unsupported overrides explicitly", () =
 				prompt: "Implement batch 1",
 				model: "openai/gpt-5",
 			}),
-		/error.*model/i,
+		/error.*model.*compatibility bridge.*native pi-subagents Agent tool supports/is,
 	);
 });
 
-test("createCompatRuntime bridges Agent and get_subagent_result to j0k3r tool names", async () => {
+test("createCompatRuntime bridges Agent and get_subagent_result to legacy tool names", async () => {
 	const calls: Array<{ name: string; params: Record<string, unknown> }> = [];
 	const tools = new Map<string, { execute: (...args: any[]) => Promise<any> }>([
 		[
@@ -113,7 +113,7 @@ test("createCompatRuntime bridges Agent and get_subagent_result to j0k3r tool na
 	assert.equal(aliasResult, "opened");
 });
 
-test("registerPiHarnessCompat can use captured j0k3r tools when pi does not expose a tool registry", async () => {
+test("registerPiHarnessCompat can use captured legacy tools when pi does not expose a tool registry", async () => {
 	const registeredTools = new Map<string, any>();
 	const registeredCommands = new Map<string, any>();
 	const pi = {
@@ -144,6 +144,23 @@ test("registerPiHarnessCompat can use captured j0k3r tools when pi does not expo
 	assert.ok(agent);
 	const result = await agent.execute("call-1", { subagent_type: "worker", prompt: "Do work" });
 	assert.match(result.content[0]?.text ?? "", /Started|task-456/);
+});
+
+test("Agent bridge description scopes model and runtime limitations to compat only", () => {
+	const registeredTools = new Map<string, any>();
+	const pi = {
+		registerTool(tool: any) {
+			registeredTools.set(tool.name, tool);
+		},
+		registerCommand() {},
+	};
+
+	registerPiHarnessCompat(pi, { tools: new Map(), commands: new Map() });
+	const agent = registeredTools.get("Agent");
+	assert.ok(agent);
+	assert.match(agent.description, /compatibility bridge/i);
+	assert.match(agent.description, /native pi-subagents Agent tool supports `model`, `thinking`, `max_turns`, `run_in_background`, `inherit_context`, `isolation`, and `resume`/i);
+	assert.doesNotMatch(agent.description, /`model`[^.]+NOT supported on this runtime/i);
 });
 
 test("/agents offers a fast path to model and thinking assignment", async () => {
