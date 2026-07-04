@@ -22,9 +22,12 @@ const USER_MESSAGE_COMPACT_CONFIG = {
 	userMessageTrailingBlankLine: true,
 };
 const createdDirs: string[] = [];
+const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 
 afterEach(() => {
 	for (const dir of createdDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+	if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 });
 
 function staleCtx(): any {
@@ -47,21 +50,31 @@ function staleCtx(): any {
 	});
 }
 
+function rendererSettings(config: Record<string, unknown>) {
+	return { vstack: { extensionManager: { config: { "@vanillagreen/pi-tool-renderer": config } } } };
+}
+
 function tempCwd(config: Record<string, unknown>): string {
 	const dir = mkdtempSync(join(tmpdir(), "pi-tool-renderer-messages-"));
 	createdDirs.push(dir);
 	mkdirSync(join(dir, ".pi"), { recursive: true });
-	writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify({
-		vstack: { extensionManager: { config: { "@vanillagreen/pi-tool-renderer": config } } },
-	}));
+	writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify(rendererSettings(config)));
 	recordProjectTrust({ cwd: dir, isProjectTrusted: () => true });
 	return dir;
 }
 
-function uiCtx(cwd = tempCwd(USER_MESSAGE_COMPACT_CONFIG)): any {
+function tempAgentConfig(config: Record<string, unknown>): string {
+	const dir = mkdtempSync(join(tmpdir(), "pi-tool-renderer-agent-"));
+	createdDirs.push(dir);
+	writeFileSync(join(dir, "settings.json"), JSON.stringify(rendererSettings(config)));
+	process.env.PI_CODING_AGENT_DIR = dir;
+	return dir;
+}
+
+function uiCtx(cwd = tempCwd(USER_MESSAGE_COMPACT_CONFIG), hasUI = true): any {
 	return {
 		cwd,
-		hasUI: true,
+		hasUI,
 		ui: { theme: markdownTheme },
 	};
 }
@@ -107,6 +120,8 @@ describe("stale ExtensionContext fallbacks", () => {
 
 		expect(__test.safeCtxCwd(ctx)).toBe(process.cwd());
 		expect(__test.safeCtxHasUI(ctx)).toBe(false);
+		expect(__test.safeCtxUIState(ctx)).toBeUndefined();
+		expect(__test.safeCtxUIState({ hasUI: false } as any)).toBe(false);
 		expect(__test.safeCtxTheme(ctx).fg("text", "ok")).toBe("ok");
 	});
 
@@ -194,11 +209,11 @@ describe("stale ExtensionContext fallbacks", () => {
 	test("user message renderer stays compact across session restarts", () => {
 		const pi = createPi();
 		class UserMessageComponent {
-			contentBox = {
+			children = [{
 				paddingY: 1,
 				invalidateCache() {},
 				setBgFn(_fn?: unknown) {},
-			};
+			}];
 			render(_width: number) {
 				return ["hello"];
 			}
@@ -207,6 +222,7 @@ describe("stale ExtensionContext fallbacks", () => {
 
 		const renderFrame = () => new UserMessageComponent().render(20).map((line) => stripControl(line));
 
+		tempAgentConfig(USER_MESSAGE_COMPACT_CONFIG);
 		const cwd = tempCwd(USER_MESSAGE_COMPACT_CONFIG);
 
 		pi.emit("session_start", {}, uiCtx(cwd));
@@ -217,11 +233,39 @@ describe("stale ExtensionContext fallbacks", () => {
 		expect(firstRender[2]).toMatch(/^┗.*┛$/);
 
 		pi.emit("session_shutdown");
-		expect(() => new UserMessageComponent().render(20)).not.toThrow();
+		expect(renderFrame()).toEqual(firstRender);
 		pi.emit("session_start", {}, uiCtx(cwd));
 
 		const secondRender = renderFrame();
 		expect(secondRender).toEqual(firstRender);
+	});
+
+	test("active non-UI contexts leave user messages unframed", () => {
+		const pi = createPi();
+		class UserMessageComponent {
+			children = [{
+				bgFn: undefined as unknown,
+				paddingY: 1,
+				invalidateCache() {},
+				setBgFn(fn?: unknown) {
+					this.bgFn = fn;
+				},
+			}];
+			render(_width: number) {
+				const box = this.children[0]!;
+				return [`${box.paddingY}:${box.bgFn ? "bg" : "plain"}`];
+			}
+		}
+		installUserMessageRenderer(pi.api as any, UserMessageComponent);
+		tempAgentConfig(USER_MESSAGE_COMPACT_CONFIG);
+		const cwd = tempCwd(USER_MESSAGE_COMPACT_CONFIG);
+		const component = new UserMessageComponent();
+
+		pi.emit("session_start", {}, uiCtx(cwd));
+		expect(component.render(20).map((line) => stripControl(line))[1]).toMatch(/^┃0:plain +┃$/);
+		pi.emit("session_start", {}, uiCtx(cwd, false));
+
+		expect(component.render(20).map((line) => stripControl(line))).toEqual(["1:bg", ""]);
 	});
 
 	test("styled markdown code blocks survive a stale active context", () => {

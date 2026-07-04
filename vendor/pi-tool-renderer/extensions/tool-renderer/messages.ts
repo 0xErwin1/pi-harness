@@ -112,10 +112,15 @@ function safeCtxCwd(ctx?: ExtensionContext): string {
 }
 
 function safeCtxHasUI(ctx?: ExtensionContext): boolean {
+	return safeCtxUIState(ctx) === true;
+}
+
+function safeCtxUIState(ctx?: ExtensionContext): boolean | undefined {
+	if (!ctx) return undefined;
 	try {
-		return Boolean(ctx?.hasUI);
+		return Boolean(ctx.hasUI);
 	} catch {
-		return false;
+		return undefined;
 	}
 }
 
@@ -128,7 +133,20 @@ function safeCtxTheme(ctx?: ExtensionContext): any {
 	}
 }
 
-export const __test = { applyPromptZoneMarkers, renderStyledCodeBlock, renderUserMessageBorder, safeCtxCwd, safeCtxHasUI, safeCtxTheme, stripPromptZoneMarkers };
+function userMessageContentBox(component: any): any {
+	if (component?.contentBox) return component.contentBox;
+	const children = component?.children;
+	if (!Array.isArray(children)) return undefined;
+	return children.find((child) => (
+		child &&
+		typeof child === "object" &&
+		"paddingY" in child &&
+		typeof child.setBgFn === "function" &&
+		typeof child.invalidateCache === "function"
+	));
+}
+
+export const __test = { applyPromptZoneMarkers, renderStyledCodeBlock, renderUserMessageBorder, safeCtxCwd, safeCtxHasUI, safeCtxTheme, safeCtxUIState, stripPromptZoneMarkers, userMessageContentBox };
 
 function appendUserMessageBreak(lines: string[], width: number, cwd?: string): string[] {
 	if (lines.length === 0 || !settingBoolean("userMessageTrailingBlankLine", true, cwd)) return lines;
@@ -155,11 +173,11 @@ export function installUserMessageRenderer(pi: ExtensionAPI, UserMessageComponen
 		};
 		prototype[USER_MESSAGE_PATCH_SYMBOL] = state;
 		prototype.render = function compactUserMessageRender(this: any, width: number): string[] {
-			const box = this?.contentBox;
+			const box = userMessageContentBox(this);
 			const ctx = state?.activeCtx;
 			const cwd = safeCtxCwd(ctx);
-			if (box && safeCtxHasUI(ctx)) {
-				const compact = settingBoolean("compactUserMessages", true, cwd);
+			if (box) {
+				const compact = safeCtxUIState(ctx) !== false && settingBoolean("compactUserMessages", true, cwd);
 				const paddingY = compact ? 0 : 1;
 				const boxState = compact ? `${paddingY}:border:ansi-green:text:pi-red:left` : `${paddingY}:background:userMessageBg`;
 
