@@ -24,9 +24,9 @@ let
         entry = "extensions/tool-renderer.ts";
       }
       {
-        name = "rpiv-ask-user-question.ts";
+        name = "pi-ask-user.ts";
         root = ../.;
-        entry = "vendor/rpiv-ask-user-question/index.ts";
+        entry = "vendor/pi-ask-user/index.ts";
       }
       {
         name = "pi-subagents.ts";

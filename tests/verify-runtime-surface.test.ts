@@ -25,9 +25,14 @@ test("verify-runtime-surface tracks lazy command and vendored question files", (
 	for (const runtimePath of [
 		"extensions/btw.ts",
 		"vendor/pi-subagents/src/index.ts",
-		"vendor/rpiv-ask-user-question",
-		"vendor/rpiv-ask-user-question/index.ts",
-		"vendor/rpiv-ask-user-question/README.md",
+		"vendor/pi-ask-user",
+		"vendor/pi-ask-user/index.ts",
+		"vendor/pi-ask-user/upstream.ts",
+		"vendor/pi-ask-user/single-select-layout.ts",
+		"vendor/pi-ask-user/package.json",
+		"vendor/pi-ask-user/LICENSE",
+		"vendor/pi-ask-user/README.md",
+		"vendor/pi-ask-user/skills/ask-user/SKILL.md",
 	]) {
 		assert.match(script, new RegExp(`path: "${runtimePath.replaceAll("/", "\\/")}"`));
 	}
@@ -37,10 +42,10 @@ test("normal install paths expose the vendored question wrapper", () => {
 	const linkScript = readRepoFile("scripts/link.sh");
 	const defaultNix = readRepoFile("lib/default.nix");
 
-	assert.match(linkScript, /vendor\/rpiv-ask-user-question\/index\.ts/);
-	assert.match(linkScript, /rpiv-ask-user-question\.ts/);
-	assert.match(defaultNix, /name = "rpiv-ask-user-question\.ts"/);
-	assert.match(defaultNix, /entry = "vendor\/rpiv-ask-user-question\/index\.ts"/);
+	assert.match(linkScript, /vendor\/pi-ask-user\/index\.ts/);
+	assert.match(linkScript, /pi-ask-user\.ts/);
+	assert.match(defaultNix, /name = "pi-ask-user\.ts"/);
+	assert.match(defaultNix, /entry = "vendor\/pi-ask-user\/index\.ts"/);
 });
 
 test("README documents the lazy runtime boundaries", () => {
@@ -48,7 +53,6 @@ test("README documents the lazy runtime boundaries", () => {
 
 	assert.match(readme, /named subagents receive isolated prompts/i);
 	assert.match(readme, /`\/btw` loads its model runtime only when invoked/i);
-	assert.match(readme, /`ask_user_question` wrapper/i);
-	assert.match(readme, /Atlas\+Engram remains the SDD persistence authority/i);
+	assert.match(readme, /upstream `ask_user` tool/i);	assert.match(readme, /Atlas\+Engram remains the SDD persistence authority/i);
 	assert.match(readme, /Atlas writes require approval/i);
 });

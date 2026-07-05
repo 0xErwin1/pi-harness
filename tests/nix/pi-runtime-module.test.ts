@@ -89,6 +89,8 @@ function moduleEval(): any {
 		  managedExtensionsForce = evaluated.config.home.file.".pi/agent/extensions".force;
 		  managedExtensionsRecursive = evaluated.config.home.file.".pi/agent/extensions".recursive;
 		  vendorExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-subagents.ts".force;
+		  piAskUserExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-ask-user.ts".force;
+		  piAskUserExtensionText = evaluated.config.home.file.".pi/agent/extensions/pi-ask-user.ts".text;
 		  wrapperText = evaluated.config.home.file.".local/bin/pi-harness-pi".text;
 		  wrapperExecutable = evaluated.config.home.file.".local/bin/pi-harness-pi".executable;
 		}
@@ -105,10 +107,13 @@ test("Pi mutable activation preserves local fields while applying generated sett
 	assert.ok(result.homeFileKeys.includes(".pi/agent/themes/ayu-dark.json"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/themes/ayu-light.json"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-tool-renderer.ts"));
+	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-ask-user.ts"));
 	assert.equal(result.managedResourceForce, true);
 	assert.equal(result.managedExtensionsForce, true);
 	assert.equal(result.managedExtensionsRecursive, true);
 	assert.equal(result.vendorExtensionForce, true);
+	assert.equal(result.piAskUserExtensionForce, true);
+	assert.match(result.piAskUserExtensionText, /vendor\/pi-ask-user\/index\.ts/);
 	assert.ok(!result.homeFileKeys.includes(".pi/agent/settings.nix-generated.json"));
 	assert.match(result.activationText, /if \[ -L "\$target" \]; then/);
 	const home = mkdtempSync(join(tmpdir(), "pi-harness-home-"));

@@ -101,6 +101,30 @@ link_file() {
 # resolve in ${PI_EXT} (where the siblings do not exist) and fail. A real file that
 # re-exports the entry by ABSOLUTE path loads the entry from its true directory, so
 # its siblings resolve. Generated outside the repo, so it never enters the tsconfig.
+remove_stale_question_prompt_loaders() {
+	local dst content
+
+	for dst in "${PI_EXT}"/*ask-user-question.ts; do
+		[ -e "$dst" ] || continue
+
+		if [ -L "$dst" ]; then
+			rm "$dst"
+			echo "removed:  ${dst} -> stale ask-user-question symlink"
+			continue
+		fi
+
+		if [ ! -f "$dst" ]; then
+			continue
+		fi
+
+		content="$(cat "$dst")"
+		if printf '%s\n' "$content" | grep -Eq '^export \{ default \} from ".*/vendor/.+ask-user-question/index\.ts";$'; then
+			rm "$dst"
+			echo "removed:  ${dst} -> stale ask-user-question re-export"
+		fi
+	done
+}
+
 write_vendor_loader() {
 	local entry="$1" dst="$2" expected
 
@@ -146,8 +170,9 @@ done
 # Vendored third-party extensions: loaded via generated absolute-path re-export
 # files (see write_vendor_loader) so their internal relative imports resolve, and so
 # the vendored code stays out of the harness tsconfig. See vendor/*/VENDORED.md.
+remove_stale_question_prompt_loaders
 write_vendor_loader "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "${PI_EXT}/pi-tool-renderer.ts"
-write_vendor_loader "${REPO_DIR}/vendor/rpiv-ask-user-question/index.ts" "${PI_EXT}/rpiv-ask-user-question.ts"
+write_vendor_loader "${REPO_DIR}/vendor/pi-ask-user/index.ts" "${PI_EXT}/pi-ask-user.ts"
 # pi-subagents.ts points at the active native tintinweb entrypoint. The entrypoint
 # keeps compatibility names (Agent/get_subagent_result/steer_subagent and /agents)
 # while passing through native capabilities broadly.

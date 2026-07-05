@@ -2,9 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import harness, { buildHarnessDoctorReport, shouldInjectOrchestratorPrompt } from "../../extensions/harness.ts";
-import { anyOverlayOpen } from "../../packages/shared/overlay-gate.ts";
 import { getSubagentInvocationContext, withSubagentProcessEnv } from "../../vendor/pi-subagents/src/invocation-config.ts";
-import { askUserQuestion } from "../../vendor/rpiv-ask-user-question/index.ts";
 
 function createProbe(files: string[], dirs: string[]) {
 	const fileSet = new Set(files);
@@ -39,8 +37,13 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 			join(packageRoot, "extensions", "skill-registry.ts"),
 			join(packageRoot, "extensions", "btw.ts"),
 			join(packageRoot, "vendor", "pi-subagents", "src", "index.ts"),
-			join(packageRoot, "vendor", "rpiv-ask-user-question", "index.ts"),
-			join(packageRoot, "vendor", "rpiv-ask-user-question", "README.md"),
+			join(packageRoot, "vendor", "pi-ask-user", "index.ts"),
+			join(packageRoot, "vendor", "pi-ask-user", "upstream.ts"),
+			join(packageRoot, "vendor", "pi-ask-user", "single-select-layout.ts"),
+			join(packageRoot, "vendor", "pi-ask-user", "package.json"),
+			join(packageRoot, "vendor", "pi-ask-user", "LICENSE"),
+			join(packageRoot, "vendor", "pi-ask-user", "README.md"),
+			join(packageRoot, "vendor", "pi-ask-user", "skills", "ask-user", "SKILL.md"),
 			join(packageRoot, "packages", "subagents-compat", "index.ts"),
 			join(cwd, ".agent", "skill-registry.md"),
 			join(agentHome, "mcp.json"),
@@ -50,7 +53,7 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 			join(packageRoot, "assets", "chains"),
 			join(packageRoot, "assets", "support"),
 			join(packageRoot, "vendor", "pi-subagents"),
-			join(packageRoot, "vendor", "rpiv-ask-user-question"),
+			join(packageRoot, "vendor", "pi-ask-user"),
 		],
 	);
 
@@ -62,7 +65,7 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 		engramCliAvailable: true,
 	});
 
-	assert.equal(report.checks.length, 20);
+	assert.equal(report.checks.length, 25);
 	assert.equal(report.severity, "info");
 	assert.ok(report.checks.every((check) => check.status === "pass"));
 	assert.match(report.message, /^pi-harness doctor/m);
@@ -241,102 +244,4 @@ test("before_agent_start leaves async-local child agent prompts untouched", asyn
 	await withSubagentProcessEnv("agent-456", async () => {
 		assert.equal(handler?.({ systemPrompt: "child prompt" }, {}), undefined);
 	});
-});
-
-test("ask-user-question wrapper returns a needs_user_answer fallback without UI", async () => {
-	const result = await askUserQuestion(
-		{ question: "Pick a direction", options: ["Narrow", "Broad"] },
-		{ hasUI: false, ui: {} } as any,
-	);
-
-	assert.equal(result.details.status, "needs_user_answer");
-	assert.match(result.content[0].text, /needs_user_answer/);
-	assert.match(result.content[0].text, /Pick a direction/);
-	assert.equal(anyOverlayOpen(), false);
-});
-
-test("ask-user-question wrapper brackets UI interaction with the overlay gate", async () => {
-	const overlayStateDuringSelect: boolean[] = [];
-	const result = await askUserQuestion(
-		{ question: "Pick a direction", options: ["Narrow", "Broad"] },
-		{
-			hasUI: true,
-			ui: {
-				async select(_title: string, options: string[]) {
-					overlayStateDuringSelect.push(anyOverlayOpen());
-					return options[0];
-				},
-			},
-		} as any,
-	);
-
-	assert.deepEqual(overlayStateDuringSelect, [true]);
-	assert.equal(result.details.status, "answered");
-	assert.equal(result.details.answers[0]?.answer, "Narrow");
-	assert.equal(anyOverlayOpen(), false);
-});
-
-test("ask-user-question wrapper exits the overlay gate when UI selection throws", async () => {
-	await assert.rejects(
-		askUserQuestion(
-			{ question: "Pick a direction", options: ["Narrow", "Broad"] },
-			{
-				hasUI: true,
-				ui: {
-					async select() {
-						assert.equal(anyOverlayOpen(), true);
-						throw new Error("dialog failed");
-					},
-				},
-			} as any,
-		),
-		/dialog failed/,
-	);
-	assert.equal(anyOverlayOpen(), false);
-});
-
-test("ask-user-question wrapper preserves all schema questions without UI", async () => {
-	const result = await askUserQuestion(
-		{
-			questions: [
-				{ question: "Approve scope?", options: ["Yes", "No"] },
-				{ question: "Choose delivery", options: ["Single PR", "Stacked PRs"] },
-			],
-		},
-		{ hasUI: false, ui: {} } as any,
-	);
-
-	assert.equal(result.details.status, "needs_user_answer");
-	assert.deepEqual(result.details.questions.map((question) => question.question), ["Approve scope?", "Choose delivery"]);
-	assert.match(result.content[0].text, /Approve scope\?/);
-	assert.match(result.content[0].text, /Choose delivery/);
-});
-
-test("ask-user-question wrapper asks schema questions sequentially", async () => {
-	const seen: string[] = [];
-	const result = await askUserQuestion(
-		{
-			questions: [
-				{ question: "Approve scope?", options: ["Yes", "No"] },
-				{ question: "Choose delivery", options: ["Single PR", "Stacked PRs"] },
-			],
-		},
-		{
-			hasUI: true,
-			ui: {
-				async select(title: string, options: string[]) {
-					seen.push(title);
-					return options[0];
-				},
-			},
-		} as any,
-	);
-
-	assert.deepEqual(seen, ["Approve scope?", "Choose delivery"]);
-	assert.equal(result.details.status, "answered");
-	assert.deepEqual(result.details.answers, [
-		{ question: "Approve scope?", answer: "Yes" },
-		{ question: "Choose delivery", answer: "Single PR" },
-	]);
-	assert.equal(anyOverlayOpen(), false);
 });

@@ -26,9 +26,14 @@ const REQUIRED_EXTENSION_FILES = [
 const REQUIRED_VENDOR_SURFACE = [
 	{ path: "vendor/pi-subagents", kind: "dir" as const, status: "fail" as const },
 	{ path: "vendor/pi-subagents/src/index.ts", kind: "file" as const, status: "fail" as const },
-	{ path: "vendor/rpiv-ask-user-question", kind: "dir" as const, status: "fail" as const },
-	{ path: "vendor/rpiv-ask-user-question/index.ts", kind: "file" as const, status: "fail" as const },
-	{ path: "vendor/rpiv-ask-user-question/README.md", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/pi-ask-user", kind: "dir" as const, status: "fail" as const },
+	{ path: "vendor/pi-ask-user/index.ts", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/pi-ask-user/upstream.ts", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/pi-ask-user/single-select-layout.ts", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/pi-ask-user/package.json", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/pi-ask-user/LICENSE", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/pi-ask-user/README.md", kind: "file" as const, status: "fail" as const },
+	{ path: "vendor/pi-ask-user/skills/ask-user/SKILL.md", kind: "file" as const, status: "fail" as const },
 	{
 		path: "packages/subagents-compat/index.ts",
 		kind: "file" as const,

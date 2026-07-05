@@ -16,7 +16,7 @@ this adds the discipline for using them well.
 | `extensions/sdd-orchestrator.ts` | Programmatic SDD orchestrator — reads the DAG state from Engram and drives phase delegation. |
 | `extensions/shell-guard.ts` | Shell safety guard — blocks destructive `bash` commands and confirms sensitive ones. |
 | `extensions/btw.ts` | Lazy `/btw` side-question command with isolated transcript handling. |
-| `vendor/rpiv-ask-user-question/` | Local `ask_user_question` wrapper with UI and non-UI paths. |
+| `vendor/pi-ask-user/` | Vendored upstream `ask_user` decision prompt extension. |
 | `assets/orchestrator.md` | Parent-session orchestration contract. |
 
 ## Install
@@ -78,8 +78,7 @@ or `PI_CODING_AGENT_DIR/subagents.json`). The menu does not write project-local
   the parent session instead of being injected into every child prompt.
 - `/btw` loads its model runtime only when invoked, sends no tools, and keeps the
   side-question transcript out of the main conversation.
-- The vendored `ask_user_question` wrapper enters the UI overlay gate for
-  interactive selection and returns `needs_user_answer` when no UI is available.
+- The vendored `pi-ask-user` extension exposes the upstream `ask_user` tool.
 - Atlas+Engram remains the SDD persistence authority. Atlas writes require approval;
   OpenSpec/file-backed artifacts are opt-in only.
 
@@ -89,7 +88,7 @@ Recommended companions, installed separately via `~/.pi/agent/settings.json`
 (pinned):
 
 - `pi-lens` — real-time LSP / lint / type-check feedback.
-- `@juicesharp/rpiv-ask-user-question` — upstream source for structured SDD
-  questionnaire behavior; this repo vendors only a narrow adapter.
+- `pi-ask-user` — vendored from `https://github.com/edlsh/pi-ask-user` for
+  interactive decision prompts.
 
-This repo does not bundle the companion packages themselves.
+This repo does not bundle the other companion packages themselves.
