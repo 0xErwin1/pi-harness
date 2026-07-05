@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -20,6 +20,13 @@ export const REQUIRED_RUNTIME_SURFACE = [
   { path: "assets/chains", kind: "dir" },
   { path: "assets/support", kind: "dir" },
   { path: "assets/orchestrator.md", kind: "file" },
+  { path: "assets/agents/sdd-explore-testing.md", kind: "file" },
+  { path: "assets/agents/sdd-plan-testing.md", kind: "file" },
+  { path: "assets/agents/sdd-run-testing.md", kind: "file" },
+  { path: "assets/agents/sdd-report-testing.md", kind: "file" },
+  { path: "assets/support/setup-testing.md", kind: "file" },
+  { path: "assets/support/sdd-testing-context.md", kind: "file" },
+  { path: "assets/support/visual-diff.md", kind: "file" },
   { path: "extensions", kind: "dir" },
   { path: "extensions/harness.ts", kind: "file" },
   { path: "extensions/shell-guard.ts", kind: "file" },
@@ -49,6 +56,18 @@ export const REQUIRED_RUNTIME_SURFACE = [
   { path: "vendor/pi-tool-renderer/extensions/tool-renderer.ts", kind: "file" },
 ];
 
+const PROVIDER_NEUTRAL_TESTING_ASSET_PATHS = [
+  "assets/agents/sdd-explore-testing.md",
+  "assets/agents/sdd-plan-testing.md",
+  "assets/agents/sdd-run-testing.md",
+  "assets/agents/sdd-report-testing.md",
+  "assets/support/setup-testing.md",
+  "assets/support/sdd-testing-context.md",
+  "assets/support/visual-diff.md",
+];
+
+const PROVIDER_SPECIFIC_MCP_NAME = /\bmcp__[A-Za-z0-9_]+\b/g;
+
 function pathKind(path) {
   try {
     const stat = statSync(path);
@@ -58,6 +77,23 @@ function pathKind(path) {
   } catch {
     return "missing";
   }
+}
+
+export function findProviderSpecificMcpReferences(root = DEFAULT_ROOT) {
+  const references = [];
+
+  for (const relativePath of PROVIDER_NEUTRAL_TESTING_ASSET_PATHS) {
+    const absolutePath = join(root, relativePath);
+    if (!existsSync(absolutePath) || pathKind(absolutePath) !== "file") continue;
+
+    const content = readFileSync(absolutePath, "utf8");
+    const matches = content.match(PROVIDER_SPECIFIC_MCP_NAME) ?? [];
+    for (const match of matches) {
+      references.push({ path: relativePath, match });
+    }
+  }
+
+  return references;
 }
 
 export function verifyRuntimeSurface(root = DEFAULT_ROOT) {
@@ -74,17 +110,28 @@ export function verifyRuntimeSurface(root = DEFAULT_ROOT) {
     root,
     checked: REQUIRED_RUNTIME_SURFACE,
     missing,
+    providerSpecificReferences: findProviderSpecificMcpReferences(root),
   };
 }
 
 function runCli() {
   const result = verifyRuntimeSurface();
 
-  if (result.missing.length > 0) {
-    console.error("pi-harness runtime surface is incomplete:");
-    for (const entry of result.missing) {
-      console.error(`- ${entry.path} (${entry.kind})`);
+  if (result.missing.length > 0 || result.providerSpecificReferences.length > 0) {
+    if (result.missing.length > 0) {
+      console.error("pi-harness runtime surface is incomplete:");
+      for (const entry of result.missing) {
+        console.error(`- ${entry.path} (${entry.kind})`);
+      }
     }
+
+    if (result.providerSpecificReferences.length > 0) {
+      console.error("pi-harness runtime surface contains provider-specific MCP tool names:");
+      for (const reference of result.providerSpecificReferences) {
+        console.error(`- ${reference.path}: ${reference.match}`);
+      }
+    }
+
     process.exitCode = 1;
     return;
   }

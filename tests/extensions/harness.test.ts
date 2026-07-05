@@ -29,6 +29,13 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 	const probe = createProbe(
 		[
 			join(packageRoot, "assets", "orchestrator.md"),
+			join(packageRoot, "assets", "agents", "sdd-explore-testing.md"),
+			join(packageRoot, "assets", "agents", "sdd-plan-testing.md"),
+			join(packageRoot, "assets", "agents", "sdd-run-testing.md"),
+			join(packageRoot, "assets", "agents", "sdd-report-testing.md"),
+			join(packageRoot, "assets", "support", "setup-testing.md"),
+			join(packageRoot, "assets", "support", "sdd-testing-context.md"),
+			join(packageRoot, "assets", "support", "visual-diff.md"),
 			join(packageRoot, "extensions", "harness.ts"),
 			join(packageRoot, "extensions", "shell-guard.ts"),
 			join(packageRoot, "extensions", "mcp.ts"),
@@ -65,12 +72,13 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 		engramCliAvailable: true,
 	});
 
-	assert.equal(report.checks.length, 25);
+	assert.equal(report.checks.length, 33);
 	assert.equal(report.severity, "info");
 	assert.ok(report.checks.every((check) => check.status === "pass"));
 	assert.match(report.message, /^pi-harness doctor/m);
 	assert.match(report.message, /pass: assets\/orchestrator\.md present/);
 	assert.match(report.message, /pass: Engram CLI available/);
+	assert.match(report.message, /pass: SDD-testing assets are provider-neutral/);
 });
 
 test("buildHarnessDoctorReport flags missing optional and critical surface entries", () => {
@@ -89,6 +97,65 @@ test("buildHarnessDoctorReport flags missing optional and critical surface entri
 	assert.match(report.message, /warn: \.agent\/skill-registry\.md missing/);
 	assert.match(report.message, /warn: Engram CLI not available on PATH/);
 });
+
+
+test("buildHarnessDoctorReport rejects provider-specific MCP names in testing assets", () => {
+	const packageRoot = "/repo";
+	const cwd = "/repo/worktree";
+	const agentHome = "/home/tester/.pi/agent";
+	const testingSurface = [
+		"assets/agents/sdd-explore-testing.md",
+		"assets/agents/sdd-plan-testing.md",
+		"assets/agents/sdd-run-testing.md",
+		"assets/agents/sdd-report-testing.md",
+		"assets/support/setup-testing.md",
+		"assets/support/sdd-testing-context.md",
+		"assets/support/visual-diff.md",
+	];
+	const existingFiles = [
+		"assets/orchestrator.md",
+		"extensions/harness.ts",
+		"extensions/shell-guard.ts",
+		"extensions/mcp.ts",
+		"extensions/engram.ts",
+		"extensions/sdd-orchestrator.ts",
+		"extensions/skill-registry.ts",
+		"extensions/btw.ts",
+		"vendor/pi-subagents/src/index.ts",
+		"vendor/pi-ask-user/index.ts",
+		"vendor/pi-ask-user/upstream.ts",
+		"vendor/pi-ask-user/single-select-layout.ts",
+		"vendor/pi-ask-user/package.json",
+		"vendor/pi-ask-user/LICENSE",
+		"vendor/pi-ask-user/README.md",
+		"vendor/pi-ask-user/skills/ask-user/SKILL.md",
+		"packages/subagents-compat/index.ts",
+		".agent/skill-registry.md",
+		...testingSurface,
+	];
+	const report = buildHarnessDoctorReport({
+		cwd,
+		packageRoot,
+		agentHome,
+		probe: createProbe(
+			existingFiles.map((relativePath) => relativePath.startsWith(".") ? join(cwd, relativePath) : join(packageRoot, relativePath)),
+			[
+				join(packageRoot, "assets", "agents"),
+				join(packageRoot, "assets", "chains"),
+				join(packageRoot, "assets", "support"),
+				join(packageRoot, "vendor", "pi-subagents"),
+				join(packageRoot, "vendor", "pi-ask-user"),
+			],
+		),
+		engramCliAvailable: true,
+		readText: (absolutePath: string) => absolutePath.endsWith("sdd-run-testing.md") ? "tools:\n  - mcp__browser" : "",
+	} as any);
+
+	assert.equal(report.severity, "warning");
+	assert.match(report.message, /fail: SDD-testing assets contain provider-specific MCP tool names/);
+	assert.match(report.message, /assets\/agents\/sdd-run-testing\.md: mcp__browser/);
+});
+
 
 test("extension registers doctor and status commands", () => {
 	const commands = new Map<string, unknown>();

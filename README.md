@@ -13,7 +13,7 @@ this adds the discipline for using them well.
 | Surface | Purpose |
 | --- | --- |
 | `extensions/engram.ts` | Engram persistent-memory integration. |
-| `extensions/sdd-orchestrator.ts` | Programmatic SDD orchestrator — reads the DAG state from Engram and drives phase delegation. |
+| `extensions/sdd-orchestrator.ts` | Programmatic SDD orchestrator — reads development and testing DAG state from Engram and drives phase delegation. |
 | `extensions/shell-guard.ts` | Shell safety guard — blocks destructive `bash` commands and confirms sensitive ones. |
 | `extensions/btw.ts` | Lazy `/btw` side-question command with isolated transcript handling. |
 | `vendor/pi-ask-user/` | Vendored upstream `ask_user` decision prompt extension. |
@@ -51,6 +51,41 @@ Nothing updates silently.
 pnpm run check   # tsc --noEmit over all harness extensions
 pnpm run test    # focused harness/package tests
 ```
+
+## SDD testing flow
+
+`/sdd-test` starts an independent SDD-testing/QA flow for a feature. It is not a
+shortcut for development verification: development `/sdd-verify` remains separate
+and continues to verify implementation work in the `sdd/...` namespace.
+
+Quick path:
+
+1. Run `/sdd-test <feature>` to start guided testing intake.
+2. Approve or provide suites at the suites gate.
+3. Continue through `sdd-explore-testing`, `sdd-plan-testing`, scoped
+   `sdd-run-testing` shards, parent merge/latest, and `sdd-report-testing`.
+
+Direct advanced commands are also registered when prerequisites already exist:
+`/sdd-test-status`, `/sdd-explore-testing`, `/sdd-plan-testing`,
+`/sdd-run-testing <feature> <session_id> <unit_id>`, and
+`/sdd-report-testing`. Direct run-testing refuses missing or unsafe shard IDs.
+
+First-slice testing modes stay visible even when a runtime is missing:
+
+| Mode | Unsupported or blocked behavior |
+| --- | --- |
+| Playwright/browser | Mark unsupported or blocked when package, browsers, target URL, setup, or auth is missing. |
+| Backend | Block only when no safe project command or environment is known. |
+| API | Block when endpoint, auth, environment, or safe credentials are missing. |
+| Live browser/no-code | Mark unsupported when no Pi browser bridge or real browser session is available. |
+| Mobile/Maestro | Mark unsupported or blocked when Maestro, device, app target, or write approval is missing. |
+| Visual diff | Report skipped or partial when reference or capture capability is missing; pixel diff never gates pass/fail. |
+
+Testing artifacts use `testing/{project_slug}/{feature_slug}/...` keys and
+matching Atlas logical paths. Engram is the source of truth for testing agents
+and orchestrator recovery; Atlas is the approved human-readable documentation
+mirror. Testing agents report findings and evidence only; remediation happens in
+a separate development SDD flow.
 
 ## Subagent runtime
 

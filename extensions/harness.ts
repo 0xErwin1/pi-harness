@@ -14,6 +14,15 @@ const REQUIRED_ASSET_DIRS = [
 	"assets/chains",
 	"assets/support",
 ] as const;
+const REQUIRED_SDD_TESTING_SURFACE = [
+	{ path: "assets/agents/sdd-explore-testing.md", kind: "file" as const, status: "fail" as const },
+	{ path: "assets/agents/sdd-plan-testing.md", kind: "file" as const, status: "fail" as const },
+	{ path: "assets/agents/sdd-run-testing.md", kind: "file" as const, status: "fail" as const },
+	{ path: "assets/agents/sdd-report-testing.md", kind: "file" as const, status: "fail" as const },
+	{ path: "assets/support/setup-testing.md", kind: "file" as const, status: "fail" as const },
+	{ path: "assets/support/sdd-testing-context.md", kind: "file" as const, status: "fail" as const },
+	{ path: "assets/support/visual-diff.md", kind: "file" as const, status: "fail" as const },
+] as const;
 const REQUIRED_EXTENSION_FILES = [
 	"extensions/harness.ts",
 	"extensions/shell-guard.ts",
@@ -56,6 +65,7 @@ interface HarnessDoctorOptions {
 	packageRoot?: string;
 	agentHome?: string;
 	probe?: (path: string) => PathKind;
+	readText?: (path: string) => string | undefined;
 	engramCliAvailable?: boolean;
 }
 
@@ -88,6 +98,14 @@ function probePath(path: string): PathKind {
 		return "missing";
 	} catch {
 		return "missing";
+	}
+}
+
+function readText(path: string): string | undefined {
+	try {
+		return readFileSync(path, "utf8");
+	} catch {
+		return undefined;
 	}
 }
 
@@ -137,10 +155,40 @@ function expectedPathCheck(
 	};
 }
 
+function providerSpecificMcpCheck(packageRoot: string, currentReadText: (path: string) => string | undefined): DoctorCheck {
+	const references: string[] = [];
+	const providerSpecificMcpName = /\bmcp__[A-Za-z0-9_]+\b/g;
+
+	for (const item of REQUIRED_SDD_TESTING_SURFACE) {
+		const content = currentReadText(join(packageRoot, item.path));
+		if (content === undefined) continue;
+
+		const matches = content.match(providerSpecificMcpName) ?? [];
+		for (const match of matches) {
+			references.push(`${item.path}: ${match}`);
+		}
+	}
+
+	if (references.length === 0) {
+		return {
+			status: "pass",
+			path: "assets/sdd-testing-provider-neutral",
+			message: "SDD-testing assets are provider-neutral",
+		};
+	}
+
+	return {
+		status: "fail",
+		path: "assets/sdd-testing-provider-neutral",
+		message: `SDD-testing assets contain provider-specific MCP tool names: ${references.join(", ")}`,
+	};
+}
+
 export function buildHarnessDoctorReport(options: HarnessDoctorOptions): HarnessDoctorReport {
 	const packageRoot = options.packageRoot ?? PACKAGE_ROOT;
 	const cwd = options.cwd;
 	const probe = options.probe ?? probePath;
+	const currentReadText = options.readText ?? readText;
 	const currentAgentDir = options.agentHome ?? agentDir();
 	const engramCliAvailable = options.engramCliAvailable ?? detectEngramCliAvailable();
 	const checks: DoctorCheck[] = [
@@ -160,6 +208,16 @@ export function buildHarnessDoctorReport(options: HarnessDoctorOptions): Harness
 				relativePath,
 			),
 		),
+		...REQUIRED_SDD_TESTING_SURFACE.map((item) =>
+			expectedPathCheck(
+				probe,
+				join(packageRoot, item.path),
+				item.kind,
+				item.status,
+				item.path,
+			),
+		),
+		providerSpecificMcpCheck(packageRoot, currentReadText),
 		...REQUIRED_EXTENSION_FILES.map((relativePath) =>
 			expectedPathCheck(
 				probe,

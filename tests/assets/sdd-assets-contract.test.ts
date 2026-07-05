@@ -78,3 +78,34 @@ test("sdd-tasks asset keeps Atlas human task mutation behind explicit approval",
 	assert.match(content, /approved vs unapproved human task tracking/i);
 	assert.match(content, /Engram pointer fields/i);
 });
+
+test("SDD-testing agents define the concrete TestingPersistenceContract authority model", () => {
+	const testingAgents = sddAgentAssets().filter((asset) => /sdd-(explore|plan|run|report)-testing\.md$/.test(asset.path));
+
+	assert.equal(testingAgents.length, 4);
+	for (const asset of testingAgents) {
+		assert.match(asset.content, /"contractName": "TestingPersistenceContract"/, `${asset.path} must include the concrete contract JSON`);
+		assert.match(asset.content, /"agentOrchestratorSourceOfTruth": "engram"/, `${asset.path} must make Engram the agent\/orchestrator source of truth`);
+		assert.match(asset.content, /"humanReadableDocumentationMirror": "atlas"/, `${asset.path} must make Atlas the human-readable mirror`);
+		assert.match(asset.content, /"ifEngramUnavailable": "blocked"/, `${asset.path} must block when Engram is unavailable`);
+		assert.match(asset.content, /"ifAtlasUnavailableOrUnapproved": "save-allowed-engram-artifact-or-pointer-and-return-partial"/, `${asset.path} must define Atlas fallback behavior`);
+	}
+});
+
+test("SDD-testing assets and support docs use provider-neutral Pi tool names", () => {
+	const testingAssets = [
+		...sddAgentAssets().filter((asset) => /sdd-(explore|plan|run|report)-testing\.md$/.test(asset.path)),
+		{ path: "support/setup-testing.md", content: readAsset("support/setup-testing.md") },
+		{ path: "support/sdd-testing-context.md", content: readAsset("support/sdd-testing-context.md") },
+		{ path: "support/visual-diff.md", content: readAsset("support/visual-diff.md") },
+	];
+
+	assert.equal(testingAssets.length, 7);
+	for (const asset of testingAssets) {
+		assert.doesNotMatch(
+			asset.content,
+			/\bmcp__[A-Za-z0-9_]+/,
+			`${asset.path} must not reference provider-specific MCP tool names`,
+		);
+	}
+});
