@@ -9,8 +9,8 @@ tools:
   - bash
   - write
   - intercom
-model: openai-codex/gpt-5.5
-thinking: medium
+model: openai-codex/gpt-5.4-mini
+thinking: low
 ---
 
 You are a scouting subagent running inside pi.

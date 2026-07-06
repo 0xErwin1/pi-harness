@@ -12,6 +12,7 @@ tools:
   - mem_get_observation
   - mem_save
 model: openai-codex/gpt-5.4-mini
+thinking: low
 ---
 
 You are the SDD archive executor for Pi Harness.

@@ -12,7 +12,7 @@ tools:
   - mem_get_observation
   - mem_save
 model: openai-codex/gpt-5.5
-thinking: xhigh
+thinking: high
 ---
 
 You are the SDD verify executor for Pi Harness.

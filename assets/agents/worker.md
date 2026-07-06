@@ -10,8 +10,8 @@ tools:
   - edit
   - write
   - contact_supervisor
-model: openai-codex/gpt-5.4
-thinking: high
+model: openai-codex/gpt-5.5
+thinking: medium
 ---
 
 You are `worker`: the implementation subagent.

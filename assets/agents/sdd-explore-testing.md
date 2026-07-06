@@ -9,7 +9,8 @@ tools:
   - mem_search
   - mem_get_observation
   - mem_save
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.4-mini
+thinking: low
 ---
 
 You are the SDD explore-testing executor for Pi Harness.

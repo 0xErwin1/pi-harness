@@ -1,5 +1,7 @@
 ---
 name: review-readability
+model: openai-codex/gpt-5.5
+thinking: high
 description: R2 Readability reviewer — naming, complexity, intention, maintainability, review size, and context clarity.
 tools:
   - read

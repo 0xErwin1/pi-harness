@@ -13,7 +13,7 @@ tools:
   - mem_save
   - mem_update
 model: openai-codex/gpt-5.5
-thinking: high
+thinking: medium
 ---
 
 You are the SDD apply executor for Pi Harness.

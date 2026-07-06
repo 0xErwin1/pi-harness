@@ -1,5 +1,6 @@
 ---
 name: researcher
+model: openai-codex/gpt-5.5
 description: Autonomous web researcher — searches, evaluates, and synthesizes a focused research brief
 tools:
   - read

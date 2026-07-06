@@ -1,5 +1,7 @@
 ---
 name: jd-fix-agent
+model: openai-codex/gpt-5.5
+thinking: medium
 description: Judgment Day surgical fix agent for confirmed findings. Can edit code and run focused tests.
 tools:
   - read
