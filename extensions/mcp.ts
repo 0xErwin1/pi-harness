@@ -213,6 +213,7 @@ class StdioMcpClient implements McpClient {
 
 class HttpMcpClient implements McpClient {
 	private sessionId: string | undefined;
+	private nextId = 1;
 
 	constructor(
 		readonly name: string,
@@ -244,7 +245,7 @@ class HttpMcpClient implements McpClient {
 	}
 
 	private async request(method: string, params: JsonObject): Promise<unknown> {
-		const result = await this.send({ jsonrpc: "2.0", id: Date.now() + Math.random(), method, params });
+		const result = await this.send({ jsonrpc: "2.0", id: this.nextId++, method, params });
 		if (isObject(result) && isObject(result.error)) {
 			throw new Error(String(result.error.message ?? JSON.stringify(result.error)));
 		}
