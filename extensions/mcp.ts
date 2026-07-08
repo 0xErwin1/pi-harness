@@ -221,12 +221,27 @@ class HttpMcpClient implements McpClient {
 	) {}
 
 	async start(): Promise<void> {
-		await this.request("initialize", {
-			protocolVersion: PROTOCOL_VERSION,
-			capabilities: {},
-			clientInfo: { name: "pi-harness", version: "0.1.0" },
-		});
-		await this.notify("notifications/initialized", {});
+		await this.initializeSession();
+	}
+
+	private async initializeSession(): Promise<void> {
+		const result = await this.send(
+			{
+				jsonrpc: "2.0",
+				id: this.nextId++,
+				method: "initialize",
+				params: {
+					protocolVersion: PROTOCOL_VERSION,
+					capabilities: {},
+					clientInfo: { name: "pi-harness", version: "0.1.0" },
+				},
+			},
+			false,
+		);
+		if (isObject(result) && isObject(result.error)) {
+			throw new Error(String(result.error.message ?? JSON.stringify(result.error)));
+		}
+		await this.send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }, false);
 	}
 
 	async listTools(): Promise<McpTool[]> {
@@ -241,18 +256,18 @@ class HttpMcpClient implements McpClient {
 	close(): void {}
 
 	private async notify(method: string, params: JsonObject): Promise<void> {
-		await this.send({ jsonrpc: "2.0", method, params });
+		await this.send({ jsonrpc: "2.0", method, params }, true);
 	}
 
 	private async request(method: string, params: JsonObject): Promise<unknown> {
-		const result = await this.send({ jsonrpc: "2.0", id: this.nextId++, method, params });
+		const result = await this.send({ jsonrpc: "2.0", id: this.nextId++, method, params }, true);
 		if (isObject(result) && isObject(result.error)) {
 			throw new Error(String(result.error.message ?? JSON.stringify(result.error)));
 		}
 		return isObject(result) ? result.result : result;
 	}
 
-	private async send(payload: JsonObject): Promise<unknown> {
+	private async send(payload: JsonObject, retryMissingSession: boolean): Promise<unknown> {
 		if (!this.config.url) throw new Error(`MCP server ${this.name} is missing url`);
 		const headers: Record<string, string> = {
 			...(this.config.headers ?? {}),
@@ -271,7 +286,13 @@ class HttpMcpClient implements McpClient {
 		if (nextSession) this.sessionId = nextSession;
 
 		if (!response.ok) {
-			throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+			const body = await response.text();
+			if (retryMissingSession && this.sessionId && response.status === 404 && /session not found/i.test(body)) {
+				this.sessionId = undefined;
+				await this.initializeSession();
+				return this.send(payload, false);
+			}
+			throw new Error(`HTTP ${response.status}: ${body}`);
 		}
 
 		const text = await response.text();
@@ -359,6 +380,7 @@ export const __testing = {
 	toolName,
 	stringifyMcpContent,
 	parseSse,
+	HttpMcpClient,
 };
 
 export default function mcpExtension(pi: ExtensionAPI): void {
