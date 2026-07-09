@@ -268,27 +268,6 @@ describe("stale ExtensionContext fallbacks", () => {
 		expect(component.render(20).map((line) => stripControl(line))).toEqual(["1:bg", ""]);
 	});
 
-	test("assistant thinking renderer drops empty HTML comment separators without hiding thinking", () => {
-		const pi = createPi();
-		class AssistantMessageComponent {
-			contentContainer = { children: [] };
-			hasToolCalls = false;
-			lastMessage: any = { content: [{ thinking: "<!-- -->\n\nNoting cause", type: "thinking" }] };
-			render(_width: number) {
-				return ["\x1b]133;A\x07<!-- -->", "Noting cause of visible thinking blocks", "\x1b]133;B\x07\x1b]133;C\x07<!-- -->"];
-			}
-			updateContent(message: any) {
-				this.lastMessage = message;
-			}
-		}
-		installAssistantMessageRenderer(pi.api as any, AssistantMessageComponent);
-
-		const component = new AssistantMessageComponent();
-		const rendered = component.render(80);
-		expect(rendered[0]?.startsWith("\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07")).toBe(true);
-		expect(rendered.map((line) => stripControl(line))).toEqual(["Noting cause of visible thinking blocks"]);
-	});
-
 	test("styled markdown code blocks survive a stale active context", () => {
 		const rendered = __test.renderStyledCodeBlock({ lang: "ts", text: "const ok = true;", type: "code" }, 24, markdownTheme, staleCtx());
 		expect(rendered.join("\n")).toContain("const ok = true;");

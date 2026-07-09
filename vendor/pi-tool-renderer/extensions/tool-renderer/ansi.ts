@@ -102,48 +102,6 @@ export function isThinkingOnlyAssistantMessage(message: any): boolean {
 	return hasThinking;
 }
 
-export function hasThinkingAssistantContent(message: any): boolean {
-	const content = Array.isArray(message?.content) ? message.content : [];
-	return content.some((item) => item?.type === "thinking" && typeof item.thinking === "string" && item.thinking.trim());
-}
-
-const EMPTY_HTML_COMMENT_LINE_RE = /^<!--\s*-->$/;
-const OSC133_ZONE_START = "\x1b]133;A\x07";
-const OSC133_ZONE_END = "\x1b]133;B\x07";
-const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
-
-export function stripEmptyHtmlCommentLines(lines: string[]): string[] {
-	let sawZoneStart = false;
-	let sawZoneEnd = false;
-	let sawZoneFinal = false;
-	const kept: string[] = [];
-
-	for (const line of lines) {
-		const isEmptyHtmlComment = EMPTY_HTML_COMMENT_LINE_RE.test(stripAnsi(line).trim());
-		if (!isEmptyHtmlComment) {
-			kept.push(line);
-			continue;
-		}
-		sawZoneStart ||= line.includes(OSC133_ZONE_START);
-		sawZoneEnd ||= line.includes(OSC133_ZONE_END);
-		sawZoneFinal ||= line.includes(OSC133_ZONE_FINAL);
-	}
-
-	if (kept.length === 0) return kept;
-	const startPrefix = sawZoneStart && !kept.some((line) => line.includes(OSC133_ZONE_START)) ? OSC133_ZONE_START : "";
-	const endPrefix = `${sawZoneEnd && !kept.some((line) => line.includes(OSC133_ZONE_END)) ? OSC133_ZONE_END : ""}${sawZoneFinal && !kept.some((line) => line.includes(OSC133_ZONE_FINAL)) ? OSC133_ZONE_FINAL : ""}`;
-	if (kept.length === 1) {
-		kept[0] = `${startPrefix}${endPrefix}${kept[0] ?? ""}`;
-		return kept;
-	}
-	if (startPrefix) kept[0] = `${startPrefix}${kept[0] ?? ""}`;
-	if (endPrefix) {
-		const last = kept.length - 1;
-		kept[last] = `${endPrefix}${kept[last] ?? ""}`;
-	}
-	return kept;
-}
-
 export function trimThinkingOnlyAssistantLines(lines: string[]): string[] {
 	const trimmed = trimOuterBlankLines(lines).map((line) => line.trimEnd());
 	if (trimmed.length === 0) return lines;

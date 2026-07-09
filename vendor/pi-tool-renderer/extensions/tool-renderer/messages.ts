@@ -7,10 +7,8 @@ import {
 	ansiPartsFromStyled,
 	ansiRed,
 	applyBaseTextFg,
-	hasThinkingAssistantContent,
 	isThinkingOnlyAssistantMessage,
 	stableRenderWidth,
-	stripEmptyHtmlCommentLines,
 	trimOuterBlankLinesAroundRules,
 	trimThinkingOnlyAssistantLines,
 	trimTrailingBlankLines,
@@ -253,13 +251,10 @@ export function installAssistantMessageRenderer(pi: ExtensionAPI, AssistantMessa
 		prototype.render = function spacedAssistantRender(this: any, width: number): string[] {
 			const rendered = state!.originalRender.call(this, width);
 			if (!Array.isArray(rendered) || rendered.length === 0) return rendered;
-			const withoutThinkingSeparators = hasThinkingAssistantContent(this?.lastMessage)
-				? stripEmptyHtmlCommentLines(rendered)
-				: rendered;
-			if (isThinkingOnlyAssistantMessage(this?.lastMessage)) return trimThinkingOnlyAssistantLines(withoutThinkingSeparators);
-			if (this?.hasToolCalls) return withoutThinkingSeparators;
-			const end = trimTrailingBlankLines(withoutThinkingSeparators);
-			if (end.length === 0) return withoutThinkingSeparators;
+			if (isThinkingOnlyAssistantMessage(this?.lastMessage)) return trimThinkingOnlyAssistantLines(rendered);
+			if (this?.hasToolCalls) return rendered;
+			const end = trimTrailingBlankLines(rendered);
+			if (end.length === 0) return rendered;
 			return [...end, ""];
 		};
 		prototype.updateContent = function alignedAssistantUpdateContent(this: any, message: any): void {
