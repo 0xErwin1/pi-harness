@@ -425,7 +425,7 @@ Atlas is the default/new human-facing detailed artifact workspace for new SDD fl
 
 Atlas is the default/new human-facing detailed backend for SDD artifacts and an optional, approval-gated backend for human task/project records. Follow `assets/support/atlas-persistence-contract.md` in this repository, or the globally installed Atlas persistence contract, whenever the user asks to create, read, update, or organize durable records in Atlas.
 
-- Prefer the `atlas` MCP tools when available; they are the agent-facing surface over the same Atlas REST API and `atlas_client` used by the CLI.
+- Use only the `atlas` MCP tools for Atlas operations; do not use alternate Atlas interfaces or local client fallbacks.
 - Discover before mutating with `atlas_search`, `atlas_list_*`, `atlas_get_document`, or `atlas_get_task`; never guess workspace/project/board/column/document identifiers.
 - For Atlas SDD documents, resolve logical path `sdd/<change>/<phase>.md` through discovered workspace/project/folder/document records. Read full document content first, preserve the returned revision ID, then write via compare-and-swap; handle conflicts explicitly instead of overwriting.
 - SDD does not automatically create human Atlas tasks. Atlas epics/tasks/subtasks may be created or updated only when task tracking is explicitly requested and approved in the phase contract.

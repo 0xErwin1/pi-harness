@@ -11,12 +11,12 @@ This contract describes how agents should use an already configured Atlas instan
 - Do not assume a local Atlas source checkout or repository path.
 - Do not assume workspace, project, folder, board, column, document, or task identifiers.
 - Do not assume the current coding repository maps to an Atlas workspace/project.
-- Discover all runtime targets through Atlas MCP or CLI before reading or mutating.
+- Discover all runtime targets through Atlas MCP before reading or mutating.
 
 Atlas behavior this contract relies on:
 
 - Atlas exposes markdown knowledge, kanban tasks, projects, workspaces, search, and metadata through one shared backend.
-- Atlas MCP is the preferred agent interface and uses the same API semantics as other Atlas clients.
+- Atlas MCP is the required agent interface for all Atlas operations.
 - Atlas document content writes are revision-based compare-and-swap operations.
 - Atlas task and document update tools use PATCH semantics.
 - Atlas destructive operations require explicit confirmation semantics.
@@ -150,9 +150,9 @@ Use these only when the user asks to manage Atlas structure:
 
 These operations affect shared workspace organization. Confirm intent, discover existing structure first, and avoid creating duplicates.
 
-## MCP Gaps and Fallbacks
+## MCP Coverage Limits
 
-Atlas MCP intentionally does not cover every Atlas capability. If the user asks for a missing operation, use the Atlas CLI or ask for guidance.
+Use Atlas only through MCP. Atlas MCP intentionally does not cover every Atlas capability. If the user asks for an operation that is not exposed by the available MCP tools, ask for guidance or report the operation as unsupported in the current environment; do not use alternate Atlas interfaces or local client fallbacks.
 
 Common MCP gaps include:
 
@@ -163,13 +163,6 @@ Common MCP gaps include:
 - no workspace create/update/admin-delete tools;
 - no webhook, integration-config, or automation-rule tools;
 - no attachment upload/download/delete tools through MCP; MCP lists attachment metadata only.
-
-When falling back to CLI:
-
-- Keep the same discovery-first and confirmation rules.
-- Use JSON output when scripting or when exact fields matter.
-- Do not put tokens on the command line if avoidable; prefer existing config, environment provided by the user, or stdin-based token setup.
-- Remember that workspace-scoped CLI commands need an explicit workspace when no default is configured.
 
 ## Persistence Boundaries
 
