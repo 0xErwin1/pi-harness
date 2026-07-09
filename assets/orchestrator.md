@@ -86,6 +86,8 @@ Examples:
 
 Use the harness-owned `subagent` tool. Prefer delegation for long exploration, implementation, tests, or review when the parent has independent work.
 
+Generic subagents should not receive per-launch `model` overrides unless the user explicitly asks for a specific model on that launch. Model and thinking assignments are global/operator configuration through subagent profiles or agent frontmatter, not routine task parameters.
+
 Default balanced pattern for bounded implementation:
 
 ```text
@@ -187,6 +189,8 @@ Run phases in order. After **propose** and after **tasks**, pause and ask the us
 ### How to execute phases
 
 Call the `subagent` tool with the appropriate agent. Phase agents read their assigned SKILL.md when one exists; `sdd-sync` is self-contained for Pi Harness artifact reconciliation. You do not need to inject phase-skill instructions, just provide context.
+
+Launch SDD phases that feed orchestration continuation in task/result mode, not background mode. Background completion is a notification/history mechanism and is not a guarantee that the parent will resume routing from the phase result.
 
 Minimal task context to include in every phase call:
 
@@ -668,7 +672,13 @@ Automatic mode does not override reviewer burnout protection. When launching `sd
 
 ## 4R Review
 
-Four read-only review lenses are available as subagents (`review-risk`, `review-readability`, `review-reliability`, `review-resilience`) and as the `4r-review` chain, which runs all four in sequence and writes one report per lens. Each lens reports findings only with `severity: BLOCKER | CRITICAL | WARNING | SUGGESTION`; they never fix code.
+Four read-only review lenses are available as subagents (`review-risk`, `review-readability`, `review-reliability`, `review-resilience`) and as the `4r-review` chain, which runs all four in sequence and writes one report per lens. Each lens reports findings only as findings ledger rows with `severity: BLOCKER | CRITICAL | WARNING | SUGGESTION`; they never fix code. If a lens is clean, it still returns an empty ledger record with zero rows.
+
+The review ledger row schema is: `severity`, `status`, `finding_id`, `source`, `summary`, `evidence`, `affected_files`, `owner`, `created_at`, `resolved_at`. Review agents report their own ledger rows; the orchestrator merges rows from all lenses into one ledger and persists it according to the active artifact store:
+
+- OpenSpec/file store active: persist the merged ledger to the active review-ledger file path, such as `openspec/changes/{change-name}/review-ledger.md`.
+- Engram active: upsert the merged ledger to topic `sdd/{change-name}/review-ledger`, or `review/{target-slug}/ledger` for ad-hoc reviews. If Engram upsert or the memory tool is unavailable, keep the merged ledger inline and explicitly report degraded persistence.
+- No store active: keep the merged ledger inline only; do not write files or Engram artifacts.
 
 The `review-gate` extension (`extensions/review-gate.ts`) gates `bash` calls that look like git/gh workflow events, using the trigger rules in `lib/review-triggers.ts`:
 

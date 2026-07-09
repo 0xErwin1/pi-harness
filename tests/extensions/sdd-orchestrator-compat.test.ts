@@ -19,6 +19,13 @@ import orchestrator, {
 
 const readRepoFile = (relativePath: string): string => readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
 
+test("orchestrator requires task/result mode for SDD continuation phases", () => {
+	const content = readRepoFile("assets/orchestrator.md");
+
+	assert.match(content, /Launch SDD phases that feed orchestration continuation in task\/result mode, not background mode/);
+	assert.match(content, /Background completion is a notification\/history mechanism and is not a guarantee that the parent will resume routing from the phase result/);
+});
+
 test("buildDelegationMessage emits the pi-subagents Agent tool format", () => {
 	const message = buildDelegationMessage({
 		phase: "apply-progress",

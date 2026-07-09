@@ -19,12 +19,21 @@ import { loadSubagents, readSubagentsConfig } from "../../vendor/pi-subagents/j0
 import { buildModelProfileRows, commitStagedModelProfiles } from "../../vendor/pi-subagents/j0k3r/src/model-profiles-ui.ts";
 import { resolveEffectiveSubagentProfile } from "../../vendor/pi-subagents/j0k3r/src/profile-resolver.ts";
 
+const readRepoFile = (relativePath: string): string => readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
+
 function withTempDir(run: (dir: string) => void | Promise<void>) {
 	const dir = mkdtempSync(join(tmpdir(), "pi-harness-frontmatter-"));
 	return Promise.resolve(run(dir)).finally(() => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 }
+
+test("orchestrator keeps generic subagent model overrides in global operator config", () => {
+	const content = readRepoFile("assets/orchestrator.md");
+
+	assert.match(content, /Generic subagents should not receive per-launch `model` overrides unless the user explicitly asks/);
+	assert.match(content, /Model and thinking assignments are global\/operator configuration through subagent profiles or agent frontmatter/);
+});
 
 test("writeAgentFrontmatterProfile upserts model and thinking without touching the body", async () => {
 	await withTempDir((dir) => {
