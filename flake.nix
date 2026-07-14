@@ -76,6 +76,11 @@
               exec bash ${./scripts/dev-pi.sh} "$@"
             '';
           };
+          piApp = harnessLib.mkPiApp {
+            inherit pkgs;
+            pi = pkgs.pi-coding-agent;
+            assetsPkg = self.packages.${system}.pi-harness-assets;
+          };
         in
         {
           dev-pi = {
@@ -85,6 +90,10 @@
           relink = {
             type = "app";
             program = nixpkgs.lib.getExe relink;
+          };
+          pi = {
+            type = "app";
+            program = nixpkgs.lib.getExe piApp;
           };
           default = self.apps.${system}.relink;
         }

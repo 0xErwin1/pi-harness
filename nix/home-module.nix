@@ -20,20 +20,15 @@ let
 
   resourceFiles = lib.listToAttrs (map resourceFile cfg.resources);
 
-  bundledThemeFiles =
-    lib.mapAttrs'
-      (name: _: {
-        name = ".pi/agent/themes/${name}";
-        value = {
-          source = harnessLib.assets.themes + "/${name}";
-          force = true;
-        };
-      })
-      (
-        lib.filterAttrs (name: type: type == "regular" && lib.hasSuffix ".json" name) (
-          builtins.readDir harnessLib.assets.themes
-        )
-      );
+  bundledThemeFiles = lib.listToAttrs (
+    map (theme: {
+      name = ".pi/agent/themes/${theme.name}";
+      value = {
+        source = theme.path;
+        force = true;
+      };
+    }) harnessLib.runtimeThemes
+  );
 
   activationEntry =
     script:
@@ -216,13 +211,13 @@ in
 
     extensions = lib.mkOption {
       type = lib.types.listOf lib.types.path;
-      default = [ ];
+      default = map (entry: entry.path) harnessLib.runtimeExtensions;
       description = "Extension paths passed to the generated Pi runtime wrapper as repeated --extension flags.";
     };
 
     themes = lib.mkOption {
       type = lib.types.listOf lib.types.path;
-      default = [ ];
+      default = map (theme: theme.path) harnessLib.runtimeThemes;
       description = "Theme paths passed to the generated Pi runtime wrapper as repeated --theme flags.";
     };
 
