@@ -4,23 +4,11 @@ import type {
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-
-const DENIED_BASH_PATTERNS: RegExp[] = [
-	/\brm\s+-rf\s+(?:\/|~|\$HOME|\.\.?)(?:\s|$)/,
-	/\bgit\s+reset\s+--hard\b/,
-	/\bgit\s+clean\b(?=[^\n]*(?:-[^\n]*f|--force))(?=[^\n]*(?:-[^\n]*d|--directories))/,
-	/\bgit\s+push\b(?=[^\n]*\s--force(?:-with-lease)?\b)/,
-	/\bchmod\s+-R\s+777\b/,
-	/\bchown\s+-R\b/,
-];
-
-const CONFIRM_BASH_PATTERNS: RegExp[] = [
-	/\bgit\s+push\b/,
-	/\bgit\s+rebase\b/,
-	/\bgit\s+branch\s+-D\b/,
-	/\bnpm\s+publish\b/,
-	/\bpi\s+remove\b/,
-];
+import {
+	classifyGuardedCommand,
+	degradeForHeadless,
+	loadGuardrailsConfig,
+} from "../packages/shell-guard/policy.ts";
 
 const GUARDED_PATH_TOOL_NAMES = new Set(["read", "write", "edit"]);
 const PATH_INPUT_KEYS = new Set([
@@ -59,26 +47,6 @@ const SENSITIVE_PATH_PATTERNS: RegExp[] = [
 	/(^|\/)\.config\/gh\/hosts\.ya?ml$/i,
 ];
 const PREVIEW_MAX_LENGTH = 180;
-
-function evaluateDeniedCommand(
-	command: string,
-): ToolCallEventResult | undefined {
-	for (const pattern of DENIED_BASH_PATTERNS) {
-		if (pattern.test(command)) {
-			return {
-				block: true,
-				reason:
-					"Blocked a destructive shell command. Ask the user for an explicit, safer plan before retrying.",
-			};
-		}
-	}
-
-	return undefined;
-}
-
-function commandRequiresConfirmation(command: string): boolean {
-	return CONFIRM_BASH_PATTERNS.some((pattern) => pattern.test(command));
-}
 
 function previewCommand(command: string): string {
 	const normalized = command.replace(/\s+/g, " ").trim();
@@ -141,19 +109,24 @@ async function guardCommand(
 	command: string,
 	ctx: ExtensionContext,
 ): Promise<ToolCallEventResult | undefined> {
-	const denied = evaluateDeniedCommand(command);
-	if (denied) return denied;
+	const config = loadGuardrailsConfig(ctx.cwd);
+	const classification = classifyGuardedCommand(command, config);
+	const verdict = degradeForHeadless(classification, ctx.hasUI);
 
-	if (!commandRequiresConfirmation(command)) return undefined;
+	if (verdict === "allow") return undefined;
 
-	if (!ctx.hasUI) {
+	if (verdict === "block") {
 		return {
 			block: true,
 			reason:
-				"This command requires interactive confirmation, which is unavailable in the current mode.",
+				classification === "confirm"
+					? "This command requires interactive confirmation, which is unavailable in the current mode."
+					: "Blocked a destructive shell command. Ask the user for an explicit, safer plan before retrying.",
 		};
 	}
 
+	// verdict === "confirm" is only reachable here when ctx.hasUI is true;
+	// degradeForHeadless already turned every headless "confirm" into "block".
 	const approved = await ctx.ui.confirm(
 		"Allow guarded command?",
 		previewCommand(command),
@@ -168,9 +141,8 @@ async function guardCommand(
 
 export const __testing = {
 	collectPathInputs,
-	commandRequiresConfirmation,
-	evaluateDeniedCommand,
 	evaluateSensitivePathTool,
+	guardCommand,
 	isSensitivePath,
 	normalizeCandidatePath,
 	previewCommand,
