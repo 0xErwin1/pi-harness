@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+/**
+ * Fast pre-flight only: this checks that required files/dirs exist by path,
+ * nothing more. It cannot catch an extension that loads cleanly but fails to
+ * register its commands or tools. tests/runtime/extension-load.test.ts, which
+ * loads the real extension set through pi's own discoverAndLoadExtensions()
+ * and asserts the registered surface, is the authoritative gate.
+ */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
