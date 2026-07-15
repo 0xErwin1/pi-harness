@@ -10,7 +10,7 @@ tools:
   - edit
   - write
   - intercom
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6
 thinking: high
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: review-risk
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6
 thinking: high
 description: R1 Risk reviewer — security, privilege boundaries, data exposure, dependency risks, and merge-blocking vulnerabilities.
 tools:

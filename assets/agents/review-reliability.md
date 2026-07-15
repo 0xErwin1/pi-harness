@@ -1,6 +1,6 @@
 ---
 name: review-reliability
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6
 thinking: high
 description: R3 Reliability reviewer — behavior-first tests, coverage value, edge cases, determinism, contracts, and regressions.
 tools:

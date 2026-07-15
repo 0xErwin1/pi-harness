@@ -1,6 +1,6 @@
 ---
 name: jd-judge-a
-model: openai-codex/gpt-5.5
+model: openai-codex/gpt-5.6
 thinking: high
 description: Judgment Day blind adversarial reviewer A. Read-only; reports findings and does not fix code.
 tools:

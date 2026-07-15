@@ -2,7 +2,7 @@
 name: sdd-spec
 description: Write SDD delta specs with requirements and scenarios.
 model: openai-codex/gpt-5.4-mini
-thinking: low
+thinking: medium
 tools:
   - read
   - grep
