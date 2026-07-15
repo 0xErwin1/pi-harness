@@ -33,3 +33,32 @@ rg --files -g '*.ts' vendor/pi-subagents/src | xargs perl -i -pe \
 
 Entrypoint wiring remains unchanged: `scripts/link.sh` and the Nix/Home Manager
 projection load `vendor/pi-subagents/src/index.ts` as `pi-subagents.ts`.
+
+## Local patches
+
+Pi Harness maintains local forks of the vendored source. Each is a tracked patch
+under `PATCHES/`. **Any re-vendor of an upstream snapshot MUST reapply every patch
+in `PATCHES/` after the source transform above, or the harness loses the change
+silently** — `vendor/**` is excluded from `tsc --noEmit`, so a dropped patch would
+not be caught by a type-check.
+
+- **`PATCHES/0001-agent-render-adapter.patch`** — replaces the inline `Agent`
+  tool-call `renderCall`/`renderResult` bodies in `src/index.ts` with a thin
+  delegation to the type-checked `packages/subagent-render` module (nerdfont +
+  Ayu card styling). `execute` is untouched. The fork is unavoidable: a second
+  `registerTool("Agent", ...)` is a fatal duplicate-tool startup error, so there
+  is no override seam — the render must be edited in place. Keeping the logic in
+  `packages/` (which `tsconfig` includes) is what makes it type-checked despite
+  living behind an un-type-checked vendor edit.
+
+Reapplication after a re-vendor:
+
+```sh
+git apply vendor/pi-subagents/PATCHES/0001-agent-render-adapter.patch
+```
+
+If the patch no longer applies cleanly (upstream moved the render block), port the
+delegation by hand: add the `renderAgentCall`/`renderAgentResult` import from
+`../../../packages/subagent-render/index.ts` and reduce the `Agent` tool's
+`renderCall`/`renderResult` to call them. `tests/vendor/patch-applied.test.ts`
+fails until the delegation is present, so `pnpm test` catches a forgotten reapply.
