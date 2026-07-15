@@ -1,11 +1,15 @@
 /**
  * A single row in the subagent roster, published on "harness:agents".
  *
- * Minimal placeholder: Work Unit 10 (subagent-ui) owns the final shape and
- * may extend this interface as its roster model solidifies.
+ * `id` is the only required field so any consumer can key on it; `agentType`
+ * and `status` are optional display hints the subagent-ui producer fills in.
+ * The channel guard validates `id` only, so these additions stay backward
+ * compatible with the malformed-payload rejection contract.
  */
 export interface AgentRow {
 	id: string;
+	agentType?: string;
+	status?: string;
 }
 
 export interface ThroughputPayload {

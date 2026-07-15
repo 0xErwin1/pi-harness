@@ -41,6 +41,7 @@ const EXPECTED_COMMANDS = [
 	"mcp",
 	"transcript",
 	"log",
+	"fleet",
 ];
 
 /**
