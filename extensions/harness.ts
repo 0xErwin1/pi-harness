@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { renderOrchestratorPrompt } from "../packages/orchestrator-prompt/render.ts";
 
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const ASSETS_DIR = join(PACKAGE_ROOT, "assets");
@@ -66,6 +67,7 @@ interface HarnessDoctorOptions {
 	agentHome?: string;
 	probe?: (path: string) => PathKind;
 	readText?: (path: string) => string | undefined;
+	renderPrompt?: (assetsDir: string) => string;
 	engramCliAvailable?: boolean;
 }
 
@@ -75,15 +77,20 @@ interface HarnessDoctorReport {
 	severity: DoctorSeverity;
 }
 
+/**
+ * Renders and returns the orchestrator core prompt, or `undefined` when no
+ * `orchestrator.md` is installed at all.
+ *
+ * Deliberately does NOT catch a `renderOrchestratorPrompt` failure: an
+ * unresolved or missing lazy-file placeholder is a packaging defect, and
+ * starting a session with a silently-incomplete orchestrator prompt is worse
+ * than failing loudly here.
+ */
 function readOrchestratorPrompt(): string | undefined {
 	if (!existsSync(ORCHESTRATOR_PROMPT_PATH)) return undefined;
 
-	try {
-		const content = readFileSync(ORCHESTRATOR_PROMPT_PATH, "utf8").trim();
-		return content.length > 0 ? content : undefined;
-	} catch {
-		return undefined;
-	}
+	const content = renderOrchestratorPrompt(ASSETS_DIR).trim();
+	return content.length > 0 ? content : undefined;
 }
 
 function agentDir(): string {
@@ -184,11 +191,33 @@ function providerSpecificMcpCheck(packageRoot: string, currentReadText: (path: s
 	};
 }
 
+function orchestratorPromptResolutionCheck(
+	packageRoot: string,
+	currentRenderPrompt: (assetsDir: string) => string,
+): DoctorCheck {
+	try {
+		currentRenderPrompt(join(packageRoot, "assets"));
+		return {
+			status: "pass",
+			path: "assets/orchestrator.md#placeholders",
+			message: "assets/orchestrator.md renders — every lazy-file placeholder resolves to an existing absolute path",
+		};
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		return {
+			status: "fail",
+			path: "assets/orchestrator.md#placeholders",
+			message: `assets/orchestrator.md failed to render: ${reason}`,
+		};
+	}
+}
+
 export function buildHarnessDoctorReport(options: HarnessDoctorOptions): HarnessDoctorReport {
 	const packageRoot = options.packageRoot ?? PACKAGE_ROOT;
 	const cwd = options.cwd;
 	const probe = options.probe ?? probePath;
 	const currentReadText = options.readText ?? readText;
+	const currentRenderPrompt = options.renderPrompt ?? renderOrchestratorPrompt;
 	const currentAgentDir = options.agentHome ?? agentDir();
 	const engramCliAvailable = options.engramCliAvailable ?? detectEngramCliAvailable();
 	const checks: DoctorCheck[] = [
@@ -199,6 +228,7 @@ export function buildHarnessDoctorReport(options: HarnessDoctorOptions): Harness
 			"fail",
 			"assets/orchestrator.md",
 		),
+		orchestratorPromptResolutionCheck(packageRoot, currentRenderPrompt),
 		...REQUIRED_ASSET_DIRS.map((relativePath) =>
 			expectedPathCheck(
 				probe,

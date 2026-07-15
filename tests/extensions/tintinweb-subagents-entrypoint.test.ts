@@ -10,6 +10,7 @@ const workerAgentUrl = new URL("../../assets/agents/worker.md", import.meta.url)
 const researcherAgentUrl = new URL("../../assets/agents/researcher.md", import.meta.url);
 const reviewerAgentUrl = new URL("../../assets/agents/reviewer.md", import.meta.url);
 const orchestratorUrl = new URL("../../assets/orchestrator.md", import.meta.url);
+const orchestratorSubagentRuntimeUrl = new URL("../../assets/orchestrator/subagent-runtime.md", import.meta.url);
 const linkScriptUrl = new URL("../../scripts/link.sh", import.meta.url);
 const devPiScriptUrl = new URL("../../scripts/dev-pi.sh", import.meta.url);
 const legacyPreflightHelperUrl = new URL("../../extensions/sdd-preflight.ts", import.meta.url);
@@ -55,6 +56,7 @@ test("generic agent prompts codify compact handoff and completion contracts", as
 	const researcher = await readFile(researcherAgentUrl, "utf8");
 	const reviewer = await readFile(reviewerAgentUrl, "utf8");
 	const orchestrator = await readFile(orchestratorUrl, "utf8");
+	const orchestratorSubagentRuntime = await readFile(orchestratorSubagentRuntimeUrl, "utf8");
 
 	for (const heading of ["# Scout Report", "## Answer", "## Relevant Files", "## Change Map", "## Risks / Unknowns", "## Next Reads"]) {
 		assert.match(scout, new RegExp(`^${heading.replace(/\//g, "\\/")}$`, "m"));
@@ -64,7 +66,10 @@ test("generic agent prompts codify compact handoff and completion contracts", as
 	assert.match(researcher, /## Completion Contract/);
 	assert.match(reviewer, /## Completion Contract/);
 	assert.match(orchestrator, /Expect `scout` to return `# Scout Report`/);
-	assert.match(orchestrator, /Do not paste the full parent prompt into child agents/i);
+	// Relocated to the subagent-runtime lazy file (see disposition #10033 WU8:
+	// lines 329-373, "## Harness Subagent Manager Runtime"); orchestrator.md
+	// itself now only carries the trigger pointing to that file.
+	assert.match(orchestratorSubagentRuntime, /Do not paste the full parent prompt into child agents/i);
 });
 
 test("native scheduler does not require optional runtime dependencies at extension import time", async () => {

@@ -109,6 +109,7 @@
         {
           assets-present = pkgs.runCommandLocal "pi-harness-assets-present" { } ''
             test -f ${assets.orchestrator}
+            test -d ${assets.orchestratorLazy}
             test -d ${assets.agents}
             test -d ${assets.chains}
             test -d ${assets.support}

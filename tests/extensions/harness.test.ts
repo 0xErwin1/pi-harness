@@ -70,15 +70,35 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 		agentHome,
 		probe,
 		engramCliAvailable: true,
+		renderPrompt: () => "rendered orchestrator core",
 	});
 
-	assert.equal(report.checks.length, 33);
+	assert.equal(report.checks.length, 34);
 	assert.equal(report.severity, "info");
 	assert.ok(report.checks.every((check) => check.status === "pass"));
 	assert.match(report.message, /^pi-harness doctor/m);
 	assert.match(report.message, /pass: assets\/orchestrator\.md present/);
+	assert.match(report.message, /pass: assets\/orchestrator\.md renders/);
 	assert.match(report.message, /pass: Engram CLI available/);
 	assert.match(report.message, /pass: SDD-testing assets are provider-neutral/);
+});
+
+test("buildHarnessDoctorReport fails the placeholder-resolution check when rendering throws", () => {
+	const packageRoot = "/repo";
+	const cwd = "/repo/worktree";
+	const report = buildHarnessDoctorReport({
+		cwd,
+		packageRoot,
+		agentHome: "/home/tester/.pi/agent",
+		probe: createProbe([join(packageRoot, "assets", "orchestrator.md")], []),
+		engramCliAvailable: true,
+		renderPrompt: () => {
+			throw new Error("renderOrchestratorPrompt: unknown placeholder {{NOT_REGISTERED}}");
+		},
+	});
+
+	assert.equal(report.severity, "warning");
+	assert.match(report.message, /fail: assets\/orchestrator\.md failed to render: renderOrchestratorPrompt: unknown placeholder \{\{NOT_REGISTERED\}\}/);
 });
 
 test("buildHarnessDoctorReport flags missing optional and critical surface entries", () => {

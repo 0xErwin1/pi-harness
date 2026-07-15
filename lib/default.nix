@@ -22,6 +22,7 @@ let
     support = ../assets/support;
     themes = ../assets/themes;
     orchestrator = ../assets/orchestrator.md;
+    orchestratorLazy = ../assets/orchestrator;
     extensions = ../extensions;
     packages = ../packages;
     vendorExtensions = [

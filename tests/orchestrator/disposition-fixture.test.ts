@@ -62,15 +62,27 @@ test("every lazy-file key referenced by a disposition is registered in LAZY_FILE
 	}
 });
 
-test("every one of the 7 registered lazy files is the target of at least one disposition", () => {
+// PI_HARNESS_ATLAS_CONTRACT_PATH is a pointer-only entry: it targets the
+// pre-existing `assets/support/atlas-persistence-contract.md`, which is not
+// sourced from any fixture line (the fixture line it replaces, 426, is
+// `obsolete`, not `lazy-verbatim`). It is intentionally exempt from the
+// "every registered lazy file is a disposition target" invariant below.
+const POINTER_ONLY_KEYS: ReadonlySet<LazyFileKey> = new Set(["PI_HARNESS_ATLAS_CONTRACT_PATH"]);
+
+test("every registered lazy file sourced from the fixture is the target of at least one disposition", () => {
 	const referencedKeys = new Set<LazyFileKey>();
 	for (const range of DISPOSITION_RANGES) {
 		if (range.disposition.kind === "lazy-verbatim") referencedKeys.add(range.disposition.file);
 	}
 
 	for (const key of Object.keys(LAZY_FILES) as LazyFileKey[]) {
+		if (POINTER_ONLY_KEYS.has(key)) continue;
 		assert.ok(referencedKeys.has(key), `lazy file ${key} is registered but no disposition relocates content to it`);
 	}
+});
+
+test("the pointer-only atlas-contract key is registered and targets the pre-existing support file", () => {
+	assert.equal(LAZY_FILES.PI_HARNESS_ATLAS_CONTRACT_PATH, "support/atlas-persistence-contract.md");
 });
 
 test("the protected sections (Work Routing Ladder, Delegation Rules) are anchored on the right lines and stay core-verbatim", () => {

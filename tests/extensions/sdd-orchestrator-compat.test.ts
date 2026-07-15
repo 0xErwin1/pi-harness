@@ -20,7 +20,10 @@ import orchestrator, {
 const readRepoFile = (relativePath: string): string => readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
 
 test("orchestrator requires task/result mode for SDD continuation phases", () => {
-	const content = readRepoFile("assets/orchestrator.md");
+	// Relocated to the SDD-workflow lazy file (see disposition #10033 WU8:
+	// lines 170-255, "## SDD Workflow"); orchestrator.md itself now only
+	// carries the trigger pointing to that file.
+	const content = readRepoFile("assets/orchestrator/sdd-workflow.md");
 
 	assert.match(content, /Launch SDD phases that feed orchestration continuation in task\/result mode, not background mode/);
 	assert.match(content, /Background completion is a notification\/history mechanism and is not a guarantee that the parent will resume routing from the phase result/);

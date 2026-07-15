@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderOrchestratorPrompt } from "../../packages/orchestrator-prompt/render.ts";
+import { LAZY_FILES, type LazyFileKey } from "../../packages/orchestrator-prompt/lazy-files.ts";
 
 const repoRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const REAL_ASSETS_DIR = join(repoRoot, "assets");
@@ -15,12 +16,21 @@ async function syntheticAssetsDir(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "orchestrator-render-"));
 }
 
-test("renderOrchestratorPrompt is a no-op on today's placeholder-free orchestrator.md", () => {
+test("renderOrchestratorPrompt resolves every real placeholder to an existing absolute path", async () => {
 	const raw = readFileSync(join(REAL_ASSETS_DIR, "orchestrator.md"), "utf8");
 	const rendered = renderOrchestratorPrompt(REAL_ASSETS_DIR);
 
-	assert.equal(rendered, raw, "rendering must not alter content when there is nothing to substitute");
-	assert.equal(rendered.length, raw.length);
+	const rawPlaceholders = raw.match(/\{\{([A-Z0-9_]+)\}\}/g) ?? [];
+	assert.ok(rawPlaceholders.length > 0, "the real core is expected to contain lazy-file placeholders");
+	assert.ok(!rendered.includes("{{"), "no raw placeholder may reach the model");
+
+	for (const token of new Set(rawPlaceholders)) {
+		const key = token.slice(2, -2) as LazyFileKey;
+		const absolutePath = join(REAL_ASSETS_DIR, LAZY_FILES[key]);
+		assert.ok(absolutePath.startsWith("/"), `${key} must resolve to an absolute path`);
+		assert.ok(rendered.includes(absolutePath), `rendered output must include the resolved path for ${key}`);
+		await assert.doesNotReject(readFile(absolutePath, "utf8"));
+	}
 });
 
 test("renderOrchestratorPrompt substitutes a known placeholder with an absolute lazy-file path", async () => {

@@ -87,6 +87,9 @@ test("SDD agent assets use Atlas as the new human artifact default and Engram as
 test("SDD assets do not describe Obsidian or OpenSpec files as the default store", () => {
 	const assets = [
 		{ path: "orchestrator.md", content: readAsset("orchestrator.md") },
+		// The Artifact Store Policy section relocated to the persistence lazy
+		// file (see disposition #10033 WU8: lines 413-423).
+		{ path: "orchestrator/persistence.md", content: readAsset("orchestrator/persistence.md") },
 		{ path: "support/atlas-persistence-contract.md", content: readAsset("support/atlas-persistence-contract.md") },
 		...sddAgentAssets(),
 		...sddChainAssets(),
@@ -101,7 +104,7 @@ test("SDD assets do not describe Obsidian or OpenSpec files as the default store
 	}
 
 	assert.match(
-		readAsset("orchestrator.md"),
+		readAsset("orchestrator/persistence.md"),
 		/Atlas is the default\/new human-facing detailed artifact workspace for new SDD flows/i,
 	);
 	assert.match(
@@ -158,7 +161,9 @@ test("review assets require findings ledgers instead of No findings wording", ()
 		"agents/review-reliability.md",
 		"agents/review-resilience.md",
 		"chains/4r-review.chain.md",
-		"orchestrator.md",
+		// The 4R Review section relocated to the review lazy file (see
+		// disposition #10033 WU8: lines 673-708).
+		"orchestrator/review.md",
 	];
 	const schemaFields = [
 		"`severity`",
