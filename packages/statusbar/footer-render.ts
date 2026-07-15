@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { hyperlink, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { IconSet } from "../icons/types.ts";
 import { getIcons } from "../icons/config.ts";
@@ -22,6 +22,13 @@ export interface CumulativeStats {
 	sub: boolean;
 }
 
+/** The open-PR primitives the footer links to. */
+export interface PrLinkInput {
+	number: number;
+	url: string;
+	isDraft?: boolean;
+}
+
 export interface FooterRenderInput {
 	model: string;
 	effort?: string;
@@ -36,6 +43,12 @@ export interface FooterRenderInput {
 	theme?: ThemeLike;
 	iconProvider?: () => IconSet;
 	cells?: number;
+	/** Output-token throughput for the last turn; `null`/absent when no cadence. */
+	tokensPerSecond?: number | null;
+	/** The current branch's open PR, or `null`/absent when there is none. */
+	pr?: PrLinkInput | null;
+	/** Whether the terminal supports OSC-8 hyperlinks (governs the PR segment). */
+	hyperlinks?: boolean;
 }
 
 const MIN_PADDING = 2;
@@ -92,6 +105,32 @@ function composeLeftRight(left: string, right: string, width: number): string {
 	return leftStr + padding + truncatedRight;
 }
 
+/** `<n> tok/s` (rounded), or empty when there is no observable cadence. */
+export function formatThroughput(tokensPerSecond: number | null | undefined): string {
+	if (tokensPerSecond == null) return "";
+
+	return `${Math.round(tokensPerSecond)} tok/s`;
+}
+
+/**
+ * `PR #<n>` for the current open PR, or empty when there is none. Wrapped in an
+ * OSC-8 hyperlink to the PR URL when the terminal supports it; otherwise plain
+ * styled text. `link` is injectable so the OSC-8 wrapper can be exercised
+ * independently of the live terminal.
+ */
+export function formatPrSegment(
+	pr: PrLinkInput | null | undefined,
+	hyperlinks: boolean,
+	theme?: ThemeLike,
+	link: (text: string, url: string) => string = hyperlink,
+): string {
+	if (!pr) return "";
+
+	const label = paint(theme, "accent", `PR #${pr.number}`);
+
+	return hyperlinks ? link(label, pr.url) : label;
+}
+
 /** `(+A,-R)`, with the added/removed counts theme-colored. Empty when no diff. */
 export function formatGitCounts(git: DiffCounts, theme?: ThemeLike): string {
 	if (git.added === 0 && git.removed === 0) return "";
@@ -123,6 +162,9 @@ function buildLine1(input: FooterRenderInput, width: number, icons: IconSet): st
 	const gitCounts = formatGitCounts(input.git, input.theme);
 	if (gitCounts) rightSegments.push(gitCounts);
 
+	const prSegment = formatPrSegment(input.pr, input.hyperlinks ?? false, input.theme);
+	if (prSegment) rightSegments.push(prSegment);
+
 	return composeLeftRight(left, rightSegments.join(" "), width);
 }
 
@@ -133,7 +175,13 @@ function buildUsageLine(windows: UsageWindow[], width: number, theme?: ThemeLike
 	return truncateToWidth(paint(theme, "muted", text), width, paint(theme, "dim", "..."));
 }
 
-function buildStatsLine(stats: CumulativeStats, width: number, icons: IconSet, theme?: ThemeLike): string | undefined {
+function buildStatsLine(
+	stats: CumulativeStats,
+	tokensPerSecond: number | null | undefined,
+	width: number,
+	icons: IconSet,
+	theme?: ThemeLike,
+): string | undefined {
 	const parts: string[] = [];
 
 	if (stats.input) parts.push(`${icons.arrowUp}${formatTokens(stats.input)}`);
@@ -141,6 +189,9 @@ function buildStatsLine(stats: CumulativeStats, width: number, icons: IconSet, t
 	if (stats.cacheRead) parts.push(`R${formatTokens(stats.cacheRead)}`);
 	if (stats.cacheWrite) parts.push(`W${formatTokens(stats.cacheWrite)}`);
 	if (stats.cost || stats.sub) parts.push(`$${stats.cost.toFixed(3)}${stats.sub ? " (sub)" : ""}`);
+
+	const throughput = formatThroughput(tokensPerSecond);
+	if (throughput) parts.push(throughput);
 
 	if (parts.length === 0) return undefined;
 
@@ -176,7 +227,7 @@ export function composeFooterLines(input: FooterRenderInput, width: number): str
 	const usageLine = buildUsageLine(input.usageWindows, width, input.theme);
 	if (usageLine !== undefined) lines.push(usageLine);
 
-	const statsLine = buildStatsLine(input.cumulative, width, icons, input.theme);
+	const statsLine = buildStatsLine(input.cumulative, input.tokensPerSecond, width, icons, input.theme);
 	if (statsLine !== undefined) lines.push(statsLine);
 
 	const statusLine = buildStatusLine(input.statuses, width, input.theme);

@@ -105,3 +105,37 @@ test("formatGitCounts is empty when there is no diff", () => {
 	assert.equal(formatGitCounts({ added: 0, removed: 0 }), "");
 	assert.equal(formatGitCounts({ added: 3, removed: 0 }), "(+3,-0)");
 });
+
+test("tokens/sec is appended to the stats line when present, alongside the untouched cost", () => {
+	const statsLine = composeFooterLines(baseInput({ tokensPerSecond: 84.6 }), 120)[1]!;
+	assert.ok(statsLine.includes("$0.123 (sub)"), "the existing cost segment is preserved");
+	assert.ok(statsLine.includes("85 tok/s"), "rounded tokens/sec is shown");
+});
+
+test("tokens/sec is omitted when the turn has no observable cadence (null)", () => {
+	const statsLine = composeFooterLines(baseInput({ tokensPerSecond: null }), 120)[1]!;
+	assert.ok(!statsLine.includes("tok/s"));
+});
+
+test("the PR number renders as an OSC-8 hyperlink when the terminal supports hyperlinks", () => {
+	const line1 = composeFooterLines(
+		baseInput({ pr: { number: 7, url: "https://example.com/pr/7", isDraft: false }, hyperlinks: true }),
+		120,
+	)[0]!;
+	assert.ok(line1.includes("PR #7"));
+	assert.ok(line1.includes("\x1b]8;;https://example.com/pr/7"), "OSC-8 sequence wraps the PR number");
+});
+
+test("the PR number renders as plain text when hyperlinks are unsupported", () => {
+	const line1 = composeFooterLines(
+		baseInput({ pr: { number: 7, url: "https://example.com/pr/7", isDraft: false }, hyperlinks: false }),
+		120,
+	)[0]!;
+	assert.ok(line1.includes("PR #7"));
+	assert.ok(!line1.includes("\x1b]8;;"), "no OSC-8 escape without hyperlink support");
+});
+
+test("the PR segment is omitted entirely when there is no open PR", () => {
+	const line1 = composeFooterLines(baseInput({ pr: null, hyperlinks: true }), 120)[0]!;
+	assert.ok(!line1.includes("PR #"));
+});

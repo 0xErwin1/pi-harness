@@ -14,6 +14,7 @@ import { appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Component, TUI } from "@earendil-works/pi-tui";
+import { getCapabilities } from "@earendil-works/pi-tui";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -34,6 +35,7 @@ import {
 	parseShortstat,
 	sumDiffs,
 } from "../packages/statusbar/index.ts";
+import { type PrInfoPayload, subscribe } from "../packages/events/index.ts";
 
 const PROBE_PATH = join(homedir(), ".pi", "agent", "harness-ratelimit-headers.jsonl");
 
@@ -148,6 +150,12 @@ class StatusFooter implements Component {
 	private gitTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly unsubscribeBranch: () => void;
 
+	/** Latest bus state: throughput (null when no cadence) and the open PR (null when none). */
+	private tokensPerSecond: number | null = null;
+	private pr: PrInfoPayload | null = null;
+	private readonly unsubscribeThroughput: () => void;
+	private readonly unsubscribePr: () => void;
+
 	/**
 	 * Cached cumulative token/cost usage. Recomputed only when usage actually
 	 * changes (turn end / provider response), never inside `render()` — scanning the
@@ -165,6 +173,16 @@ class StatusFooter implements Component {
 	) {
 		liveFooters.add(this);
 		this.unsubscribeBranch = footerData.onBranchChange(() => this.scheduleGitRefresh());
+
+		this.unsubscribeThroughput = subscribe(pi, "harness:throughput", (payload) => {
+			this.tokensPerSecond = payload.tokensPerSecond;
+			this.tui.requestRender();
+		});
+		this.unsubscribePr = subscribe(pi, "harness:pr", (payload) => {
+			this.pr = payload;
+			this.tui.requestRender();
+		});
+
 		this.scheduleGitRefresh();
 		this.refreshCumulative();
 	}
@@ -239,6 +257,9 @@ class StatusFooter implements Component {
 			cumulative,
 			statuses: this.footerData.getExtensionStatuses(),
 			theme: this.theme,
+			tokensPerSecond: this.tokensPerSecond,
+			pr: this.pr,
+			hyperlinks: getCapabilities().hyperlinks,
 		};
 	}
 
@@ -247,6 +268,8 @@ class StatusFooter implements Component {
 	dispose(): void {
 		liveFooters.delete(this);
 		this.unsubscribeBranch();
+		this.unsubscribeThroughput();
+		this.unsubscribePr();
 		if (this.gitTimer !== undefined) {
 			clearTimeout(this.gitTimer);
 			this.gitTimer = undefined;
