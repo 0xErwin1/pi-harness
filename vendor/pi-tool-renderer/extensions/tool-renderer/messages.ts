@@ -133,6 +133,21 @@ function safeCtxTheme(ctx?: ExtensionContext): any {
 	}
 }
 
+/**
+ * Adopts a session context as the active one for a message-component patch.
+ *
+ * Every in-process session binds this extension and emits `session_start`, including
+ * the headless sessions the subagent runner creates. Those contexts report `hasUI` as
+ * false and carry the subagent's cwd, so adopting one would make the interactive thread
+ * resolve settings against the wrong project and lose its theme. Only UI-bearing
+ * contexts may replace the active one; a context whose getters throw is still adopted so
+ * the existing stale-context fallbacks stay in charge.
+ */
+function adoptUIContext(state: { activeCtx?: ExtensionContext }, ctx: ExtensionContext): void {
+	if (safeCtxUIState(ctx) === false) return;
+	state.activeCtx = ctx;
+}
+
 function userMessageContentBox(component: any): any {
 	if (component?.contentBox) return component.contentBox;
 	const children = component?.children;
@@ -213,7 +228,7 @@ export function installUserMessageRenderer(pi: ExtensionAPI, UserMessageComponen
 	}
 
 	pi.on("session_start", (_event: any, ctx: ExtensionContext) => {
-		state!.activeCtx = ctx;
+		adoptUIContext(state!, ctx);
 	});
 	pi.on("session_shutdown", () => {
 		state!.activeCtx = undefined;
@@ -265,7 +280,7 @@ export function installAssistantMessageRenderer(pi: ExtensionAPI, AssistantMessa
 	}
 
 	pi.on("session_start", (_event: any, ctx: ExtensionContext) => {
-		state!.activeCtx = ctx;
+		adoptUIContext(state!, ctx);
 	});
 	pi.on("session_shutdown", () => {
 		if (prototype[ASSISTANT_MESSAGE_PATCH_SYMBOL] === state) {
@@ -325,7 +340,7 @@ export function installCompactionSummaryRenderer(pi: ExtensionAPI, Component: an
 	}
 
 	pi.on("session_start", (_event: any, ctx: ExtensionContext) => {
-		state!.activeCtx = ctx;
+		adoptUIContext(state!, ctx);
 	});
 	pi.on("session_shutdown", () => {
 		if (prototype[COMPACTION_SUMMARY_RENDERER_PATCH_SYMBOL] === state) {
@@ -410,7 +425,7 @@ export function installSkillInvocationRenderer(pi: ExtensionAPI, Component: any)
 	}
 
 	pi.on("session_start", (_event: any, ctx: ExtensionContext) => {
-		state!.activeCtx = ctx;
+		adoptUIContext(state!, ctx);
 	});
 	pi.on("session_shutdown", () => {
 		if (prototype[SKILL_INVOCATION_RENDERER_PATCH_SYMBOL] === state) {
@@ -500,7 +515,7 @@ export function installMarkdownCodeBlockRenderer(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", (_event: any, ctx: ExtensionContext) => {
-		state!.activeCtx = ctx;
+		adoptUIContext(state!, ctx);
 	});
 	pi.on("session_shutdown", () => {
 		if (prototype[MARKDOWN_CODE_BLOCK_PATCH_SYMBOL] === state) {
