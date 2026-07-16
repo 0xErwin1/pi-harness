@@ -58,6 +58,54 @@ export function emptyTranscript(): TranscriptState {
 	return { items: [], liveAssistant: null, liveTools: [] };
 }
 
+/**
+ * Fold an agent session's persisted `messages` (its `role`-discriminated
+ * history — NOT the `type`-discriminated stream events `applyTranscriptEvent`
+ * normally consumes) into a `TranscriptState`, so the takeover can backfill
+ * prior output before subscribing to live events. Structural (`unknown` in):
+ * this file never imports the vendor message types.
+ */
+export function seedTranscript(messages: readonly unknown[]): TranscriptState {
+	let state = emptyTranscript();
+
+	for (const message of messages) {
+		const event = seedEventFor(message);
+		if (event) state = applyTranscriptEvent(state, event);
+	}
+
+	return state;
+}
+
+/** Adapt one persisted message into the event shape `applyTranscriptEvent` expects, or `undefined` for a role this view does not render (e.g. `bashExecution`, `compactionSummary`). */
+function seedEventFor(message: unknown): TranscriptEvent | undefined {
+	const record = asRecord(message);
+	if (!record) return undefined;
+
+	switch (record.role) {
+		case "user":
+			return { type: "message_end", message: { role: "user", content: record.content } };
+
+		case "assistant":
+			return { type: "message_end", message: { role: "assistant", content: record.content } };
+
+		case "toolResult":
+			// `ToolResultMessage.content` is an array; `previewResult` only reads
+			// tool-result text out of a `record.content` array, so it must be
+			// wrapped in `{ content }` here or the preview falls back to a raw
+			// `JSON.stringify` of the array.
+			return {
+				type: "tool_execution_end",
+				toolCallId: typeof record.toolCallId === "string" ? record.toolCallId : "",
+				toolName: typeof record.toolName === "string" ? record.toolName : "",
+				isError: record.isError === true,
+				result: { content: record.content },
+			};
+
+		default:
+			return undefined;
+	}
+}
+
 // --- content extraction (structural, matches the pi-ai content block shapes) ---
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

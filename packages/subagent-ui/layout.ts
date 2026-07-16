@@ -29,6 +29,18 @@ export function formatTokens(total: number): string {
 	return total >= 1000 ? `${(total / 1000).toFixed(1)}k` : `${total}`;
 }
 
+/** Format elapsed milliseconds as a relative-time label: "45s ago", "3m ago", "1h4m ago". */
+export function formatRelative(elapsedMs: number): string {
+	const seconds = Math.floor(elapsedMs / 1000);
+	if (seconds < 60) return `${seconds}s ago`;
+
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+
+	const hours = Math.floor(minutes / 60);
+	return `${hours}h${minutes % 60}m ago`;
+}
+
 const STATUS_ROLE: Record<AgentStatus, ThemeColor> = {
 	queued: "muted",
 	running: "warning",
@@ -101,15 +113,31 @@ export function panelTopBorder(innerWidth: number, title: string, theme: UiTheme
 export interface RowOptions {
 	selected: boolean;
 	width: number;
+	/** Current clock reading, injected so builders never read the clock themselves. */
+	now?: number;
+	/** This agent's start time, used to render a running agent's relative elapsed time. */
+	startedAt?: number;
 }
 
-/** The `·`-separated right stat cluster: tool uses, tokens, duration, status word. */
-function statCluster(snap: AgentSnapshot, theme: UiTheme): string {
+/**
+ * The `·`-separated right stat cluster: tool uses, tokens, elapsed/duration,
+ * status word. A settled `durationMs` always wins; while running (no
+ * `durationMs` yet), `now`/`startedAt` — when both are available — render a
+ * relative "Nm ago" marker instead. Neither being available leaves the
+ * timestamp segment out entirely rather than throwing.
+ */
+function statCluster(snap: AgentSnapshot, theme: UiTheme, now?: number, startedAt?: number): string {
 	const parts: string[] = [];
 
 	if (snap.toolUses > 0) parts.push(theme.fg("muted", `${snap.toolUses} tool${snap.toolUses === 1 ? "" : "s"}`));
 	if (snap.tokens) parts.push(theme.fg("muted", `${formatTokens(snap.tokens.total)} tok`));
-	if (snap.durationMs != null) parts.push(theme.fg("muted", formatDuration(snap.durationMs)));
+
+	if (snap.durationMs != null) {
+		parts.push(theme.fg("muted", formatDuration(snap.durationMs)));
+	} else if (now != null && startedAt != null) {
+		parts.push(theme.fg("muted", formatRelative(now - startedAt)));
+	}
+
 	parts.push(statusWord(snap.status, theme));
 
 	return parts.join(theme.fg("dim", " · "));
@@ -128,7 +156,7 @@ export function renderRow(snap: AgentSnapshot, opts: RowOptions, icons: IconSet,
 	const id = theme.fg("dim", snap.id);
 
 	const left = ` ${marker} ${glyph} ${type}  ${description} ${id}`;
-	const right = `${statCluster(snap, theme)} `;
+	const right = `${statCluster(snap, theme, opts.now, opts.startedAt)} `;
 
 	const rightWidth = visibleWidth(right);
 	const leftMax = Math.max(0, opts.width - rightWidth - 2);
@@ -142,6 +170,10 @@ export interface RosterOptions {
 	width: number;
 	height: number;
 	selectedIndex: number;
+	/** Current clock reading, threaded through to each row's relative-time column. */
+	now?: number;
+	/** Per-agent start times, keyed by agent id, for the relative-time column. */
+	startedAt?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -155,7 +187,7 @@ export function renderRoster(
 	icons: IconSet,
 	theme: UiTheme,
 ): string[] {
-	const { width, height, selectedIndex } = opts;
+	const { width, height, selectedIndex, now, startedAt } = opts;
 
 	let start = 0;
 	if (list.length > height) {
@@ -163,7 +195,9 @@ export function renderRoster(
 	}
 
 	const visible = list.slice(start, start + height);
-	const out = visible.map((snap, i) => renderRow(snap, { selected: start + i === selectedIndex, width }, icons, theme));
+	const out = visible.map((snap, i) =>
+		renderRow(snap, { selected: start + i === selectedIndex, width, now, startedAt: startedAt?.get(snap.id) }, icons, theme),
+	);
 
 	if (start > 0 && out.length > 0) {
 		out[0] = truncateToWidth(theme.fg("dim", `   ... ${start} more`), width);

@@ -40,10 +40,13 @@ import {
 	type RosterState,
 } from "../packages/subagent-ui/roster.ts";
 import { panelTopBorder, renderRoster, statusGlyph, statusWord } from "../packages/subagent-ui/layout.ts";
+import { classifyDashboardKey, classifyTakeoverKey } from "../packages/subagent-ui/keys.ts";
+import type { UiThemeBg } from "../packages/subagent-ui/theme.ts";
 import {
 	applyTranscriptEvent,
 	buildTranscriptLines,
 	emptyTranscript,
+	seedTranscript,
 	type TranscriptEvent,
 	type TranscriptState,
 } from "../packages/subagent-ui/transcript.ts";
@@ -52,12 +55,14 @@ import { enterOverlay, exitOverlay } from "../packages/shared/overlay-gate.ts";
 // --- structural view of the no-fork manager surface (never imported from vendor) ---
 
 interface AgentSessionLike {
+	messages?: readonly unknown[];
 	subscribe(listener: (event: unknown) => void): () => void;
 	steer(text: string): Promise<void>;
 }
 
 interface AgentRecordLike {
 	session?: AgentSessionLike;
+	startedAt?: number;
 }
 
 interface SubagentManager {
@@ -160,6 +165,18 @@ function keyHint(theme: Theme, text: string, width: number): string {
 	return truncateToWidth(theme.fg("dim", text), width);
 }
 
+/**
+ * The overlay background token. `ThemeBg` carries no neutral role, so this picks
+ * the one that means "custom/extension chrome"; it maps to the literal panel
+ * background in the dark themes and to a soft tint in the light ones.
+ */
+const OVERLAY_BG: UiThemeBg = "customMessageBg";
+
+/** Pad every assembled row to the full viewport width and paint it, so no terminal wallpaper shows through. */
+function paintRows(lines: readonly string[], width: number, theme: Theme): string[] {
+	return lines.map((line) => theme.bg(OVERLAY_BG, padTo(line, width)));
+}
+
 class SubagentDashboard implements Component {
 	private selectedIndex = 0;
 	private readonly unsubscribe: () => void;
@@ -202,27 +219,48 @@ class SubagentDashboard implements Component {
 		const list = this.store.list();
 		this.clampSelection(list.length);
 
-		if (data === "\x1b" || data === "q") {
-			this.close(null);
-			return;
-		}
-		if (data === "\r" || data === "\n") {
-			const snap = list[this.selectedIndex];
-			this.close(snap ? snap.id : null);
-			return;
-		}
-		if ((data === "k" || data === "\x1b[A") && list.length > 0) {
-			this.selectedIndex = (this.selectedIndex - 1 + list.length) % list.length;
-			this.tui.requestRender();
-			return;
-		}
-		if ((data === "j" || data === "\x1b[B") && list.length > 0) {
-			this.selectedIndex = (this.selectedIndex + 1) % list.length;
-			this.tui.requestRender();
+		const action = classifyDashboardKey(data);
+		if (!action) return;
+
+		switch (action.kind) {
+			case "close":
+				this.close(null);
+				return;
+
+			case "select": {
+				const snap = list[this.selectedIndex];
+				this.close(snap ? snap.id : null);
+				return;
+			}
+
+			case "move": {
+				if (list.length === 0) return;
+				this.selectedIndex = (this.selectedIndex + action.rows + list.length) % list.length;
+				this.tui.requestRender();
+				return;
+			}
 		}
 	}
 
+	/** Start times for the roster's running agents, read from the live manager records. */
+	private startedAtMap(list: readonly AgentSnapshot[]): ReadonlyMap<string, number> {
+		const manager = getManager();
+		const startedAt = new Map<string, number>();
+		if (!manager) return startedAt;
+
+		for (const snap of list) {
+			const recorded = manager.getRecord(snap.id)?.startedAt;
+			if (typeof recorded === "number") startedAt.set(snap.id, recorded);
+		}
+
+		return startedAt;
+	}
+
 	render(width: number): string[] {
+		return paintRows(this.buildLines(width), width, this.theme);
+	}
+
+	private buildLines(width: number): string[] {
 		const theme = this.theme;
 		const list = this.store.list();
 		this.clampSelection(list.length);
@@ -249,7 +287,18 @@ class SubagentDashboard implements Component {
 			lines.push(divider + empty + divider);
 			for (let i = 1; i < bodyHeight; i++) lines.push(divider + " ".repeat(innerWidth) + divider);
 		} else {
-			const body = renderRoster(list, { width: innerWidth, height: bodyHeight, selectedIndex: this.selectedIndex }, this.icons, theme);
+			const body = renderRoster(
+				list,
+				{
+					width: innerWidth,
+					height: bodyHeight,
+					selectedIndex: this.selectedIndex,
+					now: Date.now(),
+					startedAt: this.startedAtMap(list),
+				},
+				this.icons,
+				theme,
+			);
 			for (let i = 0; i < bodyHeight; i++) lines.push(divider + padTo(body[i] ?? "", innerWidth) + divider);
 		}
 
@@ -294,6 +343,12 @@ class TakeoverView implements Component, Focusable {
 		private readonly done: () => void,
 	) {
 		const session = getManager()?.getRecord(id)?.session;
+
+		// Seeding must precede subscribing: the persisted history and the live
+		// stream are disjoint, so reading `messages` first is what makes the
+		// stream's future events append to real history rather than to nothing.
+		if (session?.messages) this.transcript = seedTranscript(session.messages);
+
 		this.unsubscribeSession = session
 			? session.subscribe((event) => {
 					const normalized = normalizeSessionEvent(event);
@@ -362,25 +417,31 @@ class TakeoverView implements Component, Focusable {
 	}
 
 	handleInput(data: string): void {
-		if (data === "\x1b") {
-			this.close();
-			return;
+		const action = classifyTakeoverKey(data);
+		if (!action) return;
+
+		switch (action.kind) {
+			case "close":
+				this.close();
+				return;
+
+			case "scroll":
+				this.scrollOffset = Math.max(0, this.scrollOffset + action.dir * TRANSCRIPT_SCROLL_STEP);
+				this.tui.requestRender();
+				return;
+
+			case "toInput":
+				this.input.handleInput(data);
+				this.tui.requestRender();
+				return;
 		}
-		if (data === "\x1b[A") {
-			this.scrollOffset += TRANSCRIPT_SCROLL_STEP;
-			this.tui.requestRender();
-			return;
-		}
-		if (data === "\x1b[B") {
-			this.scrollOffset = Math.max(0, this.scrollOffset - TRANSCRIPT_SCROLL_STEP);
-			this.tui.requestRender();
-			return;
-		}
-		this.input.handleInput(data);
-		this.tui.requestRender();
 	}
 
 	render(width: number): string[] {
+		return paintRows(this.buildLines(width), width, this.theme);
+	}
+
+	private buildLines(width: number): string[] {
 		const theme = this.theme;
 		const rule = theme.fg("borderAccent", "─".repeat(Math.max(1, width)));
 		const lines: string[] = [];
@@ -543,5 +604,10 @@ export default function subagentUi(pi: ExtensionAPI): void {
 	pi.registerCommand("fleet", {
 		description: "Open the subagent fleet dashboard (roster + live takeover).",
 		handler: (_args, ctx) => openDashboard(ctx, store, icons),
+	});
+
+	pi.registerShortcut("ctrl+alt+f", {
+		description: "Open the subagent fleet dashboard",
+		handler: (ctx) => openDashboard(ctx, store, icons),
 	});
 }

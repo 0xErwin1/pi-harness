@@ -7,6 +7,7 @@ import {
 	buildTranscriptLines,
 	emptyTranscript,
 	sanitizeText,
+	seedTranscript,
 	type TranscriptEvent,
 } from "../../packages/subagent-ui/transcript.ts";
 import type { UiTheme } from "../../packages/subagent-ui/theme.ts";
@@ -16,6 +17,7 @@ const icons = ICON_CATALOG.nerdfont;
 /** A no-op theme so assertions see the raw structural text, not ANSI. */
 const theme: UiTheme = {
 	fg: (_color, text) => text,
+	bg: (_color, text) => text,
 	bold: (text) => text,
 	italic: (text) => text,
 };
@@ -127,6 +129,79 @@ test("redacted thinking renders a placeholder rather than leaking content", () =
 test("wide streamed lines are sanitized so they cannot desync the overlay width", () => {
 	const out = lines([{ type: "message_end", message: { role: "user", content: "a\x1b[31mb\tc" } }], 80);
 	assert.ok(!out.some((l) => l.includes("\x1b")), `raw escape leaked into transcript: ${JSON.stringify(out)}`);
+});
+
+test("seedTranscript folds a running agent's prior messages into renderable history", () => {
+	const state = seedTranscript([
+		{ role: "user", content: "hello", timestamp: 1 },
+		{ role: "assistant", content: [{ type: "text", text: "hi there" }], timestamp: 2 },
+	]);
+
+	const out = buildTranscriptLines(state, 60, theme, icons);
+	assert.ok(out.some((l) => l.startsWith("> ") && l.includes("hello")), `seeded user message missing: ${JSON.stringify(out)}`);
+	assert.ok(out.some((l) => l.includes("hi there")), `seeded assistant message missing: ${JSON.stringify(out)}`);
+});
+
+test("seedTranscript folds a settled agent's final transcript, including a tool result", () => {
+	const state = seedTranscript([
+		{ role: "user", content: "run ls", timestamp: 1 },
+		{
+			role: "toolResult",
+			toolCallId: "t1",
+			toolName: "Bash",
+			content: [{ type: "text", text: "file.txt" }],
+			isError: false,
+			timestamp: 2,
+		},
+	]);
+
+	const out = buildTranscriptLines(state, 60, theme, icons);
+	// Asserting the exact rendered text is what pins the `result: { content }` wrapper:
+	// a bare content array still yields a line containing "output:" and "file.txt",
+	// because previewResult falls back to JSON.stringify.
+	assert.ok(
+		out.some((l) => l.includes("output: file.txt")),
+		`seeded tool result missing: ${JSON.stringify(out)}`,
+	);
+});
+
+test("seedTranscript skips custom-role messages it does not know how to render", () => {
+	const state = seedTranscript([
+		{ role: "user", content: "before", timestamp: 1 },
+		{
+			role: "bashExecution",
+			command: "ls",
+			output: "a.txt",
+			exitCode: 0,
+			cancelled: false,
+			truncated: false,
+			timestamp: 2,
+		},
+		{ role: "compactionSummary", summary: "summary text", tokensBefore: 100, timestamp: 3 },
+	]);
+
+	const out = buildTranscriptLines(state, 60, theme, icons);
+	assert.ok(out.some((l) => l.includes("before")), `seeded user message missing: ${JSON.stringify(out)}`);
+	assert.ok(!out.some((l) => l.includes("summary text")), `custom-role message must not render: ${JSON.stringify(out)}`);
+});
+
+test("seedTranscript on a genuinely empty session yields no items", () => {
+	const state = seedTranscript([]);
+	assert.deepEqual(buildTranscriptLines(state, 60, theme, icons), []);
+});
+
+test("live events appended after seedTranscript do not duplicate or lose seeded history", () => {
+	let state = seedTranscript([{ role: "user", content: "seeded message", timestamp: 1 }]);
+
+	const liveEvent: TranscriptEvent = {
+		type: "message_end",
+		message: { role: "assistant", content: [{ type: "text", text: "live reply" }] },
+	};
+	state = applyTranscriptEvent(state, liveEvent);
+
+	const out = buildTranscriptLines(state, 60, theme, icons);
+	assert.equal(out.filter((l) => l.includes("seeded message")).length, 1);
+	assert.equal(out.filter((l) => l.includes("live reply")).length, 1);
 });
 
 test("applyTranscriptEvent does not mutate the previous state", () => {
