@@ -37,7 +37,23 @@ Generic routing rules:
 2. The parent owns scope selection. Generic prompts must include exact files/areas, expected output, whether edits are allowed, and memory-write instructions when applicable.
 3. Do not paste the full parent prompt into child agents. Send the smallest hydrated handoff that lets the chosen agent do its job, then rely on the agent's own compact completion contract.
 4. Generic agents are not SDD phase executors. Never route `proposal`, `spec`, `design`, `tasks`, `apply`, `verify`, `sync`, or `archive` phase work to generic agents when an `sdd-*` phase agent exists.
-5. Generic agents may run in background for independent work. If you need their result before proceeding, wait for or retrieve the result explicitly and summarize it for the user.
+5. Generic agents may run in background for independent work. If you need their result before proceeding, wait for or retrieve the result explicitly and summarize it for the user. Default to background — see **Foreground vs Background** below.
+
+### Foreground vs Background
+
+Default to `run_in_background: true`. The mode is fixed at spawn: a foreground agent cannot be detached afterwards, so the only way out of a wrong choice is to kill the agent and start over.
+
+| Situation | Mode |
+|-----------|------|
+| Anything that may run longer than a few seconds | background |
+| Independent tasks to run at once | background, all in one message |
+| A short answer the next step depends on | foreground |
+
+1. Several background agents launched in one message run concurrently, up to the manager's limit (default 4, configurable in `/agents` -> Settings); the rest queue and drain on their own. Foreground calls block the turn, so they run one at a time.
+2. Concurrency is cooperative on one event loop, not multi-core. It pays for the I/O-bound waiting that dominates an agent turn, not for CPU-bound work.
+3. Parallelism applies to readers. The single-writer rule still holds: do not run parallel writers unless isolated worktrees are explicitly approved.
+4. Interrupting the turn while a foreground agent blocks it KILLS that agent — the parent's abort signal aborts the child. Backgrounding up front is what makes long work survivable.
+5. Background agents report on completion. Do not poll or sleep waiting for one; continue with other work.
 
 ### Generic Subagent Model Routing
 
