@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 
 import subagentUi from "../../extensions/subagent-ui.ts";
@@ -246,6 +246,71 @@ test("the takeover shows the empty hint only when history is genuinely empty", a
 	const [, takeover] = await openOverlays(["a1", null]);
 
 	assert.match(takeover.render(80).join("\n"), /\(no output yet\)/);
+});
+
+test("the takeover attaches to a session that only appears after it opened", async () => {
+	const record: { startedAt: number; session?: unknown } = { startedAt: Date.now() };
+	setManager(record);
+
+	mock.timers.enable({ apis: ["setInterval"] });
+
+	const captured: Component[] = [];
+
+	try {
+		const { commands, events, pi } = createPi();
+		subagentUi(pi as never);
+
+		events.get("subagents:created")?.({ id: "a1", type: "explorer", description: "probe agent" });
+		events.get("subagents:started")?.({ id: "a1", type: "explorer", description: "probe agent" });
+
+		const picks: unknown[] = ["a1", null];
+		let call = 0;
+
+		const ctx = {
+			mode: "tui",
+			ui: {
+				notify() {},
+				custom(factory: CustomFactory) {
+					captured.push(factory(tui, theme, {}, () => {}));
+					return Promise.resolve(picks[call++]);
+				},
+			},
+		};
+
+		await commands.get("fleet")?.handler("", ctx);
+
+		const takeover = captured[1];
+		assert.ok(takeover, "expected a takeover overlay");
+		assert.match(takeover.render(80).join("\n"), /\(no output yet\)/);
+
+		const listeners: ((event: unknown) => void)[] = [];
+		record.session = {
+			messages: [{ role: "user", content: "explore the repo" }],
+			subscribe: (listener: (event: unknown) => void) => {
+				listeners.push(listener);
+				return () => {};
+			},
+			steer: async () => {},
+		};
+
+		mock.timers.tick(1000);
+
+		assert.match(takeover.render(80).join("\n"), /explore the repo/);
+		assert.equal(listeners.length, 1, "expected the late session to be subscribed exactly once");
+
+		listeners[0]?.({
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: "found the entrypoint" }] },
+		});
+
+		assert.match(takeover.render(80).join("\n"), /found the entrypoint/);
+
+		mock.timers.tick(1000);
+		assert.equal(listeners.length, 1, "a settled attachment must not resubscribe");
+	} finally {
+		for (const component of captured) component.dispose?.();
+		mock.timers.reset();
+	}
 });
 
 test("every takeover row is painted with a background", async () => {

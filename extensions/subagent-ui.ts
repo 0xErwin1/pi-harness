@@ -321,7 +321,7 @@ class TakeoverView implements Component, Focusable {
 	private scrollOffset = 0;
 	private renderTimer?: ReturnType<typeof setTimeout>;
 	private readonly ticker: ReturnType<typeof setInterval>;
-	private readonly unsubscribeSession: () => void;
+	private unsubscribeSession?: () => void;
 	private readonly unsubscribeStore: () => void;
 	private closed = false;
 
@@ -342,25 +342,13 @@ class TakeoverView implements Component, Focusable {
 		private readonly icons: IconSet,
 		private readonly done: () => void,
 	) {
-		const session = getManager()?.getRecord(id)?.session;
-
-		// Seeding must precede subscribing: the persisted history and the live
-		// stream are disjoint, so reading `messages` first is what makes the
-		// stream's future events append to real history rather than to nothing.
-		if (session?.messages) this.transcript = seedTranscript(session.messages);
-
-		this.unsubscribeSession = session
-			? session.subscribe((event) => {
-					const normalized = normalizeSessionEvent(event);
-					if (normalized) {
-						this.transcript = applyTranscriptEvent(this.transcript, normalized);
-						this.scheduleRender();
-					}
-				})
-			: () => {};
+		this.attachSession();
 
 		this.unsubscribeStore = store.subscribe(() => this.scheduleRender());
-		this.ticker = setInterval(() => this.tui.requestRender(), 1000);
+		this.ticker = setInterval(() => {
+			this.attachSession();
+			this.tui.requestRender();
+		}, 1000);
 
 		this.input.onSubmit = (value: string) => {
 			const text = value.trim();
@@ -370,6 +358,38 @@ class TakeoverView implements Component, Focusable {
 			this.scrollOffset = 0;
 			this.tui.requestRender();
 		};
+	}
+
+	/**
+	 * Bind the transcript to the agent's session, if it exists yet.
+	 *
+	 * A record is registered — and reported as running — before its session is
+	 * built, so the session has to be resolved lazily and re-attempted until it
+	 * shows up; a single resolution at construction time would leave the view
+	 * permanently blank.
+	 *
+	 * Seeding must precede subscribing: the persisted history and the live
+	 * stream are disjoint, so reading `messages` first is what makes the
+	 * stream's future events append to real history rather than to nothing.
+	 * The two must also stay free of any `await` between them — on a
+	 * single-threaded loop that keeps the pair atomic, so no event can slip in
+	 * and be lost or double-counted.
+	 */
+	private attachSession(): void {
+		if (this.unsubscribeSession) return;
+
+		const session = getManager()?.getRecord(this.id)?.session;
+		if (!session) return;
+
+		if (session.messages) this.transcript = seedTranscript(session.messages);
+
+		this.unsubscribeSession = session.subscribe((event) => {
+			const normalized = normalizeSessionEvent(event);
+			if (normalized) {
+				this.transcript = applyTranscriptEvent(this.transcript, normalized);
+				this.scheduleRender();
+			}
+		});
 	}
 
 	private async steer(text: string): Promise<void> {
@@ -395,7 +415,8 @@ class TakeoverView implements Component, Focusable {
 	private cleanup(): boolean {
 		if (this.closed) return false;
 		this.closed = true;
-		this.unsubscribeSession();
+		this.unsubscribeSession?.();
+		this.unsubscribeSession = undefined;
 		this.unsubscribeStore();
 		clearInterval(this.ticker);
 		if (this.renderTimer) clearTimeout(this.renderTimer);
