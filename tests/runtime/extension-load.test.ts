@@ -12,10 +12,9 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 /**
  * Commands the real `extensions/` directory registers today. This is the
  * single source of truth the load test checks the runtime surface against.
- * The `header`, `throughput`, and `pr-info` extensions load here but register
- * no command (they own chrome / publish on the event bus), so they are absent
- * from this list by design. A future subagent panel (subagent-ui) that adds a
- * command MUST extend this list alongside its `pi.registerCommand()` call.
+ * The `header`, `throughput`, `pr-info`, and `subagent-ui` extensions load here
+ * but register no command (they own chrome / publish on the event bus), so they
+ * are absent from this list by design.
  */
 const EXPECTED_COMMANDS = [
 	"stash",
@@ -41,7 +40,6 @@ const EXPECTED_COMMANDS = [
 	"mcp",
 	"transcript",
 	"log",
-	"fleet",
 ];
 
 /**
