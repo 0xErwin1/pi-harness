@@ -156,8 +156,11 @@ test("seedTranscript folds a settled agent's final transcript, including a tool 
 	]);
 
 	const out = buildTranscriptLines(state, 60, theme, icons);
+	// Asserting the exact rendered text is what pins the `result: { content }` wrapper:
+	// a bare content array still yields a line containing "output:" and "file.txt",
+	// because previewResult falls back to JSON.stringify.
 	assert.ok(
-		out.some((l) => l.includes("output:") && l.includes("file.txt")),
+		out.some((l) => l.includes("output: file.txt")),
 		`seeded tool result missing: ${JSON.stringify(out)}`,
 	);
 });
