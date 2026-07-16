@@ -6,6 +6,7 @@ import { ICON_CATALOG } from "../../packages/icons/catalog.ts";
 import type { AgentSnapshot } from "../../packages/subagent-ui/roster.ts";
 import {
 	formatDuration,
+	formatRelative,
 	formatTokens,
 	panelTopBorder,
 	renderRoster,
@@ -21,6 +22,7 @@ const ascii = ICON_CATALOG.ascii;
 /** A no-op theme so assertions see the raw structural text, not ANSI. */
 const theme: UiTheme = {
 	fg: (_color, text) => text,
+	bg: (_color, text) => text,
 	bold: (text) => text,
 	italic: (text) => text,
 };
@@ -113,6 +115,54 @@ test("formatDuration renders compact seconds", () => {
 test("formatTokens abbreviates thousands", () => {
 	assert.equal(formatTokens(150), "150");
 	assert.equal(formatTokens(33800), "33.8k");
+});
+
+test("formatRelative renders seconds, minutes, and hours+minutes", () => {
+	assert.equal(formatRelative(45_000), "45s ago");
+	assert.equal(formatRelative(3 * 60_000), "3m ago");
+	assert.equal(formatRelative(64 * 60_000), "1h4m ago");
+});
+
+test("a running row with no durationMs shows relative time since start", () => {
+	const now = 10 * 60_000;
+	const startedAt = 7 * 60_000;
+	const row = renderRow(
+		snap({ status: "running", durationMs: undefined }),
+		{ selected: false, width: 70, now, startedAt },
+		ascii,
+		theme,
+	);
+	assert.ok(row.includes("3m ago"), `expected relative time for a running row: ${row}`);
+});
+
+test("a settled row with durationMs shows total duration, unaffected by now/startedAt", () => {
+	const row = renderRow(
+		snap({ status: "completed", durationMs: 4200 }),
+		{ selected: false, width: 70, now: 10 * 60_000, startedAt: 7 * 60_000 },
+		ascii,
+		theme,
+	);
+	assert.ok(row.includes("4.2s"), `expected settled duration: ${row}`);
+	assert.ok(!row.includes("ago"), `settled row must not show a relative marker: ${row}`);
+});
+
+test("a row missing both durationMs and startedAt renders no timestamp segment and does not throw", () => {
+	assert.doesNotThrow(() => {
+		const row = renderRow(snap({ status: "running", durationMs: undefined }), { selected: false, width: 70 }, ascii, theme);
+		assert.ok(!row.includes("ago"));
+	});
+});
+
+test("renderRoster threads now/startedAt per-agent into each row", () => {
+	const list = [snap({ id: "a1", status: "running", durationMs: undefined }), snap({ id: "a2", status: "running", durationMs: undefined })];
+	const startedAt = new Map([
+		["a1", 8 * 60_000],
+		["a2", 9 * 60_000],
+	]);
+	const out = renderRoster(list, { width: 70, height: 6, selectedIndex: 0, now: 10 * 60_000, startedAt }, ascii, theme);
+
+	assert.ok(out[0].includes("2m ago"), `expected a1's relative time: ${out[0]}`);
+	assert.ok(out[1].includes("1m ago"), `expected a2's relative time: ${out[1]}`);
 });
 
 test("every rendered surface stays free of the my-pi-setup monochrome sigils in nerdfont mode", () => {
