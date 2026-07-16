@@ -37,9 +37,7 @@ let
   managedSettings = lib.recursiveUpdate (lib.optionalAttrs (cfg.theme != null) {
     theme = cfg.theme;
   }) cfg.settings;
-  # Always true: the subagents.json widget/fleet default is projected on every
-  # activation, independent of whether the user manages settings.json/models.json.
-  hasMutableConfig = true;
+  hasMutableConfig = managedSettings != { } || cfg.models != null;
   settingsJson = builtins.toJSON managedSettings;
   modelsIsAttrs = cfg.models != null && builtins.isAttrs cfg.models;
   modelsJson = if modelsIsAttrs then builtins.toJSON cfg.models else null;
@@ -66,21 +64,6 @@ let
         merge_json "$agent_dir/models.json" "$generated_dir/models.json"
       ''
   );
-
-  # Turn off the vendored pi-subagents always-on widget and fleet view so its
-  # chrome does not double up with the harness /fleet dashboard. Merged (not
-  # clobbered) into the user's global subagents.json, mirroring settings.json.
-  subagentsJson = builtins.toJSON {
-    widgetMode = "off";
-    fleetView = false;
-  };
-
-  subagentsActivation = ''
-        cat > "$generated_dir/subagents.json" <<'PI_HARNESS_JSON'
-    ${subagentsJson}
-    PI_HARNESS_JSON
-        merge_json "$agent_dir/subagents.json" "$generated_dir/subagents.json"
-  '';
 
   mutableConfigActivation = activationEntry ''
         set -euo pipefail
@@ -131,7 +114,6 @@ let
 
         ${settingsActivation}
         ${modelsActivation}
-        ${subagentsActivation}
   '';
 
   wrapperThemes = [ harnessLib.assets.themes ] ++ cfg.themes;
