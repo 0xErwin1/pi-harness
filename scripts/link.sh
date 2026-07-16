@@ -79,42 +79,6 @@ console.log(`configured: ${file} -> atlas`);
 NODE
 }
 
-# Turn off the vendored pi-subagents always-on chrome (its background widget and
-# fleet view) so it does not double up with the harness /fleet dashboard. The two
-# managed keys are merged into the user's global subagents.json — other keys are
-# preserved, and a per-project .pi/subagents.json can still override them.
-configure_subagents_defaults() {
-	local subagents_file="${PI_AGENT}/subagents.json"
-
-	mkdir -p "$(dirname "$subagents_file")"
-
-	SUBAGENTS_FILE="$subagents_file" node <<'NODE'
-const fs = require("node:fs");
-
-const file = process.env.SUBAGENTS_FILE;
-
-let config = {};
-
-if (fs.existsSync(file)) {
-	try {
-		config = JSON.parse(fs.readFileSync(file, "utf8"));
-	} catch {
-		config = {};
-	}
-}
-
-if (!config || typeof config !== "object" || Array.isArray(config)) {
-	config = {};
-}
-
-config.widgetMode = "off";
-config.fleetView = false;
-
-fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
-console.log(`configured: ${file} -> widgetMode=off, fleetView=false`);
-NODE
-}
-
 link_file() {
 	local src="$1" dst="$2"
 
@@ -258,6 +222,5 @@ if [ -d "${REPO_DIR}/assets/themes" ]; then
 fi
 
 configure_atlas_mcp
-configure_subagents_defaults
 
 echo "Done."
