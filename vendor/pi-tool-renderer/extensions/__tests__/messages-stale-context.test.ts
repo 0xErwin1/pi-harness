@@ -240,7 +240,7 @@ describe("stale ExtensionContext fallbacks", () => {
 		expect(secondRender).toEqual(firstRender);
 	});
 
-	test("active non-UI contexts leave user messages unframed", () => {
+	test("headless sessions do not take over the interactive user message frame", () => {
 		const pi = createPi();
 		class UserMessageComponent {
 			children = [{
@@ -262,10 +262,14 @@ describe("stale ExtensionContext fallbacks", () => {
 		const component = new UserMessageComponent();
 
 		pi.emit("session_start", {}, uiCtx(cwd));
-		expect(component.render(20).map((line) => stripControl(line))[1]).toMatch(/^┃0:plain +┃$/);
-		pi.emit("session_start", {}, uiCtx(cwd, false));
+		const framed = component.render(20).map((line) => stripControl(line));
+		expect(framed[1]).toMatch(/^┃0:plain +┃$/);
 
-		expect(component.render(20).map((line) => stripControl(line))).toEqual(["1:bg", ""]);
+		// A subagent binding this extension in-process emits session_start with a
+		// headless context; the interactive thread must keep its own frame.
+		pi.emit("session_start", {}, uiCtx(tempCwd(USER_MESSAGE_COMPACT_CONFIG), false));
+
+		expect(component.render(20).map((line) => stripControl(line))).toEqual(framed);
 	});
 
 	test("styled markdown code blocks survive a stale active context", () => {
