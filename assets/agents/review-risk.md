@@ -31,7 +31,9 @@ Report findings only. Return findings ledger rows. If clean, return an empty led
 
 ## Review ledger contract
 
-**Exhaustive first pass.** Loop until dry: sweep the diff repeatedly until N consecutive sweeps yield zero new findings, then stop; the loop MUST be finite. Default N = 2 consecutive dry sweeps. R2 Readability MAY use N = 1. Hard ceiling: 4 sweeps regardless of N.
+**Sweep budget.** Standard review: run exactly 1 exhaustive sweep of the diff for this lens, then stop. Full-4R review (hot path — the diff touches `**/auth/**`, `**/update/**`, `**/security/**`, `**/payments/**` — or more than 400 changed lines): run at most 2 sweeps. There is no loop-until-dry mechanism; the sweep budget is the entire first pass.
+
+**Convergence budget.** Maximum 2 fix rounds per review. One fix round = the orchestrator applies fixes for all open BLOCKER/CRITICAL findings, then a scoped re-review verifies the fix diff against the ledger. Anything still open after round 2 is reported to the user as open — the loop never extends.
 
 **Findings ledger.** Return findings ledger rows with this schema for every entry:
 

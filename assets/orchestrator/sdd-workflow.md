@@ -1,5 +1,13 @@
 ## SDD Workflow (Spec-Driven Development)
 
+### Scope Proportionality (MANDATORY)
+
+The spec and design MUST be proportional to the request. Do NOT expand a bounded feature into infrastructure the user did not ask for. Adding a background reconciler, retention/pruning jobs, idempotency-token schemes, distributed lifecycle/state machines, tombstoning ledgers, or exactly-once guarantees to a simple feature ("attach a file to a comment", "add a filter", "show a badge") is over-engineering and is banned unless the requirement explicitly calls for that guarantee or the user asks for it.
+
+Pick the smallest design that satisfies the stated requirement. Surface any heavier option as an explicit "do you also want X?" question instead of silently building it. Forward this rule in every `sdd-propose` and `sdd-design` launch prompt.
+
+A right-sized spec is the single biggest lever on delivery time: an inflated spec generates real-but-unrequested work — extra tasks, extra review findings, extra test surface — that no downstream guardrail can shrink after the fact.
+
 ### Phase Graph
 
 ```text

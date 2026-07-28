@@ -93,7 +93,7 @@ test("the protected sections (Work Routing Ladder, Delegation Rules) are anchore
 	assert.deepEqual(dispositionForLine(169), { kind: "core-verbatim" });
 });
 
-test("the line-426 relative-path clause is the only obsolete disposition", () => {
+test("the line-426 relative-path clause is obsoleted by the core pointer map", () => {
 	assert.match(fixtureLines[425], /assets\/support\/atlas-persistence-contract\.md/);
 	assert.deepEqual(dispositionForLine(426), { kind: "obsolete", reason: "superseded-by-pointer-map" });
 });
