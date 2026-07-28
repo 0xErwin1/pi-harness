@@ -91,7 +91,7 @@ Generic subagents should not receive per-launch `model` overrides unless the use
 Default balanced pattern for bounded implementation:
 
 ```text
-parent clarifies and checks git → scout/context-builder when context-heavy → one worker writes → fresh reviewer audits diff → parent validates and reports
+parent clarifies and checks git → scout/context-builder when context-heavy → one worker writes → parent validates and reports
 ```
 
 For tasks requiring web research, library evaluation, or external docs: add `researcher` before `worker`.
@@ -126,19 +126,19 @@ Core question: does this inflate parent context without need?
 | Write with analysis across multiple files            |     no |                     yes |
 | Bash for state, e.g. git status                      |    yes |                      no |
 | Bash for execution, e.g. tests/builds                |     no |                     yes |
-| Commit, push, or open PR after code changes          |     no | yes, fresh review first |
-| Recover from wrong cwd/worktree/git/tooling incident |     no |  yes, fresh audit first |
 
 ### Mandatory Delegation Triggers
 
-These are parent-orchestrator stop rules. Once any trigger fires, the parent MUST delegate through the harness-owned `subagent` tool. Do not replace a required delegation with inline execution. If the manager runtime cannot service the delegation, stop the complex work and explain the blocker instead of silently continuing inline. Do not inject these as child-agent permission to spawn subagents; children receive concrete role work and must not orchestrate.
+These are parent-orchestrator stop rules for **work** delegation, not review. Once any trigger fires, the parent MUST delegate through the harness-owned `subagent` tool. Do not replace a required delegation with inline execution. If the manager runtime cannot service the delegation, stop the complex work and explain the blocker instead of silently continuing inline. Do not inject these as child-agent permission to spawn subagents; children receive concrete role work and must not orchestrate.
+
+**Direct-command exception (overrides every trigger below).** A direct, bounded user instruction — merge, commit, push, run X, edit one file — is executed inline and visibly. Never wrap it in a subagent or a review gate.
 
 1. **4-file rule**: if understanding requires reading 4+ files, launch `scout` or `context-builder` with fresh context and a narrow mapping task.
-2. **Multi-file write rule**: if implementation will touch 2+ non-trivial files, use one `worker` or keep writing inline only if a fresh reviewer will audit before completion.
-3. **PR rule**: before commit/push/PR for code changes, run a fresh-context `reviewer` unless the diff is a trivial docs/text-only change.
-4. **Incident rule**: after wrong `cwd`, accidental repo/worktree mutation, failed merge recovery, confusing test command, or environment workaround, stop and run a fresh audit reviewer.
-5. **Long-session rule**: if accumulating work is no longer clearly local — roughly 20 tool calls, 5 exploratory file reads, or 2 non-mechanical edits without delegation — pause and choose `scout`, `worker`, or `reviewer` instead of silently continuing monolithically.
-6. **Fresh review rule**: use a fresh context for adversarial review of diffs, conflicts, PR readiness, and incident audits. Use forked context for continuity-oriented `worker`/`oracle` tasks.
+2. **Multi-file write rule**: if implementation will touch 2+ non-trivial files, use one `worker`.
+3. **Long-session rule**: if accumulating work is no longer clearly local — roughly 20 tool calls, 5 exploratory file reads, or 2 non-mechanical edits without delegation — pause and choose `scout` or `worker` instead of silently continuing monolithically.
+4. **Incident rule**: after wrong `cwd`, accidental repo/worktree mutation, or failed merge recovery, stop, report what happened, and continue only with explicit user direction. Do NOT auto-launch review.
+
+There is no PR auto-review rule, no fresh-review rule, and no formatter-to-re-review lifecycle. Review is opt-in and user-named — see the Review entry in the Lazy Reference Map. Format before commit when needed; ship when the user asks.
 
 ### Cost and Context Balance
 
@@ -147,7 +147,7 @@ Prefer delegation when fresh context improves correctness more than token saving
 - Use `scout`/`context-builder` to compress broad repo exploration into a short handoff instead of loading many files into the parent.
 - Expect `scout` to return `# Scout Report` with compact sections for answer, relevant files, change map, risks/unknowns, and next reads; ask for a full report only when the extra detail is needed.
 - Use a single `worker` for one writer thread; do not run parallel writers unless isolated worktrees are explicitly approved.
-- Use fresh `reviewer` agents after implementation, conflict resolution, or incidents because their value is independence from the parent's assumptions.
+- Never auto-launch review after implementation, conflict resolution, or incidents. Review runs when the user names it.
 - Persist large child reports and inter-phase handoffs to selected human backend + Engram (the durable record); summarize only decisions, blockers, and artifact pointers in the parent thread from the returned envelope.
 - Never pass a repo-relative `output:` / file-only path for child reports — it writes `sdd-*.md` / `*-result.md` into the project tree, contradicts the selected human backend + Engram persistence model, and is not a substitute for Engram (which is always available). If a scratch handoff file is ever unavoidable, target a gitignored path outside the repo, never a repo-relative name.
 - Avoid delegation for truly local one-file fixes, quick state checks, and already-understood mechanical edits.
@@ -193,7 +193,7 @@ Before resolving project/user skills, writing a comment or documentation artifac
 
 ### Review
 
-Before running or selecting 4R review lenses, or handling a `review-gate` block on a git/gh command, read `{{PI_HARNESS_REVIEW_PATH}}` and follow it.
+Before running any review protocol — Judgment Day, 4R, or a generic `reviewer` pass — or when the user asks to "review this" without naming which, read `{{PI_HARNESS_REVIEW_PATH}}` and follow it. Adversarial review is never automatic.
 
 ### Language Rules & CodeGraph
 

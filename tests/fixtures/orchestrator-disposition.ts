@@ -35,10 +35,9 @@ export const FROZEN_FIXTURE_LINE_COUNT = 752;
  *   split at a normative/rationale seam.
  * - `lazy-verbatim`: relocates verbatim to the named file under
  *   `assets/orchestrator/` (see `packages/orchestrator-prompt/lazy-files.ts`).
- * - `obsolete`: dropped rather than relocated, because a newly-authored core
- *   pointer-map row supersedes it. The only instance is the line-426 clause
- *   hardcoding the relative `assets/support/atlas-persistence-contract.md`
- *   path (spec scenario "The existing relative reference is fixed").
+ * - `obsolete`: dropped rather than relocated, because later policy supersedes
+ *   it. Every instance names the policy that replaced it, so a drop is always a
+ *   decision on the record rather than silent erosion of the fixture.
  *
  * Ranges are contiguous and total across the whole fixture — a line is never
  * covered by zero or by more than one range — verified by
@@ -77,8 +76,36 @@ export const DISPOSITION_RANGES: DispositionRange[] = [
 	{ startLine: 738, endLine: 752, disposition: lazy("PI_HARNESS_LANGUAGE_CODEGRAPH_PATH") }, // ## CodeGraph
 ];
 
+/**
+ * Reviews became opt-in: the orchestrator no longer auto-launches a reviewer
+ * after implementation, before a PR, or after an incident, and the review gate
+ * no longer blocks. These pre-diet lines encoded that withdrawn ceremony.
+ */
+const OPT_IN_REVIEW: Disposition = { kind: "obsolete", reason: "superseded-by-opt-in-review-policy" };
+
 export const LINE_OVERRIDES: Record<number, Disposition> = {
 	426: { kind: "obsolete", reason: "superseded-by-pointer-map" },
+
+	94: OPT_IN_REVIEW, // default pattern ending in an unconditional fresh-reviewer audit
+	129: OPT_IN_REVIEW, // delegation row: commit/push/PR requires fresh review first
+	130: OPT_IN_REVIEW, // delegation row: incident recovery requires fresh audit first
+	134: OPT_IN_REVIEW, // triggers preamble, before it was scoped to work delegation only
+	137: OPT_IN_REVIEW, // multi-file write rule, with its inline fresh-reviewer escape hatch
+	138: OPT_IN_REVIEW, // PR rule
+	139: OPT_IN_REVIEW, // incident rule, when it still ended in a fresh audit reviewer
+	140: OPT_IN_REVIEW, // long-session rule, when `reviewer` was one of its outcomes
+	141: OPT_IN_REVIEW, // fresh review rule
+	150: OPT_IN_REVIEW, // cost/context bullet mandating fresh reviewers after implementation
+	683: OPT_IN_REVIEW, // review-gate described as a gate, citing a `lib/` module that does not exist
+	686: OPT_IN_REVIEW, // pre-PR strong gate that BLOCKS `gh pr create`
+	688: OPT_IN_REVIEW, // orchestrator obligation to run 4R to clear a block
+	690: OPT_IN_REVIEW, // judgment-day by inference after a high-risk SDD phase
+	707: OPT_IN_REVIEW, // lens-selection closer instructing the reader to satisfy the pre-PR block
+
+	// Batched apply-verify gained a severity floor: a WARNING/SUGGESTION nit no
+	// longer stops the cycle, and a cross-batch design gap is surfaced as a scope
+	// decision instead of looping back through an upstream planning phase.
+	390: { kind: "obsolete", reason: "superseded-by-batch-remediation-policy" },
 };
 
 export function dispositionForLine(line: number): Disposition {

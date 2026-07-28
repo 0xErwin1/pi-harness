@@ -72,17 +72,40 @@ test("every lazy-verbatim fixture line is present verbatim in its named lazy fil
 	}
 });
 
-test("exactly one fixture line is obsolete, and it is accounted for (no silent drop)", () => {
-	let obsoleteCount = 0;
+// Every dropped pre-diet line is enumerated here with the policy that replaced
+// it. Dropping another line is a deliberate edit to this map, never a silent
+// erosion of the fixture.
+const EXPECTED_OBSOLETE: Record<number, string> = {
+	94: "superseded-by-opt-in-review-policy",
+	129: "superseded-by-opt-in-review-policy",
+	130: "superseded-by-opt-in-review-policy",
+	134: "superseded-by-opt-in-review-policy",
+	137: "superseded-by-opt-in-review-policy",
+	138: "superseded-by-opt-in-review-policy",
+	139: "superseded-by-opt-in-review-policy",
+	140: "superseded-by-opt-in-review-policy",
+	141: "superseded-by-opt-in-review-policy",
+	150: "superseded-by-opt-in-review-policy",
+	390: "superseded-by-batch-remediation-policy",
+	426: "superseded-by-pointer-map",
+	683: "superseded-by-opt-in-review-policy",
+	686: "superseded-by-opt-in-review-policy",
+	688: "superseded-by-opt-in-review-policy",
+	690: "superseded-by-opt-in-review-policy",
+	707: "superseded-by-opt-in-review-policy",
+};
+
+test("every obsolete fixture line is enumerated with the policy that superseded it (no silent drop)", () => {
+	const found: Record<number, string> = {};
+
 	for (let line = 1; line <= FROZEN_FIXTURE_LINE_COUNT; line++) {
 		const disposition = dispositionForLine(line);
 		if (disposition.kind === "obsolete") {
-			obsoleteCount++;
-			assert.equal(line, 426, "the only obsolete fixture line is expected to be line 426");
-			assert.equal(disposition.reason, "superseded-by-pointer-map");
+			found[line] = disposition.reason;
 		}
 	}
-	assert.equal(obsoleteCount, 1);
+
+	assert.deepEqual(found, EXPECTED_OBSOLETE);
 });
 
 test("no double delivery: a relocated section's own header does not also appear in the core", () => {
@@ -101,10 +124,46 @@ test("no double delivery: a relocated section's own header does not also appear 
 	}
 });
 
-test("protected sections (Work Routing Ladder, Delegation Rules) appear whole, verbatim, and contiguous in the rendered core", () => {
-	const workRoutingLadder = fixtureLines.slice(56, 115).join("\n");
-	const delegationRules = fixtureLines.slice(115, 169).join("\n");
+/**
+ * Splits a fixture range into the maximal runs of consecutive lines that a
+ * policy change has not obsoleted. Each run must still land in the core whole
+ * and contiguous; obsoleted lines are the only permitted seams.
+ */
+function survivingRuns(startLine: number, endLine: number): string[] {
+	const runs: string[] = [];
+	let current: string[] = [];
 
-	assert.ok(coreContent.includes(workRoutingLadder), "Work Routing Ladder must appear whole, verbatim, and contiguous — not split or summarized");
-	assert.ok(coreContent.includes(delegationRules), "Delegation Rules must appear whole, verbatim, and contiguous — not split or summarized");
+	for (let line = startLine; line <= endLine; line++) {
+		if (dispositionForLine(line).kind === "obsolete") {
+			if (current.length > 0) runs.push(current.join("\n"));
+			current = [];
+			continue;
+		}
+
+		current.push(fixtureLines[line - 1]);
+	}
+
+	if (current.length > 0) runs.push(current.join("\n"));
+
+	return runs;
+}
+
+test("protected sections (Work Routing Ladder, Delegation Rules) appear whole, verbatim, and contiguous in the rendered core", () => {
+	const protectedSections: Array<{ name: string; startLine: number; endLine: number }> = [
+		{ name: "Work Routing Ladder", startLine: 57, endLine: 115 },
+		{ name: "Delegation Rules", startLine: 116, endLine: 169 },
+	];
+
+	for (const section of protectedSections) {
+		const runs = survivingRuns(section.startLine, section.endLine);
+
+		assert.ok(runs.length > 0, `test setup check: ${section.name} has no surviving lines`);
+
+		for (const run of runs) {
+			assert.ok(
+				coreContent.includes(run),
+				`${section.name} must appear whole, verbatim, and contiguous — not split or summarized (missing run starting "${run.split("\n")[0]}")`,
+			);
+		}
+	}
 });

@@ -1,13 +1,14 @@
 /**
  * 4R review gate for Pi.
  *
- * Intercepts `bash` tool calls that look like git/gh workflow events and applies
- * the trigger rules below:
+ * Review in this harness is opt-in: only the user starts one. This gate therefore
+ * never blocks and never obligates a review. It observes `bash` tool calls that
+ * look like git/gh workflow events and surfaces a suggestion:
  *
- *   - pre-commit / pre-push  → advisory: notify a single cheap review lens, never block.
- *   - pre-pr (`gh pr create`) → strong: block when the diff touches hot paths
- *                               (auth/update/security/payments) or exceeds the
- *                               large-diff threshold, naming the 4R lenses to run first.
+ *   - pre-commit / pre-push  → suggest a single cheap review lens.
+ *   - pre-pr (`gh pr create`) → suggest the 4R lenses when the diff touches hot
+ *                               paths (auth/update/security/payments) or exceeds
+ *                               the large-diff threshold.
  *
  * The gate is fail-open: any error gathering the diff returns `undefined` so a
  * git/gh command is never broken by this guard. It composes with `shell-guard`
@@ -144,15 +145,7 @@ const DEFAULT_RULE_SET: TriggerRuleSet = {
 			run: ["review-risk", "review-resilience", "review-readability", "review-reliability"],
 			mode: "strong",
 			reason:
-				"full 4R fan-out (~4x) only on hot paths (auth/update/security/payments) or diffs exceeding 400 changed lines",
-		},
-		{
-			on: "post-sdd-phase",
-			when: { phases: ["design", "apply"] },
-			run: ["judgment-day"],
-			mode: "strong",
-			reason:
-				"adversarial verification (~4 + 3*findings cost) only at high-stakes SDD phases (design and apply)",
+				"full 4R fan-out (~4x) is worth suggesting on hot paths (auth/update/security/payments) or diffs exceeding 400 changed lines",
 		},
 	],
 };
@@ -435,10 +428,17 @@ function computeDiffForEvent(event: TriggerEvent, cwd: string): ChangedDiff | nu
 	}
 }
 
+/** Human-readable name of the command a firing binding is attached to. */
+function eventLabel(event: TriggerEvent): string {
+	if (event === "pre-push") return "this push";
+	if (event === "pre-pr") return "this PR";
+	return "this commit";
+}
+
 /**
- * Runs the review gate for a bash command. Returns a block result for strong
- * mode, notifies for advisory mode, or returns undefined to fall through to the
- * next guard.
+ * Runs the review gate for a bash command. Always returns `undefined`: review is
+ * opt-in, so the gate only surfaces a suggestion the user is free to ignore. The
+ * binding's mode selects the notification level, never a block.
  */
 export async function applyReviewGate(
 	command: string,
@@ -453,23 +453,14 @@ export async function applyReviewGate(
 	const result = evaluateEvent(event, diff);
 	if (!result) return undefined;
 
-	if (result.mode === "advisory") {
-		if (ctx.hasUI) {
-			const commitOrPush = event === "pre-push" ? "this push" : "this commit";
-			ctx.ui.notify(
-				`Review suggestion: consider running agent "${result.run.join(", ")}" before ${commitOrPush}. ${result.reason}`,
-				"info",
-			);
-		}
-		return undefined;
+	if (ctx.hasUI) {
+		ctx.ui.notify(
+			`Review suggestion: consider running agent "${result.run.join(", ")}" before ${eventLabel(event)}. ${result.reason}`,
+			result.mode === "strong" ? "warning" : "info",
+		);
 	}
 
-	return {
-		block: true,
-		reason:
-			`4R review gate: run ${result.run.join(", ")} before this command. ` +
-			result.reason,
-	};
+	return undefined;
 }
 
 export default function reviewGate(pi: ExtensionAPI): void {
