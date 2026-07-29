@@ -16,23 +16,27 @@ this adds the discipline for using them well.
 | `extensions/sdd-orchestrator.ts` | Programmatic SDD orchestrator — reads development and testing DAG state from Engram and drives phase delegation. |
 | `extensions/shell-guard.ts` | Shell safety guard — blocks destructive `bash` commands and confirms sensitive ones. |
 | `extensions/btw.ts` | Lazy `/btw` side-question command with isolated transcript handling. |
+| `pi-subagents-j0k3r@1.4.4` | Official npm package for native subagent delegation, discovered by Pi through `settings.json`. |
 | `vendor/pi-ask-user/` | Vendored upstream `ask_user` decision prompt extension. |
 | `assets/orchestrator.md` | Parent-session orchestration contract. |
 
 ## Install
 
-Delivery is by per-file symlink into the global Pi agent directory
-(`~/.pi/agent/`). The repo owns harness files under `extensions/`, `packages/`,
-`vendor/`, and `assets/`; `agents/` and `skills/` are managed separately by the
-upstream-ai-sync flow.
+Requires Node.js >=22.19.0 and pnpm.
 
 ```bash
 pnpm install
 pnpm run relink
 ```
 
-`pnpm run relink` runs `scripts/link.sh`, which symlinks each file and backs up
-any pre-existing real file to `<path>.bak`.
+`pnpm run relink` links the harness files into the global Pi agent directory
+(`~/.pi/agent/`) and adds `npm:pi-subagents-j0k3r@1.4.4` idempotently to native
+Pi `settings.json` package discovery, preserving other packages and settings.
+Pi installs missing packages on startup. Existing real files replaced by harness
+links are backed up to `<path>.bak`.
+
+Agent definitions from `assets/agents/` are linked into Pi's global agent
+directory. Skills remain managed separately by the upstream-ai-sync flow.
 
 ## Versioning policy
 
@@ -89,28 +93,36 @@ a separate development SDD flow.
 
 ## Subagent runtime
 
-The active subagent runtime is the native vendored entrypoint at
-`vendor/pi-subagents/src/index.ts`. It exposes the compatibility names existing
-SDD flows use while preserving native controls:
+Pi Harness uses the official `pi-subagents-j0k3r@1.4.4` npm package through
+native Pi package discovery. There is no `/agents` command or compatibility alias
+in Pi Harness.
 
-- `Agent(subagent_type, prompt)`
-- `get_subagent_result`
-- `steer_subagent`
-- `/agents` as the primary operator entrypoint
+### Quick path
 
-`/agents` can also open the model/thinking assignment flow. Assignments are
-global, not per-project: global markdown-backed agents save `model:` and
-`thinking:` directly into their agent `.md` frontmatter, while project-backed or
-synthetic rows save to the global Pi agent config (`~/.pi/agent/subagents.json`
-or `PI_CODING_AGENT_DIR/subagents.json`). The menu does not write project-local
-`.pi/subagents.json` model assignments.
+1. Run `/subagent-models` to edit model/effort profiles.
+2. Run `/subagents` to open the UI for running tasks and task history.
+3. Use `subagent_run` with `mode: "task"` for blocking work or `mode: "background"` for independent work.
 
-`steer_subagent` sends steering messages to running native subagent sessions.
+The native task controls are:
+
+- `subagent_list_agents` — list discovered agents.
+- `subagent_run` — start task or background work.
+- `subagent_continue` — continue an existing task.
+- `subagent_status` and `subagent_result` — inspect progress and results.
+- `subagent_list_tasks` — list task history.
+- `subagent_cancel` — cancel running work.
+
+Native model assignments use `model_profiles` in global or project
+`subagents.json`. Agent definitions use the normal global and project discovery
+locations for `.pi/agents` or `.pi/subagents`; Pi Harness links its definitions
+into the global agent directory. The package owns the runtime, task UI, and
+manager—Pi Harness does not add a wrapper, fallback, duplicate manager, or custom
+subagent TUI.
 
 ## Runtime notes
 
-- Named subagents receive isolated prompts: parent orchestration policy stays in
-  the parent session instead of being injected into every child prompt.
+- The default native `session_resources: lean` keeps nested prompts isolated and
+  removes context/prompt lifecycle hooks while preserving allowlisted tools and safety hooks.
 - `/btw` loads its model runtime only when invoked, sends no tools, and keeps the
   side-question transcript out of the main conversation.
 - The vendored `pi-ask-user` extension exposes the upstream `ask_user` tool.

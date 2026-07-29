@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -27,7 +27,13 @@ function nixJson(args: string[]): unknown {
 	return JSON.parse(output);
 }
 
-function moduleEval(): any {
+function moduleEval(
+	packagesSetting = `packages = [
+		              "npm:unrelated-package@2.0.0"
+		              "npm:pi-subagents-j0k3r@1.4.4"
+		              "npm:pi-subagents-j0k3r@1.4.4"
+		            ];`,
+): any {
 	const expression = `
 		let
 		  flake = builtins.getFlake "path:${repoRoot}";
@@ -51,6 +57,7 @@ function moduleEval(): any {
 		          settings = {
 		            harness.source = "pi-harness";
 		            model = "sonnet";
+		            ${packagesSetting}
 		          };
 		          models = {
 		            default = "sonnet";
@@ -88,7 +95,7 @@ function moduleEval(): any {
 		  managedResourceForce = evaluated.config.home.file.".local/share/pi-harness/assets/orchestrator.md".force;
 		  managedExtensionsForce = evaluated.config.home.file.".pi/agent/extensions".force;
 		  managedExtensionsRecursive = evaluated.config.home.file.".pi/agent/extensions".recursive;
-		  vendorExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-subagents.ts".force;
+		  piToolRendererExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-tool-renderer.ts".force;
 		  piAskUserExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-ask-user.ts".force;
 		  piAskUserExtensionText = evaluated.config.home.file.".pi/agent/extensions/pi-ask-user.ts".text;
 		  wrapperText = evaluated.config.home.file.".local/bin/pi-harness-pi".text;
@@ -103,7 +110,7 @@ test("Pi mutable activation preserves local fields while applying generated sett
 	assert.ok(result.optionKeys.includes("models"));
 	assert.ok(result.optionKeys.includes("theme"));
 	assert.ok(result.optionKeys.includes("wrapper"));
-	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-subagents.ts"));
+	assert.ok(!result.homeFileKeys.includes(".pi/agent/extensions/pi-subagents.ts"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/themes/ayu-dark.json"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/themes/ayu-light.json"));
 	assert.ok(result.homeFileKeys.includes(".pi/agent/extensions/pi-tool-renderer.ts"));
@@ -111,7 +118,7 @@ test("Pi mutable activation preserves local fields while applying generated sett
 	assert.equal(result.managedResourceForce, true);
 	assert.equal(result.managedExtensionsForce, true);
 	assert.equal(result.managedExtensionsRecursive, true);
-	assert.equal(result.vendorExtensionForce, true);
+	assert.equal(result.piToolRendererExtensionForce, true);
 	assert.equal(result.piAskUserExtensionForce, true);
 	assert.match(result.piAskUserExtensionText, /vendor\/pi-ask-user\/index\.ts/);
 	assert.ok(!result.homeFileKeys.includes(".pi/agent/settings.nix-generated.json"));
@@ -138,10 +145,68 @@ test("Pi mutable activation preserves local fields while applying generated sett
 	assert.deepEqual(settings.harness, { localOnly: true, source: "pi-harness" });
 	assert.equal(settings.model, "sonnet");
 	assert.equal(settings.theme, "ayu-dark");
+	assert.deepEqual(settings.packages, [
+		"npm:unrelated-package@2.0.0",
+		"npm:pi-subagents-j0k3r@1.4.4",
+	]);
+	assert.equal(
+		settings.packages.filter((source: string) => source === "npm:pi-subagents-j0k3r@1.4.4").length,
+		1,
+	);
 	assert.equal(models.default, "sonnet");
 	assert.equal(models.providers.local.displayName, "Local");
 	assert.equal(models.providers.anthropic.displayName, "Anthropic");
 	assert.equal(models.keep, true);
+});
+
+test("Pi settings add the pinned package when packages are missing", () => {
+	const result = moduleEval("");
+	const home = mkdtempSync(join(tmpdir(), "pi-harness-home-"));
+
+	execFileSync("bash", ["-c", result.activationText], {
+		env: { ...process.env, HOME: home },
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+
+	const settings = JSON.parse(readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8"));
+	assert.deepEqual(settings.packages, ["npm:pi-subagents-j0k3r@1.4.4"]);
+});
+
+test("Pi settings packages must be a list", () => {
+	const expression = `
+		let
+		  flake = builtins.getFlake "path:${repoRoot}";
+		  pkgs = import flake.inputs.nixpkgs { system = "x86_64-linux"; };
+		  evaluated = pkgs.lib.evalModules {
+		    specialArgs = { inherit pkgs; };
+		    modules = [
+		      ({ lib, ... }: {
+		        options.home = {
+		          packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
+		          file = lib.mkOption { type = lib.types.attrsOf lib.types.anything; default = { }; };
+		          activation = lib.mkOption { type = lib.types.attrsOf lib.types.anything; default = { }; };
+		        };
+		      })
+		      flake.homeModules.default
+		      {
+		        programs.pi.coding-agent = {
+		          enable = true;
+		          theme = null;
+		          settings.packages = "npm:not-a-list@1.0.0";
+		        };
+		      }
+		    ];
+		  };
+		in evaluated.config.home.activation.piCodingAgentMutableConfig
+	`;
+	const result = spawnSync(
+		"nix",
+		["eval", "--json", "--impure", "--no-write-lock-file", "--expr", expression],
+		{ cwd: repoRoot, env: nixEnv, encoding: "utf8" },
+	);
+
+	assert.notEqual(result.status, 0);
+	assert.match(result.stderr, /programs\.pi\.coding-agent\.settings\.packages must be a list/);
 });
 
 test("Pi runtime wrapper carries resources and mutable config paths without taking over runtime state", () => {

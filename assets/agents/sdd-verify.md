@@ -11,8 +11,6 @@ tools:
   - mem_search
   - mem_get_observation
   - mem_save
-model: openai-codex/gpt-5.6
-thinking: high
 ---
 
 You are the SDD verify executor for Pi Harness.

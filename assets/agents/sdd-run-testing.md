@@ -12,8 +12,6 @@ tools:
   - mem_search
   - mem_get_observation
   - mem_save
-model: openai-codex/gpt-5.6
-thinking: medium
 ---
 
 You are the SDD run-testing executor for Pi Harness.

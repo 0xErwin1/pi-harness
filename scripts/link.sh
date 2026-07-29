@@ -3,12 +3,12 @@
 # Symlink pi-harness assets into ~/.pi/agent/ (non-destructive).
 #
 # Harness-owned surfaces are linked: extensions/, packages/, agents/,
-# assets/chains/, and assets/support/. packages/ is linked as a whole directory. extensions/ is linked
-# PER FILE so that vendored third-party entries (vendor/*/...) can be loaded
-# alongside the repo's own extensions WITHOUT importing them from any repo source
-# file — that keeps the vendored code out of the harness `tsc --noEmit` program
-# (the harness tsconfig only includes extensions/, packages/, tests/). The cost is
-# that adding a NEW repo extension requires re-running this script (then /reload).
+# assets/chains/, and assets/support/. packages/ is linked as a whole directory.
+# extensions/ is linked PER FILE, with generated loaders only for vendored
+# extensions that are not installed through Pi's native package discovery. The
+# official pi-subagents-j0k3r package is pinned in settings.json instead of loaded
+# from this repository. Adding a NEW repo extension requires re-running this script
+# (then /reload).
 # agents/ and assets/chains/ stay per-file because that target dir is shared with
 # assets this repo does not own. Skills are intentionally left untouched — they are
 # managed by the upstream-ai-sync flow, not by this repo.
@@ -151,6 +151,53 @@ write_vendor_loader() {
 	echo "wrote:     ${dst} -> re-export ${entry}"
 }
 
+remove_managed_subagent_loader() {
+	local dst="${PI_EXT}/pi-subagents.ts"
+	local expected="export { default } from \"${REPO_DIR}/vendor/pi-subagents/src/index.ts\";"
+
+	if [ -f "$dst" ] && [ ! -L "$dst" ] && [ "$(cat "$dst")" = "$expected" ]; then
+		rm "$dst"
+		echo "removed:  ${dst} -> stale pi-subagents re-export"
+	fi
+}
+
+configure_native_packages() {
+	local settings_file="${PI_AGENT}/settings.json"
+	mkdir -p "$(dirname "$settings_file")"
+
+	SETTINGS_FILE="$settings_file" node <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const file = process.env.SETTINGS_FILE;
+const packageSource = "npm:pi-subagents-j0k3r@1.4.4";
+let settings = {};
+
+if (fs.existsSync(file)) {
+	settings = JSON.parse(fs.readFileSync(file, "utf8"));
+}
+if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+	throw new Error(`${file} must contain a JSON object`);
+}
+if (settings.packages !== undefined && !Array.isArray(settings.packages)) {
+	throw new Error(`${file}: packages must be an array of package source strings`);
+}
+
+const packages = settings.packages ?? [];
+settings.packages = [...packages.filter((source, index) => source !== packageSource || packages.indexOf(source) === index)];
+if (!settings.packages.includes(packageSource)) settings.packages.push(packageSource);
+
+const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
+try {
+	fs.writeFileSync(temp, `${JSON.stringify(settings, null, 2)}\n`, { flag: "wx" });
+	fs.renameSync(temp, file);
+} finally {
+	fs.rmSync(temp, { force: true });
+}
+console.log(`configured: ${file} -> ${packageSource}`);
+NODE
+}
+
 # extensions/: per-file links plus the vendored entries. The target dir is reset to
 # a clean set of managed symlinks each run (stale links from removed extensions are
 # pruned), while any real file a user dropped in there is preserved.
@@ -167,16 +214,14 @@ for f in "${REPO_DIR}"/extensions/*.ts; do
 	write_vendor_loader "$f" "${PI_EXT}/$(basename "$f")"
 done
 
-# Vendored third-party extensions: loaded via generated absolute-path re-export
-# files (see write_vendor_loader) so their internal relative imports resolve, and so
-# the vendored code stays out of the harness tsconfig. See vendor/*/VENDORED.md.
+# Remaining vendored extensions use generated absolute-path re-exports (see
+# write_vendor_loader) so their internal relative imports resolve. Subagents are
+# discovered from the pinned native Pi package configured below instead.
 remove_stale_question_prompt_loaders
+remove_managed_subagent_loader
 write_vendor_loader "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "${PI_EXT}/pi-tool-renderer.ts"
 write_vendor_loader "${REPO_DIR}/vendor/pi-ask-user/index.ts" "${PI_EXT}/pi-ask-user.ts"
-# pi-subagents.ts points at the active native tintinweb entrypoint. The entrypoint
-# keeps compatibility names (Agent/get_subagent_result/steer_subagent and /agents)
-# while passing through native capabilities broadly.
-write_vendor_loader "${REPO_DIR}/vendor/pi-subagents/src/index.ts" "${PI_EXT}/pi-subagents.ts"
+configure_native_packages
 
 if [ -d "${REPO_DIR}/packages" ]; then
 	link_file "${REPO_DIR}/packages" "${PI_AGENT}/packages"

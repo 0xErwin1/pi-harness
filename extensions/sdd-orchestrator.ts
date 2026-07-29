@@ -3,8 +3,7 @@
  *
  * This orchestrator handles SDD commands by injecting delegation messages into
  * the main agent session via `pi.sendUserMessage()`. The main agent then calls
- * the harness-owned `subagent` compatibility tool, which routes through the
- * local subagent manager surface.
+ * the native `subagent_run` tool provided by pi-subagents-j0k3r.
  *
  * No child processes are spawned here. The orchestrator is responsible only for:
  *   - Reading Engram state to determine what needs to run
@@ -732,7 +731,7 @@ function buildDetectionLines(detection: SddProjectDetection): string[] {
  * Builds a delegation message for a single SDD phase.
  *
  * The resulting message is injected into the main agent session, which is
- * expected to call the `subagent` tool with the parameters listed in the message.
+ * expected to call the `subagent_run` tool with the parameters listed in the message.
  */
 export function buildDelegationMessage(options: {
   phase: ArtifactPhase;
@@ -772,10 +771,11 @@ export function buildDelegationMessage(options: {
   return [
     `[SDD] Execute ${options.phase} phase for change '${options.changeName}'.`,
     "",
-    `Call the Agent tool with these parameters:`,
-    `- subagent_type: "${info.skill}"`,
-    `- prompt: |`,
+    `Call the subagent_run tool with these parameters:`,
+    `- agent: "${info.skill}"`,
+    `- task: |`,
     ...taskLines,
+    `- mode: "task"`,
     "",
     `Do not respond with text before calling the tool. Execute immediately.`,
   ].join("\n");
@@ -807,10 +807,11 @@ export function buildInitDelegationMessage(options: {
   return [
     `[SDD] Initialize project '${options.project}'.`,
     "",
-    `Call the Agent tool with these parameters:`,
-    `- subagent_type: "sdd-init"`,
-    `- prompt: |`,
+    `Call the subagent_run tool with these parameters:`,
+    `- agent: "sdd-init"`,
+    `- task: |`,
     ...taskLines,
+    `- mode: "task"`,
     "",
     `Do not respond with text before calling the tool. Execute immediately.`,
   ].join("\n");
@@ -820,8 +821,8 @@ export function buildInitDelegationMessage(options: {
  * Builds a multi-phase delegation message for commands that need to run
  * several phases sequentially (e.g. /sdd-new, /sdd-ff).
  *
- * The main agent is instructed to call subagent for each phase in order,
- * waiting for each to complete before starting the next.
+ * The main agent is instructed to call subagent_run for each phase in order,
+ * waiting for each task result before starting the next.
  */
 export function buildMultiPhaseDelegationMessage(options: {
   phases: ArtifactPhase[];
@@ -863,22 +864,23 @@ export function buildMultiPhaseDelegationMessage(options: {
 
     return [
       `Step ${index + 1}: ${info.label} (agent: "${info.skill}")`,
-      `  Call the Agent tool with:`,
-      `  - subagent_type: "${info.skill}"`,
-      `  - prompt: |`,
+      `  Call the subagent_run tool with:`,
+      `  - agent: "${info.skill}"`,
+      `  - task: |`,
       ...taskLines,
+      `  - mode: "task"`,
     ].join("\n");
   });
 
   return [
     `[SDD] Run change '${options.changeName}': execute ${options.phases.map((p) => phaseInfo(p).label).join(" → ")} phases sequentially.`,
     "",
-    `Execute each step in order. Wait for each Agent call to complete before starting the next.`,
+    `Execute each step in order. Wait for each subagent_run task result before starting the next phase.`,
     `After each phase, the artifact is available in Engram under the target topic key; use the required dependency topic keys for the following phase.`,
     "",
     ...phaseBlocks,
     "",
-    `Do not respond with text before calling the first Agent tool. Execute immediately.`,
+    `Do not respond with text before calling the first subagent_run tool. Execute immediately.`,
   ].join("\n");
 }
 
@@ -1083,9 +1085,9 @@ export function buildSddTestingPhaseMessage(options: {
   return [
     `[SDD Testing] Execute ${options.phase} for feature ${quotePromptValue(options.featureName)}.`,
     "",
-    `Call the Agent tool with these parameters:`,
-    `- subagent_type: "${agent}"`,
-    `- prompt: |`,
+    `Call the subagent_run tool with these parameters:`,
+    `- agent: "${agent}"`,
+    `- task: |`,
     `    You are executing the SDD-testing ${options.phase} phase.`,
     `    Project: ${quotePromptValue(options.project)}`,
     `    Project slug: ${projectSlug}`,
@@ -1112,6 +1114,7 @@ export function buildSddTestingPhaseMessage(options: {
     ``,
     `    No-remediation rule: record findings, blocked/unsupported modes, evidence, severity, and follow-up recommendations; do not fix product code.`,
     `    Development SDD commands and artifacts under sdd/... are out of scope for this testing phase.`,
+    `- mode: "task"`,
     "",
     `Do not respond with text before calling the tool. Execute immediately.`,
   ].join("\n");

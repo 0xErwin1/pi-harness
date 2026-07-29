@@ -3,7 +3,8 @@
 #
 # This is the Nix/dev equivalent of scripts/link.sh, but it writes into a temp
 # PI_CODING_AGENT_DIR instead of ~/.pi/agent so global Pi configuration cannot
-# mask missing harness wiring.
+# mask missing harness wiring. Official packages are declared in settings.json
+# for Pi to discover natively at startup.
 set -euo pipefail
 
 REPO_DIR="${PI_HARNESS_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -102,7 +103,6 @@ for f in "$REPO_DIR"/extensions/*.ts; do
 done
 
 write_extension_loader "${REPO_DIR}/vendor/pi-tool-renderer/extensions/tool-renderer.ts" "$AGENT_DIR/extensions/pi-tool-renderer.ts"
-write_extension_loader "${REPO_DIR}/vendor/pi-subagents/src/index.ts" "$AGENT_DIR/extensions/pi-subagents.ts"
 
 link_file "$REPO_DIR/packages" "$AGENT_DIR/packages"
 link_file "$REPO_DIR/assets/orchestrator.md" "$AGENT_DIR/AGENTS.md"
@@ -133,7 +133,10 @@ cat > "$AGENT_DIR/settings.json" <<'JSON'
     "managedBy": "pi-harness-dev-pi",
     "source": "repo"
   },
-  "theme": "ayu-dark"
+  "theme": "ayu-dark",
+  "packages": [
+    "npm:pi-subagents-j0k3r@1.4.4"
+  ]
 }
 JSON
 

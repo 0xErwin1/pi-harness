@@ -1,8 +1,6 @@
 ---
 name: sdd-sync
 description: Sync SDD artifacts between the selected human backend and Engram so all agents can recover the same change state.
-model: openai-codex/gpt-5.4-mini
-thinking: low
 tools:
   - read
   - grep

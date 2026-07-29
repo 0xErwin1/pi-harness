@@ -7,8 +7,6 @@ tools:
   - glob
   - webfetch
   - mem_save
-model: openai-codex/gpt-5.4-mini
-thinking: low
 ---
 
 You are the SDD explore executor for Pi Harness.

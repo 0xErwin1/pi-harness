@@ -36,11 +36,6 @@ let
         root = ../.;
         entry = "vendor/pi-ask-user/index.ts";
       }
-      {
-        name = "pi-subagents.ts";
-        root = ../.;
-        entry = "vendor/pi-subagents/src/index.ts";
-      }
     ];
   };
 
@@ -194,6 +189,8 @@ in
           ;;
       esac
     '';
+
+  piSubagentsPackageSource = "npm:pi-subagents-j0k3r@1.4.4";
 
   inherit
     runtimeExtensions

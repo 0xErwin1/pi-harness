@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import harness, { buildHarnessDoctorReport, shouldInjectOrchestratorPrompt } from "../../extensions/harness.ts";
-import { getSubagentInvocationContext, withSubagentProcessEnv } from "../../vendor/pi-subagents/src/invocation-config.ts";
+import harness, { buildHarnessDoctorReport } from "../../extensions/harness.ts";
+
+const NATIVE_SUBAGENT_PACKAGE = "npm:pi-subagents-j0k3r@1.4.4";
 
 function createProbe(files: string[], dirs: string[]) {
 	const fileSet = new Set(files);
@@ -12,14 +13,6 @@ function createProbe(files: string[], dirs: string[]) {
 		if (dirSet.has(path)) return "dir" as const;
 		return "missing" as const;
 	};
-}
-
-function deferred() {
-	let resolve!: () => void;
-	const promise = new Promise<void>((done) => {
-		resolve = done;
-	});
-	return { promise, resolve };
 }
 
 test("buildHarnessDoctorReport reports a clean runtime surface", () => {
@@ -43,7 +36,6 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 			join(packageRoot, "extensions", "sdd-orchestrator.ts"),
 			join(packageRoot, "extensions", "skill-registry.ts"),
 			join(packageRoot, "extensions", "btw.ts"),
-			join(packageRoot, "vendor", "pi-subagents", "src", "index.ts"),
 			join(packageRoot, "vendor", "pi-ask-user", "index.ts"),
 			join(packageRoot, "vendor", "pi-ask-user", "upstream.ts"),
 			join(packageRoot, "vendor", "pi-ask-user", "single-select-layout.ts"),
@@ -51,7 +43,6 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 			join(packageRoot, "vendor", "pi-ask-user", "LICENSE"),
 			join(packageRoot, "vendor", "pi-ask-user", "README.md"),
 			join(packageRoot, "vendor", "pi-ask-user", "skills", "ask-user", "SKILL.md"),
-			join(packageRoot, "packages", "subagents-compat", "index.ts"),
 			join(cwd, ".agent", "skill-registry.md"),
 			join(agentHome, "mcp.json"),
 		],
@@ -59,7 +50,6 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 			join(packageRoot, "assets", "agents"),
 			join(packageRoot, "assets", "chains"),
 			join(packageRoot, "assets", "support"),
-			join(packageRoot, "vendor", "pi-subagents"),
 			join(packageRoot, "vendor", "pi-ask-user"),
 		],
 	);
@@ -70,10 +60,13 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 		agentHome,
 		probe,
 		engramCliAvailable: true,
+		readText: (path) => path === join(agentHome, "settings.json")
+			? JSON.stringify({ packages: [NATIVE_SUBAGENT_PACKAGE] })
+			: "",
 		renderPrompt: () => "rendered orchestrator core",
 	});
 
-	assert.equal(report.checks.length, 34);
+	assert.equal(report.checks.length, 32);
 	assert.equal(report.severity, "info");
 	assert.ok(report.checks.every((check) => check.status === "pass"));
 	assert.match(report.message, /^pi-harness doctor/m);
@@ -81,6 +74,31 @@ test("buildHarnessDoctorReport reports a clean runtime surface", () => {
 	assert.match(report.message, /pass: assets\/orchestrator\.md renders/);
 	assert.match(report.message, /pass: Engram CLI available/);
 	assert.match(report.message, /pass: SDD-testing assets are provider-neutral/);
+	assert.match(report.message, /pass: .*settings\.json contains npm:pi-subagents-j0k3r@1\.4\.4/);
+	assert.doesNotMatch(report.message, /vendor\/pi-subagents|packages\/subagents-compat/);
+});
+
+test("buildHarnessDoctorReport clearly reports missing or malformed native subagent configuration", () => {
+	const baseOptions = {
+		cwd: "/repo/worktree",
+		packageRoot: "/repo",
+		agentHome: "/home/tester/.pi/agent",
+		probe: createProbe([], []),
+		engramCliAvailable: true,
+		renderPrompt: () => "rendered orchestrator core",
+	};
+
+	const missing = buildHarnessDoctorReport({ ...baseOptions, readText: () => undefined });
+	assert.match(missing.message, /fail: .*settings\.json missing; add npm:pi-subagents-j0k3r@1\.4\.4 to the packages array/);
+
+	const malformed = buildHarnessDoctorReport({ ...baseOptions, readText: () => "{not-json" });
+	assert.match(malformed.message, /fail: .*settings\.json is malformed JSON; add npm:pi-subagents-j0k3r@1\.4\.4 to the packages array/);
+
+	const unconfigured = buildHarnessDoctorReport({
+		...baseOptions,
+		readText: () => JSON.stringify({ packages: ["npm:another-package@1.0.0"] }),
+	});
+	assert.match(unconfigured.message, /fail: .*settings\.json packages must contain exact npm:pi-subagents-j0k3r@1\.4\.4/);
 });
 
 test("buildHarnessDoctorReport fails the placeholder-resolution check when rendering throws", () => {
@@ -141,7 +159,6 @@ test("buildHarnessDoctorReport rejects provider-specific MCP names in testing as
 		"extensions/sdd-orchestrator.ts",
 		"extensions/skill-registry.ts",
 		"extensions/btw.ts",
-		"vendor/pi-subagents/src/index.ts",
 		"vendor/pi-ask-user/index.ts",
 		"vendor/pi-ask-user/upstream.ts",
 		"vendor/pi-ask-user/single-select-layout.ts",
@@ -149,7 +166,6 @@ test("buildHarnessDoctorReport rejects provider-specific MCP names in testing as
 		"vendor/pi-ask-user/LICENSE",
 		"vendor/pi-ask-user/README.md",
 		"vendor/pi-ask-user/skills/ask-user/SKILL.md",
-		"packages/subagents-compat/index.ts",
 		".agent/skill-registry.md",
 		...testingSurface,
 	];
@@ -163,7 +179,6 @@ test("buildHarnessDoctorReport rejects provider-specific MCP names in testing as
 				join(packageRoot, "assets", "agents"),
 				join(packageRoot, "assets", "chains"),
 				join(packageRoot, "assets", "support"),
-				join(packageRoot, "vendor", "pi-subagents"),
 				join(packageRoot, "vendor", "pi-ask-user"),
 			],
 		),
@@ -196,126 +211,8 @@ test("extension registers doctor and status commands", () => {
 	assert.ok(commands.has("pi-harness:status"));
 });
 
-test("orchestrator prompt injection is limited to the parent session", () => {
-	assert.equal(shouldInjectOrchestratorPrompt({}), true);
-	assert.equal(shouldInjectOrchestratorPrompt({ PI_HARNESS_SUBAGENT_DEPTH: "0" }), true);
-	assert.equal(shouldInjectOrchestratorPrompt({ PI_HARNESS_PARENT_AGENT_ID: "agent-1" }), false);
-	assert.equal(shouldInjectOrchestratorPrompt({ PI_HARNESS_NATIVE_SUBAGENT: "1" }), false);
-	assert.equal(shouldInjectOrchestratorPrompt({ PI_HARNESS_SUBAGENT_DEPTH: "1" }), false);
-});
-
-test("native subagent runner marks child sessions for prompt isolation", async () => {
-	const originalNativeMarker = process.env.PI_HARNESS_NATIVE_SUBAGENT;
-	const originalParent = process.env.PI_HARNESS_PARENT_AGENT_ID;
-	const originalDepth = process.env.PI_HARNESS_SUBAGENT_DEPTH;
-
-	try {
-		delete process.env.PI_HARNESS_NATIVE_SUBAGENT;
-		delete process.env.PI_HARNESS_PARENT_AGENT_ID;
-		delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
-
-		await withSubagentProcessEnv("agent-123", async () => {
-			assert.deepEqual(getSubagentInvocationContext(), {
-				agentId: "agent-123",
-				depth: 1,
-				native: true,
-			});
-			assert.equal(process.env.PI_HARNESS_NATIVE_SUBAGENT, undefined);
-			assert.equal(process.env.PI_HARNESS_SUBAGENT_DEPTH, undefined);
-			assert.equal(process.env.PI_HARNESS_PARENT_AGENT_ID, undefined);
-			assert.equal(shouldInjectOrchestratorPrompt(), false);
-		});
-
-		assert.equal(getSubagentInvocationContext(), undefined);
-		assert.equal(process.env.PI_HARNESS_NATIVE_SUBAGENT, undefined);
-		assert.equal(process.env.PI_HARNESS_PARENT_AGENT_ID, undefined);
-		assert.equal(process.env.PI_HARNESS_SUBAGENT_DEPTH, undefined);
-	} finally {
-		if (originalNativeMarker === undefined) delete process.env.PI_HARNESS_NATIVE_SUBAGENT;
-		else process.env.PI_HARNESS_NATIVE_SUBAGENT = originalNativeMarker;
-		if (originalParent === undefined) delete process.env.PI_HARNESS_PARENT_AGENT_ID;
-		else process.env.PI_HARNESS_PARENT_AGENT_ID = originalParent;
-		if (originalDepth === undefined) delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
-		else process.env.PI_HARNESS_SUBAGENT_DEPTH = originalDepth;
-	}
-});
-
-test("overlapping subagent markers stay isolated without mutating process env", async () => {
-	const originalNativeMarker = process.env.PI_HARNESS_NATIVE_SUBAGENT;
-	const originalParent = process.env.PI_HARNESS_PARENT_AGENT_ID;
-	const originalDepth = process.env.PI_HARNESS_SUBAGENT_DEPTH;
-	const agentAReady = deferred();
-	const agentBReady = deferred();
-
-	try {
-		delete process.env.PI_HARNESS_NATIVE_SUBAGENT;
-		delete process.env.PI_HARNESS_PARENT_AGENT_ID;
-		delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
-
-		const agentA = withSubagentProcessEnv("agent-a", async () => {
-			agentAReady.resolve();
-			await agentBReady.promise;
-			assert.equal(getSubagentInvocationContext()?.agentId, "agent-a");
-			assert.equal(getSubagentInvocationContext()?.depth, 1);
-			assert.equal(shouldInjectOrchestratorPrompt(), false);
-			assert.equal(process.env.PI_HARNESS_PARENT_AGENT_ID, undefined);
-		});
-
-		const agentB = withSubagentProcessEnv("agent-b", async () => {
-			agentBReady.resolve();
-			await agentAReady.promise;
-			assert.equal(getSubagentInvocationContext()?.agentId, "agent-b");
-			assert.equal(getSubagentInvocationContext()?.depth, 1);
-			assert.equal(shouldInjectOrchestratorPrompt(), false);
-			assert.equal(process.env.PI_HARNESS_PARENT_AGENT_ID, undefined);
-		});
-
-		await Promise.all([agentAReady.promise, agentBReady.promise]);
-		assert.equal(process.env.PI_HARNESS_NATIVE_SUBAGENT, undefined);
-		assert.equal(process.env.PI_HARNESS_PARENT_AGENT_ID, undefined);
-		assert.equal(process.env.PI_HARNESS_SUBAGENT_DEPTH, undefined);
-		await Promise.all([agentA, agentB]);
-		assert.equal(getSubagentInvocationContext(), undefined);
-	} finally {
-		if (originalNativeMarker === undefined) delete process.env.PI_HARNESS_NATIVE_SUBAGENT;
-		else process.env.PI_HARNESS_NATIVE_SUBAGENT = originalNativeMarker;
-		if (originalParent === undefined) delete process.env.PI_HARNESS_PARENT_AGENT_ID;
-		else process.env.PI_HARNESS_PARENT_AGENT_ID = originalParent;
-		if (originalDepth === undefined) delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
-		else process.env.PI_HARNESS_SUBAGENT_DEPTH = originalDepth;
-	}
-});
-
-test("before_agent_start leaves child agent prompts untouched", () => {
-	type BeforeAgentStartHandler = (event: { systemPrompt: string }, ctx: object) => unknown;
-	const originalParent = process.env.PI_HARNESS_PARENT_AGENT_ID;
-	const originalDepth = process.env.PI_HARNESS_SUBAGENT_DEPTH;
-	const handlers = new Map<string, BeforeAgentStartHandler>();
-	const pi = {
-		on(event: string, handler: BeforeAgentStartHandler) {
-			handlers.set(event, handler);
-		},
-		registerCommand() {},
-	};
-
-	try {
-		process.env.PI_HARNESS_PARENT_AGENT_ID = "parent-agent";
-		delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
-		harness(pi as any);
-
-		const handler = handlers.get("before_agent_start");
-		assert.equal(typeof handler, "function");
-		assert.equal(handler?.({ systemPrompt: "child prompt" }, {}), undefined);
-	} finally {
-		if (originalParent === undefined) delete process.env.PI_HARNESS_PARENT_AGENT_ID;
-		else process.env.PI_HARNESS_PARENT_AGENT_ID = originalParent;
-		if (originalDepth === undefined) delete process.env.PI_HARNESS_SUBAGENT_DEPTH;
-		else process.env.PI_HARNESS_SUBAGENT_DEPTH = originalDepth;
-	}
-});
-
-test("before_agent_start leaves async-local child agent prompts untouched", async () => {
-	type BeforeAgentStartHandler = (event: { systemPrompt: string }, ctx: object) => unknown;
+test("before_agent_start injects the orchestrator prompt in the parent session", () => {
+	type BeforeAgentStartHandler = (event: { systemPrompt: string }, ctx: object) => { systemPrompt: string } | undefined;
 	const handlers = new Map<string, BeforeAgentStartHandler>();
 	const pi = {
 		on(event: string, handler: BeforeAgentStartHandler) {
@@ -328,7 +225,8 @@ test("before_agent_start leaves async-local child agent prompts untouched", asyn
 	const handler = handlers.get("before_agent_start");
 	assert.equal(typeof handler, "function");
 
-	await withSubagentProcessEnv("agent-456", async () => {
-		assert.equal(handler?.({ systemPrompt: "child prompt" }, {}), undefined);
-	});
+	const result = handler?.({ systemPrompt: "parent prompt" }, {});
+	assert.ok(result);
+	assert.ok(result.systemPrompt.startsWith("parent prompt\n\n"));
+	assert.ok(result.systemPrompt.length > "parent prompt\n\n".length);
 });

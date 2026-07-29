@@ -34,9 +34,16 @@ let
     script:
     if lib ? hm && lib.hm ? dag then lib.hm.dag.entryAfter [ "writeBoundary" ] script else script;
 
+  configuredPackages = cfg.settings.packages or [ ];
+  managedPackages =
+    if builtins.isList configuredPackages then
+      builtins.filter (source: source != harnessLib.piSubagentsPackageSource) configuredPackages
+      ++ [ harnessLib.piSubagentsPackageSource ]
+    else
+      throw "programs.pi.coding-agent.settings.packages must be a list of Pi package sources";
   managedSettings = lib.recursiveUpdate (lib.optionalAttrs (cfg.theme != null) {
     theme = cfg.theme;
-  }) cfg.settings;
+  }) (cfg.settings // { packages = managedPackages; });
   hasMutableConfig = managedSettings != { } || cfg.models != null;
   settingsJson = builtins.toJSON managedSettings;
   modelsIsAttrs = cfg.models != null && builtins.isAttrs cfg.models;

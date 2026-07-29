@@ -19,6 +19,18 @@ import orchestrator, {
 
 const readRepoFile = (relativePath: string): string => readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
 
+const OLD_SUBAGENT_CONTRACT = /\b(?:Agent|subagent_type|prompt|run_in_background|get_subagent_result|steer_subagent)\b/;
+
+function assertNativeSubagentContract(message: string, agents: string[]): void {
+	assert.match(message, /Call the subagent_run tool/);
+	for (const agent of agents) {
+		assert.match(message, new RegExp(`- agent: "${agent}"`));
+	}
+	assert.equal(message.match(/- task: \|/g)?.length, agents.length);
+	assert.equal(message.match(/- mode: "task"/g)?.length, agents.length);
+	assert.doesNotMatch(message, OLD_SUBAGENT_CONTRACT);
+}
+
 test("orchestrator requires task/result mode for SDD continuation phases", () => {
 	// Relocated to the SDD-workflow lazy file (see disposition #10033 WU8:
 	// lines 170-255, "## SDD Workflow"); orchestrator.md itself now only
@@ -29,7 +41,7 @@ test("orchestrator requires task/result mode for SDD continuation phases", () =>
 	assert.match(content, /Background completion is a notification\/history mechanism and is not a guarantee that the parent will resume routing from the phase result/);
 });
 
-test("buildDelegationMessage emits the pi-subagents Agent tool format", () => {
+test("buildDelegationMessage emits the native subagent_run task contract", () => {
 	const message = buildDelegationMessage({
 		phase: "apply-progress",
 		changeName: "best-subagent-manager",
@@ -38,9 +50,7 @@ test("buildDelegationMessage emits the pi-subagents Agent tool format", () => {
 		dependencies: [],
 	});
 
-	assert.match(message, /Call the Agent tool with these parameters:/);
-	assert.match(message, /- subagent_type: "sdd-apply"/);
-	assert.match(message, /- prompt: \|/);
+	assertNativeSubagentContract(message, ["sdd-apply"]);
 	assert.match(message, /Artifact store: atlas\+engram/);
 	assert.match(message, /Target topic_key: sdd\/best-subagent-manager\/apply-progress/);
 	assert.match(message, /Required dependency topic keys:/);
@@ -58,7 +68,6 @@ test("buildDelegationMessage emits the pi-subagents Agent tool format", () => {
 
 	assert.doesNotMatch(message, /Artifact store: engram\b/);
 	assert.doesNotMatch(message, /context: "fresh"/);
-	assert.doesNotMatch(message, /- agent:/);
 });
 
 test("buildInitDelegationMessage includes deterministic detector output and init persistence contract", () => {
@@ -88,7 +97,7 @@ test("buildInitDelegationMessage includes deterministic detector output and init
 		},
 	});
 
-	assert.match(message, /subagent_type: "sdd-init"/);
+	assertNativeSubagentContract(message, ["sdd-init"]);
 	assert.match(message, /Artifact store: atlas\+engram/);
 	assert.match(message, /Target topic_key: sdd-init\/pi-harness/);
 	assert.match(message, /Atlas logical path: sdd-init\/pi-harness\.md/);
@@ -116,7 +125,7 @@ test("buildDelegationMessage emits sdd-tasks Atlas task tracking contract withou
 		dependencies: [],
 	});
 
-	assert.match(message, /- subagent_type: "sdd-tasks"/);
+	assertNativeSubagentContract(message, ["sdd-tasks"]);
 	assert.match(message, /"taskTracking": \{/);
 	assert.match(message, /"enabled": false/);
 	assert.match(message, /"approvalState": "not-requested"/);
@@ -126,7 +135,7 @@ test("buildDelegationMessage emits sdd-tasks Atlas task tracking contract withou
 	assert.match(message, /"documentLogicalPaths": \[/);
 });
 
-test("buildMultiPhaseDelegationMessage emits Agent-tool steps in phase order", () => {
+test("buildMultiPhaseDelegationMessage emits sequential subagent_run task steps in phase order", () => {
 	const message = buildMultiPhaseDelegationMessage({
 		phases: ["explore", "proposal"],
 		changeName: "demo",
@@ -144,11 +153,8 @@ test("buildMultiPhaseDelegationMessage emits Agent-tool steps in phase order", (
 		},
 	});
 
-	assert.match(message, /Call the Agent tool with:/);
-	assert.match(message, /- subagent_type: "sdd-explore"/);
-	assert.match(message, /- subagent_type: "sdd-propose"/);
-	assert.match(message, /- prompt: \|/);
-	assert.match(message, /Wait for each Agent call/);
+	assertNativeSubagentContract(message, ["sdd-explore", "sdd-propose"]);
+	assert.match(message, /Wait for each subagent_run task result before starting the next phase/);
 	assert.match(message, /Artifact store: atlas\+engram/);
 	assert.match(message, /Atlas logical path: sdd\/demo\/explore\.md/);
 	assert.match(message, /Atlas logical path: sdd\/demo\/proposal\.md/);
@@ -159,8 +165,8 @@ test("buildMultiPhaseDelegationMessage emits Agent-tool steps in phase order", (
 	assert.doesNotMatch(message, /Artifact store: engram\b/);
 	assert.doesNotMatch(message, /context: "fresh"/);
 
-	const exploreIdx = message.indexOf(`subagent_type: "sdd-explore"`);
-	const proposeIdx = message.indexOf(`subagent_type: "sdd-propose"`);
+	const exploreIdx = message.indexOf(`agent: "sdd-explore"`);
+	const proposeIdx = message.indexOf(`agent: "sdd-propose"`);
 	assert.ok(
 		exploreIdx >= 0 && proposeIdx > exploreIdx,
 		"explore step precedes proposal step",
@@ -443,7 +449,7 @@ test("testing prompt builders keep all degraded modes visible and route to testi
 		project: "pi-harness",
 		cwd: "/tmp/pi-harness",
 	});
-	assert.match(explore, /subagent_type: "sdd-explore-testing"/);
+	assertNativeSubagentContract(explore, ["sdd-explore-testing"]);
 	assert.match(explore, /Target topic_key: testing\/pi-harness\/add-sdd-testing-flow\/explore/);
 	assert.match(explore, /Atlas logical path: testing\/pi-harness\/add-sdd-testing-flow\/explore\.md/);
 
@@ -470,6 +476,14 @@ test("testing prompt builders keep all degraded modes visible and route to testi
 	assert.match(run, /"sessionId": "20260705-1200"/);
 	assert.match(run, /"unitId": "unit-1"/);
 	assert.doesNotMatch(run, /\$\{session_id\}|\$\{unit_id\}/);
+
+	const report = buildSddTestingPhaseMessage({
+		phase: "report-testing",
+		featureName: "Add SDD Testing Flow",
+		project: "pi-harness",
+		cwd: "/tmp/pi-harness",
+	});
+	assertNativeSubagentContract(report, ["sdd-report-testing"]);
 });
 
 test("testing direct run parser requires safe session and unit ids", () => {
@@ -555,11 +569,11 @@ test("SDD orchestrator registers testing commands without changing development c
 	assert.doesNotMatch(sentMessages.at(-1) ?? "", /sdd\/add-sdd-testing-flow\/verify-report/);
 
 	await commands.get("sdd-plan-testing")!.handler("Add SDD Testing Flow", ctx);
-	assert.match(sentMessages.at(-1) ?? "", /subagent_type: "sdd-plan-testing"/);
+	assertNativeSubagentContract(sentMessages.at(-1) ?? "", ["sdd-plan-testing"]);
 	assert.match(sentMessages.at(-1) ?? "", /requires approved suites and explore/i);
 
 	await commands.get("sdd-run-testing")!.handler("Add SDD Testing Flow 20260705-1200 unit-1", ctx);
-	assert.match(sentMessages.at(-1) ?? "", /subagent_type: "sdd-run-testing"/);
+	assertNativeSubagentContract(sentMessages.at(-1) ?? "", ["sdd-run-testing"]);
 	assert.match(sentMessages.at(-1) ?? "", /testing\/pi-harness\/add-sdd-testing-flow\/run\/20260705-1200\/unit-1/);
 
 	await commands.get("sdd-run-testing")!.handler("Add SDD Testing Flow", ctx);
@@ -603,11 +617,11 @@ test("development /sdd-verify remains independent from SDD-testing commands and 
 		dependencies: [],
 	});
 
-	assert.match(message, /subagent_type: "sdd-verify"/);
+	assertNativeSubagentContract(message, ["sdd-verify"]);
 	assert.match(message, /Target topic_key: sdd\/add-sdd-testing-flow\/verify-report/);
 	assert.match(message, /Atlas logical path: sdd\/add-sdd-testing-flow\/verify-report\.md/);
 	assert.match(message, /sdd\/add-sdd-testing-flow\/spec/);
 	assert.match(message, /sdd\/add-sdd-testing-flow\/tasks/);
-	assert.doesNotMatch(message, /subagent_type: "sdd-report-testing"/);
+	assert.doesNotMatch(message, /agent: "sdd-report-testing"/);
 	assert.doesNotMatch(message, /testing\/pi-harness\/add-sdd-testing-flow/);
 });

@@ -9,7 +9,7 @@ import { renderOrchestratorPrompt } from "../packages/orchestrator-prompt/render
 const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const ASSETS_DIR = join(PACKAGE_ROOT, "assets");
 const ORCHESTRATOR_PROMPT_PATH = join(ASSETS_DIR, "orchestrator.md");
-const SUBAGENT_INVOCATION_KEY = Symbol.for("pi-harness.subagentInvocationContext");
+const NATIVE_SUBAGENT_PACKAGE = "npm:pi-subagents-j0k3r@1.4.4";
 const REQUIRED_ASSET_DIRS = [
 	"assets/agents",
 	"assets/chains",
@@ -34,8 +34,6 @@ const REQUIRED_EXTENSION_FILES = [
 	"extensions/btw.ts",
 ] as const;
 const REQUIRED_VENDOR_SURFACE = [
-	{ path: "vendor/pi-subagents", kind: "dir" as const, status: "fail" as const },
-	{ path: "vendor/pi-subagents/src/index.ts", kind: "file" as const, status: "fail" as const },
 	{ path: "vendor/pi-ask-user", kind: "dir" as const, status: "fail" as const },
 	{ path: "vendor/pi-ask-user/index.ts", kind: "file" as const, status: "fail" as const },
 	{ path: "vendor/pi-ask-user/upstream.ts", kind: "file" as const, status: "fail" as const },
@@ -44,11 +42,6 @@ const REQUIRED_VENDOR_SURFACE = [
 	{ path: "vendor/pi-ask-user/LICENSE", kind: "file" as const, status: "fail" as const },
 	{ path: "vendor/pi-ask-user/README.md", kind: "file" as const, status: "fail" as const },
 	{ path: "vendor/pi-ask-user/skills/ask-user/SKILL.md", kind: "file" as const, status: "fail" as const },
-	{
-		path: "packages/subagents-compat/index.ts",
-		kind: "file" as const,
-		status: "fail" as const,
-	},
 ] as const;
 
 type DoctorStatus = "pass" | "warn" | "fail";
@@ -162,6 +155,46 @@ function expectedPathCheck(
 	};
 }
 
+function nativeSubagentPackageCheck(agentHome: string, currentReadText: (path: string) => string | undefined): DoctorCheck {
+	const settingsPath = join(agentHome, "settings.json");
+	const content = currentReadText(settingsPath);
+	if (content === undefined) {
+		return {
+			status: "fail",
+			path: settingsPath,
+			message: `${settingsPath} missing; add ${NATIVE_SUBAGENT_PACKAGE} to the packages array`,
+		};
+	}
+
+	let settings: unknown;
+	try {
+		settings = JSON.parse(content);
+	} catch {
+		return {
+			status: "fail",
+			path: settingsPath,
+			message: `${settingsPath} is malformed JSON; add ${NATIVE_SUBAGENT_PACKAGE} to the packages array`,
+		};
+	}
+
+	const packages = settings !== null && typeof settings === "object"
+		? (settings as { packages?: unknown }).packages
+		: undefined;
+	if (!Array.isArray(packages) || !packages.includes(NATIVE_SUBAGENT_PACKAGE)) {
+		return {
+			status: "fail",
+			path: settingsPath,
+			message: `${settingsPath} packages must contain exact ${NATIVE_SUBAGENT_PACKAGE}`,
+		};
+	}
+
+	return {
+		status: "pass",
+		path: settingsPath,
+		message: `${settingsPath} contains ${NATIVE_SUBAGENT_PACKAGE}`,
+	};
+}
+
 function providerSpecificMcpCheck(packageRoot: string, currentReadText: (path: string) => string | undefined): DoctorCheck {
 	const references: string[] = [];
 	const providerSpecificMcpName = /\bmcp__[A-Za-z0-9_]+\b/g;
@@ -266,6 +299,7 @@ export function buildHarnessDoctorReport(options: HarnessDoctorOptions): Harness
 				item.path,
 			),
 		),
+		nativeSubagentPackageCheck(currentAgentDir, currentReadText),
 		expectedPathCheck(
 			probe,
 			join(cwd, ".agent", "skill-registry.md"),
@@ -295,26 +329,6 @@ export function buildHarnessDoctorReport(options: HarnessDoctorOptions): Harness
 	};
 }
 
-function hasAsyncLocalSubagentInvocation(): boolean {
-	const storage = (globalThis as Record<symbol, { getStore?: () => { depth?: number; native?: boolean } | undefined } | undefined>)[SUBAGENT_INVOCATION_KEY];
-	const context = storage?.getStore?.();
-	return context?.native === true || (context?.depth ?? 0) > 0;
-}
-
-export function isSubagentProcess(env: Record<string, string | undefined> = process.env): boolean {
-	if (env === process.env && hasAsyncLocalSubagentInvocation()) return true;
-	const depth = Number.parseInt(env.PI_HARNESS_SUBAGENT_DEPTH ?? "0", 10);
-	return env.PI_HARNESS_PARENT_AGENT_ID !== undefined || env.PI_HARNESS_NATIVE_SUBAGENT === "1" || depth > 0;
-}
-
-export function shouldInjectOrchestratorPrompt(env: Record<string, string | undefined> = process.env): boolean {
-	return !isSubagentProcess(env);
-}
-
-export function isOrchestratorRoot(): boolean {
-	return shouldInjectOrchestratorPrompt();
-}
-
 export const __testing = {
 	doctorSeverity,
 	formatDoctorReport,
@@ -323,8 +337,6 @@ export const __testing = {
 
 export default function harness(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event, _ctx) => {
-		if (!isOrchestratorRoot()) return undefined;
-
 		const orchestratorPrompt = readOrchestratorPrompt();
 		if (!orchestratorPrompt) return undefined;
 

@@ -30,7 +30,7 @@ test("verify-runtime-surface script passes for the checked-in repo surface", () 
 	assert.match(output, /pi-harness runtime surface verified \([0-9]+ entries\)\./);
 });
 
-test("verify-runtime-surface tracks lazy command, testing flow, and vendored question files", () => {
+test("verify-runtime-surface tracks lazy command, testing flow, and vendored question files without old subagent paths", () => {
 	const script = readRepoFile("scripts/verify-runtime-surface.mjs");
 
 	for (const runtimePath of [
@@ -42,7 +42,6 @@ test("verify-runtime-surface tracks lazy command, testing flow, and vendored que
 		"assets/support/sdd-testing-context.md",
 		"assets/support/visual-diff.md",
 		"extensions/btw.ts",
-		"vendor/pi-subagents/src/index.ts",
 		"vendor/pi-ask-user",
 		"vendor/pi-ask-user/index.ts",
 		"vendor/pi-ask-user/upstream.ts",
@@ -54,6 +53,9 @@ test("verify-runtime-surface tracks lazy command, testing flow, and vendored que
 	]) {
 		assert.match(script, new RegExp(`path: "${runtimePath.replaceAll("/", "\\/")}"`));
 	}
+
+	assert.doesNotMatch(script, /path: "vendor\/pi-subagents/);
+	assert.doesNotMatch(script, /path: "packages\/subagents-compat/);
 });
 
 
@@ -98,10 +100,45 @@ test("normal install paths expose the vendored question wrapper", () => {
 	assert.match(defaultNix, /entry = "vendor\/pi-ask-user\/index\.ts"/);
 });
 
-test("README documents the lazy runtime boundaries", () => {
+test("README documents the native subagent quick path and package discovery", () => {
 	const readme = readRepoFile("README.md");
 
-	assert.match(readme, /named subagents receive isolated prompts/i);
+	assert.match(readme, /official `pi-subagents-j0k3r@1\.4\.4` npm package/i);
+	assert.match(readme, /`settings\.json` package discovery/i);
+	assert.match(readme, /`pnpm run relink`[\s\S]{0,200}idempotently/i);
+	assert.match(readme, /preserv(?:e|es|ing) other packages and settings/i);
+	assert.match(readme, /Pi installs missing packages (?:on|at) startup/i);
+	assert.match(readme, /Node\.js >=22\.19\.0/);
+	assert.match(readme, /`\/subagent-models`[^\n]+model\/effort/i);
+	assert.match(readme, /`\/subagents`[^\n]+running[^\n]+history/i);
+	assert.match(readme, /`subagent_run`[^\n]+`mode: "task"`[^\n]+`mode: "background"`/i);
+
+	for (const tool of [
+		"subagent_list_agents",
+		"subagent_run",
+		"subagent_continue",
+		"subagent_status",
+		"subagent_result",
+		"subagent_list_tasks",
+		"subagent_cancel",
+	]) {
+		assert.match(readme, new RegExp("`" + tool + "`"), `README should name ${tool}`);
+	}
+
+	assert.match(readme, /`model_profiles`[\s\S]{0,80}`subagents\.json`/i);
+	assert.match(readme, /(?:global and project|global\/project)[\s\S]{0,100}`\.pi\/(?:agents|subagents)`/i);
+	assert.match(readme, /no `\/agents` command or compatibility alias/i);
+	assert.match(readme, /`session_resources: lean`[\s\S]{0,80}isolat/i);
+	assert.match(readme, /removes context\/prompt lifecycle hooks/i);
+	assert.match(readme, /preserv(?:e|es|ing) allowlisted tools and safety hooks/i);
+
+	assert.doesNotMatch(readme, /vendor\/pi-subagents/);
+	assert.doesNotMatch(readme, /`(?:Agent|get_subagent_result|steer_subagent)`/);
+});
+
+test("README keeps unrelated runtime and testing boundaries", () => {
+	const readme = readRepoFile("README.md");
+
 	assert.match(readme, /`\/btw` loads its model runtime only when invoked/i);
 	assert.match(readme, /upstream `ask_user` tool/i);
 	assert.match(readme, /Atlas\+Engram remains the SDD persistence authority/i);

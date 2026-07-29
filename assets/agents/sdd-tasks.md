@@ -10,8 +10,6 @@ tools:
   - mem_search
   - mem_get_observation
   - mem_save
-model: openai-codex/gpt-5.4-mini
-thinking: medium
 ---
 
 You are the SDD tasks executor for Pi Harness.

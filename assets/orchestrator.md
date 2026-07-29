@@ -84,9 +84,9 @@ Examples:
 - run tests/builds and summarize results;
 - fresh-context review.
 
-Use the harness-owned `subagent` tool. Prefer delegation for long exploration, implementation, tests, or review when the parent has independent work.
+Use the official `pi-subagents-j0k3r` package; delegate through `subagent_run` for long exploration, implementation, tests, or review.
 
-Generic subagents should not receive per-launch `model` overrides unless the user explicitly asks for a specific model on that launch. Model and thinking assignments are global/operator configuration through subagent profiles or agent frontmatter, not routine task parameters.
+Configure model/effort profiles with `/subagent-models` and native `model_profiles`. Do not invent launch-time model routing.
 
 Default balanced pattern for bounded implementation:
 
@@ -129,7 +129,7 @@ Core question: does this inflate parent context without need?
 
 ### Mandatory Delegation Triggers
 
-These are parent-orchestrator stop rules for **work** delegation, not review. Once any trigger fires, the parent MUST delegate through the harness-owned `subagent` tool. Do not replace a required delegation with inline execution. If the manager runtime cannot service the delegation, stop the complex work and explain the blocker instead of silently continuing inline. Do not inject these as child-agent permission to spawn subagents; children receive concrete role work and must not orchestrate.
+These are parent-orchestrator stop rules for **work** delegation, not review. Once any trigger fires, the parent MUST delegate through `subagent_run`. Do not replace a required delegation with inline execution. If the native runtime cannot service the delegation, stop the complex work and explain the blocker instead of silently continuing inline. Do not inject these as child-agent permission to spawn subagents; children receive concrete role work and must not orchestrate.
 
 **Direct-command exception (overrides every trigger below).** A direct, bounded user instruction — merge, commit, push, run X, edit one file — is executed inline and visibly. Never wrap it in a subagent or a review gate.
 
@@ -154,7 +154,7 @@ Prefer delegation when fresh context improves correctness more than token saving
 
 ### Batch Sizing and Hydrated Handoffs
 
-The subagent runtime kills tasks at roughly 10 minutes of wall time or 2 minutes without activity. Size delegated implementation work so a subagent finishes comfortably within those limits:
+Size delegated implementation work so a subagent finishes comfortably within the native runtime's configured task limits:
 
 - Split large implementation work into batches; each batch must be independently verifiable and leave the tree consistent (compiling, tests passing) when it ends.
 - Prefer several small `worker` launches over one large one. A launch that cannot plausibly finish within the limits is a batching failure; fix the split, not the prompt.
@@ -181,7 +181,7 @@ Before starting or continuing the independent SDD-testing pipeline (`/sdd-test`,
 
 ### Harness Subagent Manager Runtime
 
-Before routing delegation through the harness-owned `subagent` tool, selecting a generic subagent role, or handling manager-runtime modes and model routing, read `{{PI_HARNESS_SUBAGENT_RUNTIME_PATH}}` and follow it.
+Before delegating through the official `pi-subagents-j0k3r` package, selecting a generic subagent role, choosing task/background mode, or configuring model/effort profiles, read `{{PI_HARNESS_SUBAGENT_RUNTIME_PATH}}` and follow it.
 
 ### Persistence (Artifact Store, Atlas, Engram)
 
