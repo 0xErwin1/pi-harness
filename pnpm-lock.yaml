@@ -30,6 +30,9 @@ importers:
       '@types/node':
         specifier: 25.8.0
         version: 25.8.0
+      pi-subagents-j0k3r:
+        specifier: 1.4.4
+        version: 1.4.4(@earendil-works/pi-coding-agent@0.80.3(ws@8.20.1)(zod@4.4.3))(typebox@1.1.38)
       tsx:
         specifier: 4.20.6
         version: 4.20.6
@@ -714,6 +717,18 @@ packages:
   path-scurry@2.0.2:
     resolution: {integrity: sha512-3O/iVVsJAPsOnpwWIeD+d6z/7PmqApyQePUtCndjatj/9I5LylHvt5qluFaBT3I5h3r1ejfR056c+FCv+NnNXg==}
     engines: {node: 18 || 20 || >=22}
+
+  pi-subagents-j0k3r@1.4.4:
+    resolution: {integrity: sha512-F6o/lGm5MN2+mMyYip91xBvD3GnuknDztf3XXAcq4nOLISq6v08035RBoqIB719F0MyApGN99t8RF4Mb1f/8Jg==}
+    engines: {node: '>=22.19.0'}
+    peerDependencies:
+      '@earendil-works/pi-coding-agent': '*'
+      typebox: '*'
+    peerDependenciesMeta:
+      '@earendil-works/pi-coding-agent':
+        optional: true
+      typebox:
+        optional: true
 
   proper-lockfile@4.1.2:
     resolution: {integrity: sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==}
@@ -1562,6 +1577,11 @@ snapshots:
     dependencies:
       lru-cache: 11.3.6
       minipass: 7.1.3
+
+  pi-subagents-j0k3r@1.4.4(@earendil-works/pi-coding-agent@0.80.3(ws@8.20.1)(zod@4.4.3))(typebox@1.1.38):
+    optionalDependencies:
+      '@earendil-works/pi-coding-agent': 0.80.3(ws@8.20.1)(zod@4.4.3)
+      typebox: 1.1.38
 
   proper-lockfile@4.1.2:
     dependencies:

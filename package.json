@@ -7,7 +7,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.33.4",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "relink": "bash scripts/link.sh",
@@ -31,6 +31,7 @@
     "@earendil-works/pi-tui": "^0.80.2",
     "typebox": "^1.1.38",
     "@types/node": "25.8.0",
+    "pi-subagents-j0k3r": "1.4.4",
     "tsx": "4.20.6",
     "typescript": "6.0.3"
   }
