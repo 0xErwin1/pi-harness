@@ -1,4 +1,4 @@
-import type { AgentRow, AgentsPayload, ChannelName, Channels, PrInfoPayload, ThroughputPayload } from "./channels.ts";
+import type { ChannelName, Channels, PrInfoPayload, ThroughputPayload } from "./channels.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -29,16 +29,6 @@ export function isPrChannelPayload(value: unknown): value is PrInfoPayload | nul
 	return value === null || isPrInfoPayload(value);
 }
 
-function isAgentRow(value: unknown): value is AgentRow {
-	return isRecord(value) && typeof value.id === "string";
-}
-
-export function isAgentsPayload(value: unknown): value is AgentsPayload {
-	if (!isRecord(value)) return false;
-
-	return Array.isArray(value.rows) && value.rows.every(isAgentRow);
-}
-
 /**
  * One runtime type guard per channel, keyed by channel name. `subscribe`
  * looks up the guard for the channel it is called with and uses it to
@@ -47,5 +37,4 @@ export function isAgentsPayload(value: unknown): value is AgentsPayload {
 export const CHANNEL_GUARDS: { [K in ChannelName]: (value: unknown) => value is Channels[K] } = {
 	"harness:throughput": isThroughputPayload,
 	"harness:pr": isPrChannelPayload,
-	"harness:agents": isAgentsPayload,
 };

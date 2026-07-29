@@ -59,19 +59,6 @@ test("harness:pr round trip delivers null (no open PR)", () => {
 	assert.deepEqual(received, [null]);
 });
 
-test("harness:agents round trip delivers the roster payload", () => {
-	const host = makeHost();
-	const received: unknown[] = [];
-
-	subscribe(host, "harness:agents", (payload) => {
-		received.push(payload);
-	});
-
-	publish(host, "harness:agents", { rows: [{ id: "agent-1" }, { id: "agent-2" }] });
-
-	assert.deepEqual(received, [{ rows: [{ id: "agent-1" }, { id: "agent-2" }] }]);
-});
-
 test("a malformed harness:throughput payload is dropped without throwing", () => {
 	const host = makeHost();
 	const received: unknown[] = [];
@@ -97,21 +84,6 @@ test("a malformed harness:pr payload (wrong shape, not null) is dropped without 
 
 	assert.doesNotThrow(() => {
 		host.events.emit("harness:pr", { number: "seven", url: "https://example.com" });
-	});
-
-	assert.deepEqual(received, []);
-});
-
-test("a malformed harness:agents payload is dropped without throwing", () => {
-	const host = makeHost();
-	const received: unknown[] = [];
-
-	subscribe(host, "harness:agents", (payload) => {
-		received.push(payload);
-	});
-
-	assert.doesNotThrow(() => {
-		host.events.emit("harness:agents", { rows: [{ id: 1 }] });
 	});
 
 	assert.deepEqual(received, []);
