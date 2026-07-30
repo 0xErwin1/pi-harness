@@ -28,11 +28,10 @@ If the user asks for juicio **and** 4R in the same request, run **both** protoco
 
 If the user says only "review this" / "revisá esto" without naming juicio or 4R, ask which they want: a single generic `reviewer` pass, 4R, juicio, or both. Do not default to 4R or Judgment Day.
 
-### Ship and post-verify quiet
+### No inferred activation
 
 - Commit, push, open PR, merge: execute directly; never insert 4R or juicio first.
-- After `sdd-verify` PASS (batch or final): stop. Do not chain 4R or juicio.
-- A one-line optional offer after ship is fine; never a blocking gate.
+- After `sdd-verify` PASS (batch or final): stop. Do not chain or suggest 4R or juicio.
 
 ## 4R Review
 
@@ -56,14 +55,9 @@ The review ledger row schema is: `severity`, `status`, `finding_id`, `source`, `
 - Engram active: upsert the merged ledger to topic `sdd/{change-name}/review-ledger`, or `review/{target-slug}/ledger` for ad-hoc reviews. If Engram upsert or the memory tool is unavailable, keep the merged ledger inline and explicitly report degraded persistence.
 - No store active: keep the merged ledger inline only; do not write files or Engram artifacts.
 
-### Review Gate Extension (advisory)
+### Review Gate Compatibility Module
 
-The `review-gate` extension (`extensions/review-gate.ts`) watches `bash` calls that look like git/gh workflow events and emits a notification only. It never blocks a command and never obligates the orchestrator to run anything:
-
-- **pre-commit / pre-push** (`git commit`, `git push`): advisory only. The extension notifies the user to consider running one cheap lens (`review-readability`) but does NOT block. No orchestrator action is required.
-- **pre-pr** (`gh pr create`): the extension raises the notification level when the changed paths match hot globs (`**/auth/**`, `**/update/**`, `**/security/**`, `**/payments/**`) or the diff exceeds 400 changed lines, naming the four lenses. It still does NOT block.
-
-The gate is fail-open — if it cannot compute the diff it stays silent. Treat its notification as information for the user, not as a trigger: relay it when useful and continue with the command.
+The legacy `review-gate` compatibility module loads without registering handlers. It does not observe commands, emit notifications or suggestions, block actions, or start review. Explicit review remains available through the user-invoked protocols above.
 
 ### Review Lens Selection
 

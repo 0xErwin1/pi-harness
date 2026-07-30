@@ -86,6 +86,16 @@ isNonAuthoritative: false  # boolean; true when the native engine is not authori
 
 Missing planning artifacts are not blockers. When `nextRecommended` is a planning action (`propose`, `spec`, `design`, or `tasks`), launch the corresponding planning phase — a missing proposal/spec/design/tasks artifact is the expected output of that phase, not a genuine blocker. Reserve blocking routing for unsafe edit scope, ambiguous change selection, or unresolved CRITICAL verification issues.
 
+## Normal Development Lifecycle
+
+The normal post-apply lifecycle is verify → sync → archive.
+
+- Passing verification evidence is the only outcome that advances to sync; failed, blocked, partial, conflicting, or unknown evidence stops safely.
+- A clean synced report is the only outcome that advances to archive; blocked, partial, conflict, or unknown sync evidence stops safely.
+- The `/sdd-sync` command is available for a direct sync of `<change-name>` when anchored passing verification evidence exists.
+- The `/sdd-onboard` command is an interactive, non-durable entry point with an optional `[change-name]` and does not create a lifecycle artifact.
+- Review protocols and chained planning remain explicit-only capabilities; they are not automatic lifecycle phases, gates, or routing destinations.
+
 ## Action Context Guard
 
 The orchestrator MUST carry `actionContext` into any phase launch.

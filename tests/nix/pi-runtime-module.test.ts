@@ -33,6 +33,7 @@ function moduleEval(
 		              "npm:pi-subagents-j0k3r@1.4.4"
 		              "npm:pi-subagents-j0k3r@1.4.4"
 		            ];`,
+	extraResources = "",
 ): any {
 	const expression = `
 		let
@@ -74,6 +75,7 @@ function moduleEval(
 		              target = ".pi/agent/extensions";
 		              recursive = true;
 		            }
+		            ${extraResources}
 		          ];
 		          extensions = [ flake.assets.extensions ];
 		          extraArgs = [ "--model" "sonnet" ];
@@ -98,12 +100,32 @@ function moduleEval(
 		  piToolRendererExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-tool-renderer.ts".force;
 		  piAskUserExtensionForce = evaluated.config.home.file.".pi/agent/extensions/pi-ask-user.ts".force;
 		  piAskUserExtensionText = evaluated.config.home.file.".pi/agent/extensions/pi-ask-user.ts".text;
+		  ownershipMarkerText = evaluated.config.home.file.".pi/agent/.pi-harness-owner".text or null;
 		  wrapperText = evaluated.config.home.file.".local/bin/pi-harness-pi".text;
 		  wrapperExecutable = evaluated.config.home.file.".local/bin/pi-harness-pi".executable;
 		}
 	`;
 	return nixJson(["eval", "--json", "--impure", "--no-write-lock-file", "--expr", expression]);
 }
+
+test("Home Manager publishes the exact global Pi ownership marker", () => {
+	const result = moduleEval();
+
+	assert.ok(result.homeFileKeys.includes(".pi/agent/.pi-harness-owner"));
+	assert.equal(result.ownershipMarkerText, "schema=1\nowner=home-manager\nscope=global\n");
+});
+
+test("configured resources cannot shadow Home Manager's ownership marker", () => {
+	const result = moduleEval(
+		undefined,
+		`{
+		  source = flake.assets.orchestrator;
+		  target = ".pi/agent/.pi-harness-owner";
+		}`,
+	);
+
+	assert.equal(result.ownershipMarkerText, "schema=1\nowner=home-manager\nscope=global\n");
+});
 
 test("Pi mutable activation preserves local fields while applying generated settings and models", () => {
 	const result = moduleEval();

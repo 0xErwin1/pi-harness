@@ -22,6 +22,7 @@ const EXPECTED_COMMANDS = [
 	"harness:doctor",
 	"pi-harness:status",
 	"sdd-init",
+	"sdd-onboard",
 	"sdd-test",
 	"sdd-test-status",
 	"sdd-explore-testing",
@@ -33,6 +34,7 @@ const EXPECTED_COMMANDS = [
 	"sdd-ff",
 	"sdd-apply",
 	"sdd-verify",
+	"sdd-sync",
 	"sdd-archive",
 	"sdd-status",
 	"skill-registry:refresh",
@@ -64,11 +66,11 @@ const EXPECTED_TOOLS = [
 ];
 
 /**
- * Extensions whose `tool_call` handler MUST be present. Both intercept the
- * same hook; ordering between them is load-order dependent and MUST NOT be
- * assumed, so this is checked as set membership, not sequence.
+ * Shell safety remains active while the review compatibility module loads
+ * without observing tool calls.
  */
-const TOOL_CALL_OWNERS = ["shell-guard.ts", "review-gate.ts"];
+const TOOL_CALL_OWNER = "shell-guard.ts";
+const REVIEW_COMPATIBILITY_MODULE = "review-gate.ts";
 
 test("the real extension set loads cleanly and registers the expected commands and tools", async (t) => {
 	// `discoverAndLoadExtensions` also globs `<agentDir>/extensions/`; pointing
@@ -94,7 +96,13 @@ test("the real extension set loads cleanly and registers the expected commands a
 	assert.deepEqual([...commandNames].sort(), [...EXPECTED_COMMANDS].sort());
 	assert.deepEqual([...toolNames].sort(), [...EXPECTED_TOOLS].sort());
 
-	for (const owner of TOOL_CALL_OWNERS) {
-		assert.ok(toolCallOwners.has(owner), `expected ${owner} to register a tool_call handler`);
-	}
+	assert.ok(toolCallOwners.has(TOOL_CALL_OWNER), `expected ${TOOL_CALL_OWNER} to register a tool_call handler`);
+	assert.ok(
+		result.extensions.some((extension) => basename(extension.path) === REVIEW_COMPATIBILITY_MODULE),
+		`expected ${REVIEW_COMPATIBILITY_MODULE} to load as a compatibility module`,
+	);
+	assert.ok(
+		!toolCallOwners.has(REVIEW_COMPATIBILITY_MODULE),
+		`expected ${REVIEW_COMPATIBILITY_MODULE} not to register a tool_call handler`,
+	);
 });

@@ -277,7 +277,9 @@ in
     lib.mkMerge [
       {
         home.packages = lib.optional (cfg.package != null) cfg.package;
-        home.file = bundledThemeFiles // resourceFiles // vendorExtensionFiles;
+        home.file = bundledThemeFiles // resourceFiles // vendorExtensionFiles // {
+          ".pi/agent/.pi-harness-owner".text = "schema=1\nowner=home-manager\nscope=global\n";
+        };
       }
       (lib.mkIf hasMutableConfig {
         home.activation.piCodingAgentMutableConfig = mutableConfigActivation;

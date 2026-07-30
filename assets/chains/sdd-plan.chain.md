@@ -40,7 +40,7 @@ output: design.md
 outputMode: artifact-contract
 progress: true
 
-Design the technical approach for {task}. Preserve native SDD orchestration intent and identify review/judgment risks.
+Design the technical approach for {task}. Preserve native SDD orchestration intent and identify technical risks, constraints, and tradeoffs.
 
 ## sdd-tasks
 
@@ -49,4 +49,4 @@ output: tasks.md
 outputMode: artifact-contract
 progress: true
 
-Create reviewable strict-TDD implementation tasks for {task}. Include workload forecast and any required delivery decision.
+Create strict-TDD implementation tasks for {task}. Group work only where dependency, context, runtime, or independent verification boundaries require it.

@@ -24,19 +24,27 @@ this adds the discipline for using them well.
 
 Requires Node.js >=22.19.0 and pnpm.
 
+Home Manager is the sole owner of the global Pi agent directory at `~/.pi/agent/`.
+Enable the bundled `homeModules.default` module for the global runtime; it publishes
+the ownership marker and projects the configured harness resources. The module adds
+the pinned package to native Pi `settings.json` package discovery, preserving other
+packages and settings. Pi installs missing packages on startup.
+
+`scripts/dev-pi.sh` is the repository development path; it builds an isolated agent
+and HOME without reading or writing the global ownership marker:
+
 ```bash
-pnpm install
-pnpm run relink
+nix run .#dev-pi -- --no-session
+# or
+scripts/dev-pi.sh -- --no-session
 ```
 
-`pnpm run relink` links the harness files into the global Pi agent directory
-(`~/.pi/agent/`) and adds `npm:pi-subagents-j0k3r@1.4.4` idempotently to native
-Pi `settings.json` package discovery, preserving other packages and settings.
-Pi installs missing packages on startup. Existing real files replaced by harness
-links are backed up to `<path>.bak`.
+`pnpm run relink` remains only for legacy unmanaged homes with no ownership marker; it idempotently
+links harness assets and updates package discovery while preserving other packages and settings.
+It refuses to run when it finds the Home Manager marker, and existing real files are
+backed up to `<path>.bak` only on the legacy unmanaged path.
 
-Agent definitions from `assets/agents/` are linked into Pi's global agent
-directory. Skills remain managed separately by the upstream-ai-sync flow.
+Skills remain managed separately by the upstream-ai-sync flow.
 
 ## Versioning policy
 
@@ -55,6 +63,17 @@ Nothing updates silently.
 pnpm run check   # tsc --noEmit over all harness extensions
 pnpm run test    # focused harness/package tests
 ```
+
+## SDD development flow
+
+The normal post-apply lifecycle is verify → sync → archive. Passing `/sdd-verify`
+evidence advances to sync, and only a clean synced report advances to archive;
+failed, blocked, partial, conflicting, or unknown outcomes stop safely.
+
+The `/sdd-sync` command runs sync directly for `<change-name>` when passing verification exists.
+The `/sdd-onboard` command is the guided, non-durable entry point for choosing or
+starting development work. Review protocols and chained planning remain explicit-only
+capabilities and are never automatic stages or gates in the normal SDD lifecycle.
 
 ## SDD testing flow
 

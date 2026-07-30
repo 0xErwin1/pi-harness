@@ -49,7 +49,7 @@ output: design.md
 outputMode: artifact-contract
 progress: true
 
-Design the technical approach for {task} using the proposal, specs, and previous outputs. Call out review and judgment risks.
+Design the technical approach for {task} using the proposal, specs, and previous outputs. Call out technical risks, constraints, and tradeoffs.
 
 ## sdd-tasks
 
@@ -58,7 +58,7 @@ output: tasks.md
 outputMode: artifact-contract
 progress: true
 
-Create strict-TDD, reviewable implementation tasks for {task}. Include the required Review Workload Forecast guard lines and PR split recommendation.
+Create dependency-ordered strict-TDD implementation tasks for {task}. Use work-unit batches only for context, runtime, or independent verification safety.
 
 ## sdd-apply
 
@@ -67,7 +67,7 @@ output: apply-progress.md
 outputMode: artifact-contract
 progress: true
 
-Implement only approved tasks for {task}; enforce strict TDD when active and stop before writing if workload decisions are unresolved. Update the tasks and apply-progress artifacts with evidence.
+Implement only the assigned tasks for {task}; enforce strict TDD when active and keep each assigned work unit independently verifiable. Update the tasks and apply-progress artifacts with evidence.
 
 ## sdd-verify
 
@@ -76,7 +76,7 @@ output: verify-report.md
 outputMode: artifact-contract
 progress: true
 
-Verify {task} against specs, design, tasks, implementation, apply-progress, strict TDD evidence, assertion quality, and review workload boundaries.
+Run conformance-only verification for {task} against specs, design, assigned tasks, implementation, apply-progress, strict TDD evidence, and assertion quality. Emit the anchored lifecycle status required by the verify agent contract.
 
 ## sdd-sync
 

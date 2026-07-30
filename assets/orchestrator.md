@@ -82,7 +82,6 @@ Examples:
 - investigate a failing test;
 - implement a bounded multi-file change;
 - run tests/builds and summarize results;
-- fresh-context review.
 
 Use the official `pi-subagents-j0k3r` package; delegate through `subagent_run` for long exploration, implementation, tests, or review.
 
@@ -100,14 +99,13 @@ Do not make every task SDD. Do make non-trivial tasks multi-agent at the narrowe
 
 ### 3. SDD
 
-Use SDD for large, ambiguous, architectural, product-facing, multi-area, or high-review-risk work.
+Use SDD for large, ambiguous, architectural, product-facing, multi-area, or cross-cutting work.
 
 Triggers:
 
 - unclear requirements or acceptance criteria;
 - architectural or product decisions;
 - cross-cutting behavior changes;
-- expected large diff or reviewer burden;
 - need for specs/design/tasks before safe implementation;
 - user explicitly says `use sdd`, `/sdd-new`, `/sdd-ff`, or `/sdd-continue`.
 
@@ -232,19 +230,6 @@ Before emitting any delegation call, check your in-session launch log:
 - After launching, append the pair to the list.
 
 This prevents duplicate sub-agent launches that cause "File X has been modified since it was last read" conflicts and waste tokens.
-
-## Review Workload Guard
-
-After `sdd-tasks` and before `sdd-apply`, inspect the task output for review workload risk.
-
-If estimated changed lines exceed 400, chained PRs are recommended, or a decision is needed, pause and ask unless the user already approved a delivery strategy. Cached choices: `delivery_strategy` (`ask-on-risk`, `auto-chain`, `single-pr`, `exception-ok`) and `chain_strategy` (`stacked-to-main` or `feature-branch-chain`).
-
-When chained PRs are selected and `chain_strategy` is not yet cached, ask which one to use:
-
-- **`stacked-to-main`**: Each PR merges to main in order. Fast iteration, fix on the go.
-- **`feature-branch-chain`**: PR #1 targets the feature/tracker branch; later PRs target the immediate previous PR branch; only the tracker merges to main. Best for rollback control and coordinated releases.
-
-Automatic mode does not override reviewer burnout protection. When launching `sdd-apply`, include the resolved `delivery_strategy`, `chain_strategy`, and any chosen PR boundary/exception in the prompt.
 
 ## Safety
 

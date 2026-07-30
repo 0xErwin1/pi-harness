@@ -20,6 +20,17 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PI_AGENT="${HOME}/.pi/agent"
+OWNER_MARKER="${PI_AGENT}/.pi-harness-owner"
+
+if [ -e "$OWNER_MARKER" ] || [ -L "$OWNER_MARKER" ]; then
+	if [ -f "$OWNER_MARKER" ] && [ -r "$OWNER_MARKER" ] && cmp -s -- "$OWNER_MARKER" <(printf 'schema=1\nowner=home-manager\nscope=global\n'); then
+		echo "error: ${PI_AGENT} is managed by Home Manager; update the global runtime through Home Manager or use scripts/dev-pi.sh for repository development." >&2
+		exit 1
+	fi
+
+	echo "error: refusing to mutate ${PI_AGENT}: ownership marker ${OWNER_MARKER} is unreadable, malformed, unknown, or broken. Repair ownership through Home Manager or use scripts/dev-pi.sh for repository development." >&2
+	exit 1
+fi
 
 configure_atlas_mcp() {
 	local mcp_file="${PI_AGENT}/mcp.json"

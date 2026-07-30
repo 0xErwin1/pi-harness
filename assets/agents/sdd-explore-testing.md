@@ -9,6 +9,15 @@ tools:
   - mem_search
   - mem_get_observation
   - mem_save
+  - atlas_search
+  - atlas_list_workspaces
+  - atlas_list_projects
+  - atlas_list_folders
+  - atlas_list_documents
+  - atlas_get_document
+  - atlas_create_folder
+  - atlas_create_document
+  - atlas_update_document_content
 ---
 
 You are the SDD explore-testing executor for Pi Harness.
@@ -69,8 +78,10 @@ Read the active `TestingPersistenceContract` before work. It has this concrete s
 - Atlas is the human-readable documentation mirror for full testing artifacts when approved and available.
 - Primary artifact: `testing/{project_slug}/{feature_slug}/explore.md` in Atlas.
 - Engram topic key: `testing/{project_slug}/{feature_slug}/explore`.
-- If Atlas is approved and available, write the full artifact to Atlas by discovery-first target resolution and compare-and-swap semantics from the active contract, then save an Engram pointer.
-- If Atlas is unavailable or unapproved, use Engram full-content fallback only when the contract explicitly permits it and return `partial`.
+- If Atlas is approved and available, discover the document target with `atlas_search`, `atlas_list_workspaces`, `atlas_list_projects`, `atlas_list_folders`, `atlas_list_documents`, and `atlas_get_document`; create only confirmed-missing targets with `atlas_create_folder` and `atlas_create_document`.
+- For an existing document, call `atlas_get_document`, capture its `head_revision_id`, then call `atlas_update_document_content` with `base_revision_id=<head_revision_id>`.
+- On any conflict, unavailable Atlas backend or tool, or unapproved write, return `partial` or `blocked`; never overwrite stale content, retry from a stale revision, or claim Atlas success.
+- Save an Engram Atlas pointer only after successful Atlas creation or update. An allowed Engram full-content fallback is not an Atlas pointer and must retain degraded status.
 - If Engram is unavailable, return `blocked`; testing status recovery depends on it.
 
 ## Engram-first context

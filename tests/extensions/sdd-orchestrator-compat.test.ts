@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import orchestrator, {
 	buildDelegationMessage,
 	buildInitDelegationMessage,
@@ -8,6 +10,7 @@ import orchestrator, {
 	buildSddTestIntakeMessage,
 	buildSddTestingPhaseMessage,
 	formatTestingStatus,
+	parseLifecycleStatus,
 	parseSddRunTestingArgs,
 	resolveSddStatus,
 	resolveSddTestingStatus,
@@ -20,6 +23,7 @@ import orchestrator, {
 const readRepoFile = (relativePath: string): string => readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
 
 const OLD_SUBAGENT_CONTRACT = /\b(?:Agent|subagent_type|prompt|run_in_background|get_subagent_result|steer_subagent)\b/;
+const MACHINE_SPECIFIC_SDD_SKILL_ROOT = ["", "home", "iperez", ".tabularium", "AI", "skills"].join("/") + "/";
 
 function assertNativeSubagentContract(message: string, agents: string[]): void {
 	assert.match(message, /Call the subagent_run tool/);
@@ -68,6 +72,118 @@ test("buildDelegationMessage emits the native subagent_run task contract", () =>
 
 	assert.doesNotMatch(message, /Artifact store: engram\b/);
 	assert.doesNotMatch(message, /context: "fresh"/);
+	assert.equal(message.includes(MACHINE_SPECIFIC_SDD_SKILL_ROOT), false);
+});
+
+test("buildDelegationMessage requires passing verification and supplies full sync action context", () => {
+	const emptyStatus = {
+		explore: undefined,
+		proposal: undefined,
+		spec: undefined,
+		design: undefined,
+		tasks: undefined,
+		"apply-progress": undefined,
+		"verify-report": undefined,
+		"sync-report": undefined,
+		"archive-report": undefined,
+	};
+
+	assert.throws(
+		() => buildDelegationMessage({
+			phase: "sync-report",
+			changeName: "safe-lifecycle",
+			project: "pi-harness",
+			cwd: "/tmp/pi-harness",
+			dependencies: [],
+			status: emptyStatus,
+		} as any),
+		/passing verification evidence/i,
+	);
+
+	const verify = {
+		id: 42,
+		type: "architecture",
+		title: "Verify",
+		content: "lifecycle_status: passed",
+		project: "pi-harness",
+		topic_key: "sdd/safe-lifecycle/verify-report",
+		created_at: "2026-07-04T10:00:00.000Z",
+	};
+	const message = buildDelegationMessage({
+		phase: "sync-report",
+		changeName: "safe-lifecycle",
+		project: "pi-harness",
+		cwd: "/tmp/pi-harness",
+		dependencies: [verify],
+		status: { ...emptyStatus, "verify-report": verify },
+	} as any);
+
+	assertNativeSubagentContract(message, ["sdd-sync"]);
+	assert.match(message, /Requested lifecycle action: sync verified development artifacts/);
+	assert.match(message, /Current development artifact status:/);
+	assert.match(message, /Verify: present — #42 — lifecycle_status: passed/);
+	assert.match(message, /Engram topic key: sdd\/safe-lifecycle\/sync-report/);
+	assert.match(message, /Atlas logical path: sdd\/safe-lifecycle\/sync-report\.md/);
+	assert.match(message, /sdd\/safe-lifecycle\/verify-report/);
+	assert.match(message, /sdd\/safe-lifecycle\/verify-report\.md/);
+	assert.doesNotMatch(message, /testing\/pi-harness|sdd-report-testing/);
+});
+
+test("buildDelegationMessage requires passing verification and a clean sync before new archive work", () => {
+	const baseStatus = {
+		explore: undefined,
+		proposal: undefined,
+		spec: undefined,
+		design: undefined,
+		tasks: undefined,
+		"apply-progress": undefined,
+		"verify-report": undefined,
+		"sync-report": undefined,
+		"archive-report": undefined,
+	};
+
+	assert.throws(
+		() => buildDelegationMessage({
+			phase: "archive-report",
+			changeName: "safe-lifecycle",
+			project: "pi-harness",
+			cwd: "/tmp/pi-harness",
+			dependencies: [],
+			status: baseStatus,
+		} as any),
+		/passing verification evidence and a clean sync report/i,
+	);
+
+	const verify = {
+		id: 42,
+		type: "architecture",
+		title: "Verify",
+		content: "lifecycle_status: passed",
+		project: "pi-harness",
+		topic_key: "sdd/safe-lifecycle/verify-report",
+		created_at: "2026-07-04T10:00:00.000Z",
+	};
+	const sync = {
+		...verify,
+		id: 43,
+		title: "Sync",
+		content: "lifecycle_status: synced",
+		topic_key: "sdd/safe-lifecycle/sync-report",
+		created_at: "2026-07-04T10:01:00.000Z",
+	};
+	const message = buildDelegationMessage({
+		phase: "archive-report",
+		changeName: "safe-lifecycle",
+		project: "pi-harness",
+		cwd: "/tmp/pi-harness",
+		dependencies: [verify, sync],
+		status: { ...baseStatus, "verify-report": verify, "sync-report": sync },
+	} as any);
+
+	assertNativeSubagentContract(message, ["sdd-archive"]);
+	assert.match(message, /sdd\/safe-lifecycle\/verify-report/);
+	assert.match(message, /sdd\/safe-lifecycle\/sync-report/);
+	assert.match(message, /lifecycle_status: archived\|blocked\|partial/);
 });
 
 test("buildInitDelegationMessage includes deterministic detector output and init persistence contract", () => {
@@ -114,6 +230,7 @@ test("buildInitDelegationMessage includes deterministic detector output and init
 	assert.match(message, /"topicKey": "sdd-init\/pi-harness"/);
 	assert.match(message, /"logicalPath": "sdd-init\/pi-harness\.md"/);
 	assert.doesNotMatch(message, /Artifact store: engram\b/);
+	assert.equal(message.includes(MACHINE_SPECIFIC_SDD_SKILL_ROOT), false);
 });
 
 test("buildDelegationMessage emits sdd-tasks Atlas task tracking contract without mutation approval", () => {
@@ -149,6 +266,7 @@ test("buildMultiPhaseDelegationMessage emits sequential subagent_run task steps 
 			tasks: undefined,
 			"apply-progress": undefined,
 			"verify-report": undefined,
+			"sync-report": undefined,
 			"archive-report": undefined,
 		},
 	});
@@ -164,6 +282,7 @@ test("buildMultiPhaseDelegationMessage emits sequential subagent_run task steps 
 
 	assert.doesNotMatch(message, /Artifact store: engram\b/);
 	assert.doesNotMatch(message, /context: "fresh"/);
+	assert.equal(message.includes(MACHINE_SPECIFIC_SDD_SKILL_ROOT), false);
 
 	const exploreIdx = message.indexOf(`agent: "sdd-explore"`);
 	const proposeIdx = message.indexOf(`agent: "sdd-propose"`);
@@ -219,6 +338,7 @@ test("resolveSddStatus lazily infers the active change and next Engram-backed ph
 		"tasks",
 		"apply-progress",
 		"verify-report",
+		"sync-report",
 		"archive-report",
 	]);
 	assert.deepEqual(resolved.dependencies.map((dependency) => dependency.topic_key), [
@@ -226,6 +346,249 @@ test("resolveSddStatus lazily infers the active change and next Engram-backed ph
 		"sdd/align-gentle-pi-runtime/spec",
 		"sdd/align-gentle-pi-runtime/design",
 	]);
+});
+
+test("resolveSddStatus advances an anchored passing verification to sync", () => {
+	const changeName = "safe-lifecycle";
+	const phases = ["spec", "design", "tasks", "apply-progress", "verify-report"];
+	const resolved = resolveSddStatus({
+		project: "pi-harness",
+		changeName,
+		data: {
+			observations: phases.map((phase, index) => ({
+				id: index + 1,
+				type: "architecture",
+				title: phase,
+				content: phase === "verify-report" ? "Verification complete.\nlifecycle_status: passed\n" : phase,
+				project: "pi-harness",
+				topic_key: `sdd/${changeName}/${phase}`,
+				created_at: `2026-07-04T10:0${index}:00.000Z`,
+			})),
+		},
+	});
+
+	assert.equal(resolved.nextPhase, "sync-report");
+	assert.equal(resolved.outcomes.verify, "passed");
+	assert.equal(resolved.outcomes.sync, undefined);
+});
+
+test("lifecycle_status parsing requires exactly one anchored recognized status", () => {
+	assert.equal(parseLifecycleStatus("Summary\nlifecycle_status: passed\n"), "passed");
+	assert.equal(parseLifecycleStatus("Summary says lifecycle_status: passed"), "unknown");
+	assert.equal(parseLifecycleStatus("  lifecycle_status: passed"), "unknown");
+	assert.equal(parseLifecycleStatus("lifecycle_status: passed\nlifecycle_status: passed"), "unknown");
+	assert.equal(parseLifecycleStatus("lifecycle_status: surprise"), "unknown");
+});
+
+function developmentLifecycleObservations(reports: Record<string, string> = {}) {
+	const changeName = "safe-lifecycle";
+	const contents = new Map<string, string>([
+		["spec", "spec"],
+		["design", "design"],
+		["tasks", "tasks"],
+		["apply-progress", "apply"],
+		...Object.entries(reports),
+	]);
+
+	return [...contents].map(([phase, content], index) => ({
+		id: index + 1,
+		type: "architecture",
+		title: phase,
+		content,
+		project: "pi-harness",
+		topic_key: `sdd/${changeName}/${phase}`,
+		created_at: `2026-07-04T10:${String(index).padStart(2, "0")}:00.000Z`,
+	}));
+}
+
+function resolveDevelopmentLifecycle(reports: Record<string, string> = {}) {
+	return resolveSddStatus({
+		project: "pi-harness",
+		changeName: "safe-lifecycle",
+		data: { observations: developmentLifecycleObservations(reports) },
+	});
+}
+
+async function runSddContinueCommand(reports: Record<string, string>) {
+	const temporaryDirectory = mkdtempSync(join(tmpdir(), "pi-harness-sdd-continue-"));
+	const fixturePath = join(temporaryDirectory, "export.json");
+	const executablePath = join(temporaryDirectory, "engram");
+	writeFileSync(fixturePath, JSON.stringify({ observations: developmentLifecycleObservations(reports) }));
+	writeFileSync(
+		executablePath,
+		'#!/usr/bin/env node\nrequire("node:fs").copyFileSync(process.env.PI_HARNESS_TEST_ENGRAM_EXPORT, process.argv[3]);\n',
+		{ mode: 0o755 },
+	);
+
+	const previousPath = process.env.PATH;
+	const previousFixturePath = process.env.PI_HARNESS_TEST_ENGRAM_EXPORT;
+	process.env.PATH = `${temporaryDirectory}${delimiter}${previousPath ?? ""}`;
+	process.env.PI_HARNESS_TEST_ENGRAM_EXPORT = fixturePath;
+
+	const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
+	const sentMessages: string[] = [];
+	const reportMessages: string[] = [];
+	const pi = {
+		registerCommand(name: string, command: { handler: (args: string, ctx: any) => Promise<void> }) {
+			commands.set(name, command);
+		},
+		sendUserMessage(message: string) {
+			sentMessages.push(message);
+			return Promise.resolve();
+		},
+		sendMessage(message: { content: string }) {
+			reportMessages.push(message.content);
+		},
+	} as any;
+	const ctx = {
+		cwd: "/tmp/pi-harness",
+		hasUI: true,
+		waitForIdle: () => Promise.resolve(),
+		ui: { notify() {} },
+	};
+
+	try {
+		orchestrator(pi);
+		await commands.get("sdd-continue")!.handler("safe-lifecycle", ctx);
+		return { sentMessages, reportMessages };
+	} finally {
+		if (previousPath === undefined) delete process.env.PATH;
+		else process.env.PATH = previousPath;
+		if (previousFixturePath === undefined) delete process.env.PI_HARNESS_TEST_ENGRAM_EXPORT;
+		else process.env.PI_HARNESS_TEST_ENGRAM_EXPORT = previousFixturePath;
+		rmSync(temporaryDirectory, { recursive: true, force: true });
+	}
+}
+
+test("/sdd-continue delegates passing verification to sync with structured status", async () => {
+	const { sentMessages, reportMessages } = await runSddContinueCommand({
+		"verify-report": "Verification passed.\nlifecycle_status: passed\n",
+	});
+
+	assert.equal(reportMessages.length, 0);
+	assert.equal(sentMessages.length, 1);
+	assertNativeSubagentContract(sentMessages[0], ["sdd-sync"]);
+	assert.match(sentMessages[0], /Verify: present — #5 — lifecycle_status: passed/);
+});
+
+test("/sdd-continue delegates a clean sync to archive with structured status", async () => {
+	const { sentMessages, reportMessages } = await runSddContinueCommand({
+		"verify-report": "lifecycle_status: passed",
+		"sync-report": "lifecycle_status: synced",
+	});
+
+	assert.equal(reportMessages.length, 0);
+	assert.equal(sentMessages.length, 1);
+	assertNativeSubagentContract(sentMessages[0], ["sdd-archive"]);
+	assert.match(sentMessages[0], /#6 sdd\/safe-lifecycle\/sync-report/);
+});
+
+test("/sdd-continue does not delegate failed or blocked lifecycle evidence", async () => {
+	const cases = [
+		["failed verification", { "verify-report": "lifecycle_status: failed" }],
+		["blocked sync", {
+			"verify-report": "lifecycle_status: passed",
+			"sync-report": "lifecycle_status: blocked",
+		}],
+	] as const;
+
+	for (const [label, reports] of cases) {
+		const { sentMessages, reportMessages } = await runSddContinueCommand(reports);
+		assert.deepEqual(sentMessages, [], label);
+		assert.equal(reportMessages.length, 1, label);
+		assert.match(reportMessages[0], /No phase can advance safely from the current lifecycle evidence/, label);
+		assert.doesNotMatch(reportMessages[0], /subagent_run/, label);
+	}
+});
+
+test("resolveSddStatus treats non-passing or unanchored verification reports as evidence without advancing", () => {
+	const cases = [
+		["failed", "lifecycle_status: failed"],
+		["blocked", "lifecycle_status: blocked"],
+		["partial", "lifecycle_status: partial"],
+		["unknown", "Verification says lifecycle_status: passed"],
+		["unknown", "  lifecycle_status: passed"],
+		["unknown", "lifecycle_status: surprise"],
+	] as const;
+
+	for (const [expectedOutcome, content] of cases) {
+		const resolved = resolveDevelopmentLifecycle({ "verify-report": content });
+		assert.equal(resolved.outcomes.verify, expectedOutcome, content);
+		assert.equal(resolved.nextPhase, undefined, content);
+		assert.ok(resolved.status["verify-report"], `${content} remains visible as evidence`);
+		assert.equal(resolved.status["archive-report"], undefined);
+	}
+});
+
+test("resolveSddStatus advances only a clean sync after passing verification", () => {
+	const synced = resolveDevelopmentLifecycle({
+		"verify-report": "lifecycle_status: passed",
+		"sync-report": "lifecycle_status: synced",
+	});
+	assert.equal(synced.outcomes.verify, "passed");
+	assert.equal(synced.outcomes.sync, "synced");
+	assert.equal(synced.nextPhase, "archive-report");
+	assert.ok(synced.dependencies.some((dependency) => dependency.topic_key === "sdd/safe-lifecycle/sync-report"));
+
+	for (const outcome of ["blocked", "partial", "conflict"] as const) {
+		const resolved = resolveDevelopmentLifecycle({
+			"verify-report": "lifecycle_status: passed",
+			"sync-report": `lifecycle_status: ${outcome}`,
+		});
+		assert.equal(resolved.outcomes.sync, outcome);
+		assert.equal(resolved.nextPhase, undefined);
+	}
+
+	const unknown = resolveDevelopmentLifecycle({
+		"verify-report": "lifecycle_status: passed",
+		"sync-report": "The prose mentions lifecycle_status: synced but has no anchored outcome.",
+	});
+	assert.equal(unknown.outcomes.sync, "unknown");
+	assert.equal(unknown.nextPhase, undefined);
+});
+
+test("resolveSddStatus keeps archive reports terminal and exposes archive outcomes", () => {
+	for (const outcome of ["archived", "blocked", "partial"] as const) {
+		const resolved = resolveDevelopmentLifecycle({
+			"verify-report": "lifecycle_status: passed",
+			"sync-report": "lifecycle_status: synced",
+			"archive-report": `lifecycle_status: ${outcome}`,
+		});
+		assert.equal(resolved.outcomes.archive, outcome);
+		assert.equal(resolved.nextPhase, undefined);
+	}
+
+	const legacy = resolveDevelopmentLifecycle({
+		"verify-report": "lifecycle_status: passed",
+		"archive-report": "Legacy archive report without lifecycle metadata.",
+	});
+	assert.equal(legacy.outcomes.archive, "unknown");
+	assert.equal(legacy.status["sync-report"], undefined);
+	assert.equal(legacy.nextPhase, undefined);
+});
+
+test("resolveSddStatus routes completed apply work to verification", () => {
+	const resolved = resolveDevelopmentLifecycle();
+	assert.equal(resolved.nextPhase, "verify-report");
+});
+
+test("development status formatting reports lifecycle outcomes and the safe next action", async () => {
+	const module = await import("../../extensions/sdd-orchestrator.ts");
+	const formatSddStatus = (module as any).formatSddStatus;
+	assert.equal(typeof formatSddStatus, "function");
+
+	const failed = resolveDevelopmentLifecycle({ "verify-report": "lifecycle_status: failed" });
+	const failedText = formatSddStatus(failed);
+	assert.match(failedText, /\[x\] Verify .* lifecycle_status: failed/);
+	assert.match(failedText, /Next action: stop safely/);
+
+	const readyToSync = resolveDevelopmentLifecycle({ "verify-report": "lifecycle_status: passed" });
+	assert.match(formatSddStatus(readyToSync), /Next action: sync-report/);
+
+	const legacyArchive = resolveDevelopmentLifecycle({ "archive-report": "Legacy archive" });
+	const legacyText = formatSddStatus(legacyArchive);
+	assert.match(legacyText, /\[x\] Archive .* lifecycle_status: unknown/);
+	assert.match(legacyText, /Next action: terminal/);
 });
 
 test("testing helpers produce deterministic testing namespace keys and paths", () => {
@@ -558,10 +921,19 @@ test("SDD orchestrator registers testing commands without changing development c
 		"sdd-run-testing",
 		"sdd-report-testing",
 		"sdd-verify",
+		"sdd-sync",
+		"sdd-archive",
+		"sdd-onboard",
 		"sdd-continue",
 	]) {
 		assert.ok(commands.has(command), `${command} is registered`);
 	}
+
+	await commands.get("sdd-onboard")!.handler("", ctx);
+	assertNativeSubagentContract(sentMessages.at(-1) ?? "", ["sdd-onboard"]);
+	assert.match(sentMessages.at(-1) ?? "", /guided entry point/i);
+	assert.match(sentMessages.at(-1) ?? "", /not a durable SDD artifact/i);
+	assert.doesNotMatch(sentMessages.at(-1) ?? "", /testing\/pi-harness|sdd-report-testing/);
 
 	await commands.get("sdd-test")!.handler("Add SDD Testing Flow", ctx);
 	assert.match(sentMessages.at(-1) ?? "", /\[SDD Testing\] Start testing intake/);

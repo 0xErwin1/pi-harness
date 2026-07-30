@@ -38,6 +38,7 @@ type ArtifactPhase =
   | "tasks"
   | "apply-progress"
   | "verify-report"
+  | "sync-report"
   | "archive-report";
 
 interface EngramObservation {
@@ -62,6 +63,7 @@ const PHASES: Array<{ phase: ArtifactPhase; skill: string; label: string }> = [
   { phase: "tasks", skill: "sdd-tasks", label: "Tasks" },
   { phase: "apply-progress", skill: "sdd-apply", label: "Apply" },
   { phase: "verify-report", skill: "sdd-verify", label: "Verify" },
+  { phase: "sync-report", skill: "sdd-sync", label: "Sync" },
   { phase: "archive-report", skill: "sdd-archive", label: "Archive" },
 ];
 
@@ -535,9 +537,75 @@ function hasSddInit(data: EngramExportData, project: string): boolean {
   });
 }
 
-function nextPhaseForStatus(status: Record<ArtifactPhase, EngramObservation | undefined>): ArtifactPhase | undefined {
-  if (status["verify-report"] && !status["archive-report"]) return "archive-report";
-  if (status["apply-progress"] && !status["verify-report"]) return "verify-report";
+export type LifecycleOutcome = "passed" | "failed" | "blocked" | "partial" | "synced" | "conflict" | "archived" | "unknown";
+
+export function parseLifecycleStatus(content: string): LifecycleOutcome {
+  const matches = [...content.matchAll(/^lifecycle_status:[ \t]*([a-z]+)[ \t]*\r?$/gm)];
+  if (matches.length !== 1) return "unknown";
+
+  const outcome = matches[0][1];
+  switch (outcome) {
+    case "passed":
+    case "failed":
+    case "blocked":
+    case "partial":
+    case "synced":
+    case "conflict":
+    case "archived":
+      return outcome;
+    default:
+      return "unknown";
+  }
+}
+
+export interface SddLifecycleOutcomes {
+  verify?: "passed" | "failed" | "blocked" | "partial" | "unknown";
+  sync?: "synced" | "blocked" | "partial" | "conflict" | "unknown";
+  archive?: "archived" | "blocked" | "partial" | "unknown";
+}
+
+function verifyOutcome(observation: EngramObservation | undefined): SddLifecycleOutcomes["verify"] {
+  if (!observation) return undefined;
+  const outcome = parseLifecycleStatus(observation.content);
+  return outcome === "passed" || outcome === "failed" || outcome === "blocked" || outcome === "partial"
+    ? outcome
+    : "unknown";
+}
+
+function syncOutcome(observation: EngramObservation | undefined): SddLifecycleOutcomes["sync"] {
+  if (!observation) return undefined;
+  const outcome = parseLifecycleStatus(observation.content);
+  return outcome === "synced" || outcome === "blocked" || outcome === "partial" || outcome === "conflict"
+    ? outcome
+    : "unknown";
+}
+
+function archiveOutcome(observation: EngramObservation | undefined): SddLifecycleOutcomes["archive"] {
+  if (!observation) return undefined;
+  const outcome = parseLifecycleStatus(observation.content);
+  return outcome === "archived" || outcome === "blocked" || outcome === "partial" ? outcome : "unknown";
+}
+
+function lifecycleOutcomes(status: Record<ArtifactPhase, EngramObservation | undefined>): SddLifecycleOutcomes {
+  return {
+    verify: verifyOutcome(status["verify-report"]),
+    sync: syncOutcome(status["sync-report"]),
+    archive: archiveOutcome(status["archive-report"]),
+  };
+}
+
+function nextPhaseForStatus(
+  status: Record<ArtifactPhase, EngramObservation | undefined>,
+  outcomes: SddLifecycleOutcomes,
+): ArtifactPhase | undefined {
+  if (status["archive-report"]) return undefined;
+  if (status["verify-report"]) {
+    if (outcomes.verify !== "passed") return undefined;
+    if (!status["sync-report"]) return "sync-report";
+    return outcomes.sync === "synced" ? "archive-report" : undefined;
+  }
+  if (status["sync-report"]) return undefined;
+  if (status["apply-progress"]) return "verify-report";
   if (status.spec && status.design && status.tasks && !status["apply-progress"]) return "apply-progress";
   if (status.spec && status.design && !status.tasks) return "tasks";
   if (status.proposal && !status.spec) return "spec";
@@ -547,14 +615,26 @@ function nextPhaseForStatus(status: Record<ArtifactPhase, EngramObservation | un
   return undefined;
 }
 
-function formatStatus(changeName: string, status: Record<ArtifactPhase, EngramObservation | undefined>): string {
+export function formatSddStatus(resolved: ResolvedSddStatus): string {
+  const changeName = resolved.changeName ?? "unknown";
   const lines = [`## SDD Status: ${changeName}`, ""];
 
   for (const item of PHASES) {
-    const observation = status[item.phase];
+    const observation = resolved.status[item.phase];
+    const outcome = lifecycleOutcomeForPhase(item.phase, resolved.outcomes);
     lines.push(
-      `- ${observation ? "[x]" : "[ ]"} ${item.label}${observation ? ` — #${observation.id} (${observation.created_at})` : ""}`,
+      `- ${observation ? "[x]" : "[ ]"} ${item.label}${observation ? ` — #${observation.id} (${observation.created_at})` : ""}${outcome ? ` — lifecycle_status: ${outcome}` : ""}`,
     );
+  }
+
+  if (resolved.nextPhase) {
+    lines.push("", `Next action: ${resolved.nextPhase}`);
+  } else if (resolved.status["archive-report"]) {
+    lines.push("", "Next action: terminal — an archive report already exists.");
+  } else if (resolved.status["verify-report"] || resolved.status["sync-report"]) {
+    lines.push("", "Next action: stop safely — lifecycle evidence does not permit advancement.");
+  } else {
+    lines.push("", "Next action: none.");
   }
 
   return lines.join("\n");
@@ -577,6 +657,8 @@ function dependencyObservations(
       return [status.tasks, status.spec, status.design, status["apply-progress"]].filter(Boolean) as EngramObservation[];
     case "verify-report":
       return [status.spec, status.tasks, status["apply-progress"]].filter(Boolean) as EngramObservation[];
+    case "sync-report":
+      return PHASES.map(({ phase }) => status[phase]).filter(Boolean) as EngramObservation[];
     case "archive-report":
       return Object.values(status).filter(Boolean) as EngramObservation[];
     default:
@@ -587,6 +669,7 @@ function dependencyObservations(
 export interface ResolvedSddStatus {
   changeName?: string;
   status: Record<ArtifactPhase, EngramObservation | undefined>;
+  outcomes: SddLifecycleOutcomes;
   nextPhase?: ArtifactPhase;
   dependencies: EngramObservation[];
 }
@@ -603,14 +686,16 @@ export function resolveSddStatus(options: {
   >;
 
   if (!changeName) {
-    return { status: emptyStatus, dependencies: [] };
+    return { status: emptyStatus, outcomes: {}, dependencies: [] };
   }
 
   const status = phaseStatus(options.data, options.project, changeName);
-  const nextPhase = nextPhaseForStatus(status);
+  const outcomes = lifecycleOutcomes(status);
+  const nextPhase = nextPhaseForStatus(status, outcomes);
   return {
     changeName,
     status,
+    outcomes,
     nextPhase,
     dependencies: nextPhase ? dependencyObservations(status, nextPhase) : [],
   };
@@ -639,6 +724,8 @@ function dependencyPhases(target: ArtifactPhase): ArtifactPhase[] {
       return ["tasks", "spec", "design", "apply-progress"];
     case "verify-report":
       return ["spec", "tasks", "apply-progress"];
+    case "sync-report":
+      return PHASES.map(({ phase }) => phase).filter((phase) => phase !== "sync-report" && phase !== "archive-report");
     case "archive-report":
       return PHASES.map(({ phase }) => phase).filter((phase) => phase !== "archive-report");
     default:
@@ -694,6 +781,29 @@ function buildPersistenceContractLines(contract: PhasePersistenceContract): stri
   ];
 }
 
+function lifecycleOutcomeForPhase(phase: ArtifactPhase, outcomes: SddLifecycleOutcomes): LifecycleOutcome | undefined {
+  if (phase === "verify-report") return outcomes.verify;
+  if (phase === "sync-report") return outcomes.sync;
+  if (phase === "archive-report") return outcomes.archive;
+  return undefined;
+}
+
+function buildDevelopmentStatusLines(
+  changeName: string,
+  status: Record<ArtifactPhase, EngramObservation | undefined>,
+): string[] {
+  const outcomes = lifecycleOutcomes(status);
+  return PHASES.flatMap(({ phase, label }) => {
+    const observation = status[phase];
+    const outcome = lifecycleOutcomeForPhase(phase, outcomes);
+    return [
+      `${label}: ${observation ? `present — #${observation.id}` : "missing"}${outcome ? ` — lifecycle_status: ${outcome}` : ""}`,
+      `  Engram topic key: sdd/${changeName}/${phase}`,
+      `  Atlas logical path: sdd/${changeName}/${phase}.md`,
+    ];
+  });
+}
+
 function packageManagerSummary(detection: SddProjectDetection): string {
   if (detection.packageManagers.length === 0) return "none detected";
   return detection.packageManagers
@@ -739,9 +849,23 @@ export function buildDelegationMessage(options: {
   project: string;
   cwd: string;
   dependencies: EngramObservation[];
+  status?: Record<ArtifactPhase, EngramObservation | undefined>;
   preflight?: SddPreflightState;
 }): string {
   const info = phaseInfo(options.phase);
+  if (options.phase === "sync-report") {
+    const outcome = options.status ? verifyOutcome(options.status["verify-report"]) : undefined;
+    if (outcome !== "passed") {
+      throw new Error("SDD sync requires existing anchored passing verification evidence.");
+    }
+  }
+  if (options.phase === "archive-report" && !options.status?.["archive-report"]) {
+    const outcomes = options.status ? lifecycleOutcomes(options.status) : {};
+    if (outcomes.verify !== "passed" || outcomes.sync !== "synced") {
+      throw new Error("New SDD archive work requires passing verification evidence and a clean sync report.");
+    }
+  }
+
   const contract = contractForPhase(
     preflightFor({ project: options.project, cwd: options.cwd, preflight: options.preflight }),
     { change: options.changeName, phase: options.phase },
@@ -749,12 +873,23 @@ export function buildDelegationMessage(options: {
   const topicKey = contract.engram.topicKey;
   const depText = buildDependencyText(options.dependencies);
   const depTopicKeyText = buildDependencyTopicKeyText(options.changeName, options.phase);
+  const actionLines = options.phase === "sync-report" && options.status
+    ? [
+        `Requested lifecycle action: sync verified development artifacts.`,
+        `Current development artifact status:`,
+        ...buildDevelopmentStatusLines(options.changeName, options.status),
+        `Result contract: emit exactly one anchored lifecycle_status: synced|blocked|partial|conflict line at column 1.`,
+      ]
+    : options.phase === "archive-report"
+      ? [`Result contract: emit exactly one anchored lifecycle_status: archived|blocked|partial line at column 1.`]
+      : [];
 
   const taskLines = [
     `    You are executing the SDD ${info.label} phase.`,
     `    Change: ${options.changeName}`,
     `    Project: ${options.project}`,
     `    Working directory: ${options.cwd}`,
+    ...actionLines.map((line) => `    ${line}`),
     ...buildPersistenceContractLines(contract).map((line) => `    ${line}`),
     `    Target topic_key: ${topicKey}`,
     ``,
@@ -763,7 +898,6 @@ export function buildDelegationMessage(options: {
     `    Required dependency topic keys:`,
     ...depTopicKeyText.split("\n").map((l) => `    ${l}`),
     ``,
-    `    Instructions: Read and follow /home/iperez/.tabularium/AI/skills/${info.skill}/SKILL.md.`,
     `    Save agent memory to Engram with topic_key "${topicKey}" and project "${options.project}".`,
     `    Save the full human-readable artifact to the selected human backend only when the contract permits it; otherwise return partial and embed the full artifact in Engram if allowed.`,
   ];
@@ -773,6 +907,46 @@ export function buildDelegationMessage(options: {
     "",
     `Call the subagent_run tool with these parameters:`,
     `- agent: "${info.skill}"`,
+    `- task: |`,
+    ...taskLines,
+    `- mode: "task"`,
+    "",
+    `Do not respond with text before calling the tool. Execute immediately.`,
+  ].join("\n");
+}
+
+export function buildOnboardDelegationMessage(options: {
+  changeName?: string;
+  project: string;
+  cwd: string;
+  status?: Record<ArtifactPhase, EngramObservation | undefined>;
+  preflight?: SddPreflightState;
+}): string {
+  const preflight = preflightFor({ project: options.project, cwd: options.cwd, preflight: options.preflight });
+  const requestedChange = options.changeName?.trim();
+  const taskLines = [
+    `    Guide the user through SDD as an interactive, demand-driven entry point.`,
+    `    Project: ${options.project}`,
+    `    Working directory: ${options.cwd}`,
+    `    Requested change: ${requestedChange || "not selected; help the user choose a small real change"}`,
+    `    Action context: onboarding is a guided entry point, not a durable SDD artifact and not an SDD-testing phase.`,
+    `    Do not persist an onboarding artifact or create a topic key or logical path for this action.`,
+    `    Persistence selection JSON:`,
+    ...JSON.stringify(preflight, null, 2).split("\n").map((line) => `    ${line}`),
+    `    Durable development phases must use Engram topic keys sdd/<change>/<phase> and Atlas logical paths sdd/<change>/<phase>.md with their own PhasePersistenceContract.`,
+    ...(requestedChange && options.status
+      ? [
+          `    Current development artifact status:`,
+          ...buildDevelopmentStatusLines(requestedChange, options.status).map((line) => `    ${line}`),
+        ]
+      : []),
+  ];
+
+  return [
+    `[SDD] Start guided onboarding${requestedChange ? ` for change '${requestedChange}'` : ""}.`,
+    "",
+    `Call the subagent_run tool with these parameters:`,
+    `- agent: "sdd-onboard"`,
     `- task: |`,
     ...taskLines,
     `- mode: "task"`,
@@ -800,7 +974,6 @@ export function buildInitDelegationMessage(options: {
     ``,
     ...buildDetectionLines(options.detection).map((line) => `    ${line}`),
     ``,
-    `    Instructions: Read and follow /home/iperez/.tabularium/AI/skills/sdd-init/SKILL.md.`,
     `    Persist using the init contract: Engram topic_key "${topicKey}" is mandatory and the Atlas logical path is "${contract.humanArtifact.logicalPath}" when Atlas writes are approved.`,
   ];
 
@@ -857,7 +1030,6 @@ export function buildMultiPhaseDelegationMessage(options: {
       `      Required dependency topic keys:`,
       ...depTopicKeyText.split("\n").map((l) => `      ${l}`),
       ``,
-      `      Instructions: Read and follow /home/iperez/.tabularium/AI/skills/${info.skill}/SKILL.md.`,
       `      Save agent memory to Engram with topic_key "${topicKey}" and project "${options.project}".`,
       `      Save the full human-readable artifact to the selected human backend only when the contract permits it; otherwise return partial and embed the full artifact in Engram if allowed.`,
     ];
@@ -1161,6 +1333,23 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand("sdd-onboard", {
+    description: "Start guided, demand-driven SDD onboarding. Usage: /sdd-onboard [change-name]",
+    async handler(args, ctx) {
+      await ctx.waitForIdle();
+      const project = defaultProject(ctx.cwd);
+      const changeName = args.trim() || undefined;
+
+      try {
+        const status = changeName ? phaseStatus(await loadExport(), project, changeName) : undefined;
+        const message = buildOnboardDelegationMessage({ changeName, project, cwd: ctx.cwd, status });
+        await pi.sendUserMessage(message, { deliverAs: "followUp" });
+      } catch (error: any) {
+        report(pi, ctx, "SDD onboard failed", error.message || String(error));
+      }
+    },
+  });
+
   pi.registerCommand("sdd-test", {
     description: "Start the independent SDD-testing intake flow. Usage: /sdd-test [feature]",
     async handler(args, ctx) {
@@ -1272,7 +1461,10 @@ export default function (pi: ExtensionAPI) {
         }
 
         if (!resolved.nextPhase) {
-          report(pi, ctx, `SDD continue: ${resolved.changeName}`, "All known SDD phases already have artifacts.");
+          const message = resolved.status["archive-report"]
+            ? "The archive report is terminal. No further phase will run."
+            : "No phase can advance safely from the current lifecycle evidence.";
+          report(pi, ctx, `SDD continue: ${resolved.changeName}`, message);
           return;
         }
 
@@ -1282,6 +1474,7 @@ export default function (pi: ExtensionAPI) {
           project,
           cwd: ctx.cwd,
           dependencies: resolved.dependencies,
+          status: resolved.status,
         });
 
         await pi.sendUserMessage(message, { deliverAs: "followUp" });
@@ -1394,6 +1587,37 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand("sdd-sync", {
+    description: "Synchronize verified SDD artifacts. Usage: /sdd-sync <change-name>",
+    async handler(args, ctx) {
+      await ctx.waitForIdle();
+      const changeName = args.trim();
+      if (!changeName) {
+        ctx.ui.notify("Usage: /sdd-sync <change-name>", "error");
+        return;
+      }
+
+      const project = defaultProject(ctx.cwd);
+
+      try {
+        const data = await loadExport();
+        const status = phaseStatus(data, project, changeName);
+        const dependencies = dependencyObservations(status, "sync-report");
+        const message = buildDelegationMessage({
+          phase: "sync-report",
+          changeName,
+          project,
+          cwd: ctx.cwd,
+          dependencies,
+          status,
+        });
+        await pi.sendUserMessage(message, { deliverAs: "followUp" });
+      } catch (error: any) {
+        report(pi, ctx, `SDD sync failed: ${changeName}`, error.message || String(error));
+      }
+    },
+  });
+
   pi.registerCommand("sdd-archive", {
     description: "Execute the SDD archive phase. Usage: /sdd-archive <change-name>",
     async handler(args, ctx) {
@@ -1409,6 +1633,10 @@ export default function (pi: ExtensionAPI) {
       try {
         const data = await loadExport();
         const status = phaseStatus(data, project, changeName);
+        if (status["archive-report"]) {
+          report(pi, ctx, `SDD archive: ${changeName}`, "An archive report already exists and remains terminal, including legacy archives without sync metadata.");
+          return;
+        }
         const dependencies = dependencyObservations(status, "archive-report");
 
         const message = buildDelegationMessage({
@@ -1417,6 +1645,7 @@ export default function (pi: ExtensionAPI) {
           project,
           cwd: ctx.cwd,
           dependencies,
+          status,
         });
 
         await pi.sendUserMessage(message, { deliverAs: "followUp" });
@@ -1441,7 +1670,7 @@ export default function (pi: ExtensionAPI) {
           return;
         }
 
-        report(pi, ctx, `SDD status: ${resolved.changeName}`, formatStatus(resolved.changeName, resolved.status));
+        report(pi, ctx, `SDD status: ${resolved.changeName}`, formatSddStatus(resolved));
       } catch (error: any) {
         report(pi, ctx, "SDD status failed", error.message || String(error));
       }

@@ -13,6 +13,17 @@ Atlas is the default/new human-facing detailed artifact workspace for new SDD fl
 
 
 - Use only the `atlas` MCP tools for Atlas operations; do not use alternate Atlas interfaces or local client fallbacks.
+- Normal directly persisting SDD phase agents receive only these document tools: `atlas_search`, `atlas_list_workspaces`, `atlas_list_projects`, `atlas_list_folders`, `atlas_list_documents`, `atlas_get_document`, `atlas_create_folder`, `atlas_create_document`, and `atlas_update_document_content`. Do not grant them task, board, admin, attachment, move, copy, or delete tools.
+- Resolve logical path `sdd/<change>/<phase>.md` through discovered workspace, project, folder, and document records. Never guess identifiers, and create a folder or document only after discovery confirms that it is absent.
+- For an existing document, call `atlas_get_document`, capture its `head_revision_id`, then call `atlas_update_document_content` with `base_revision_id=<head_revision_id>`.
+- On any conflict, unavailable Atlas backend or tool, or unapproved write, return `partial` or `blocked`; never overwrite stale content, retry from a stale revision, or claim Atlas success.
+- Save an Engram Atlas pointer only after a successful Atlas write. An allowed Engram full-content fallback is not an Atlas pointer and must retain degraded status.
+- Human Atlas task tracking remains explicit and parent-owned. When the user explicitly requests it and the phase contract approves mutation, the parent discovers and fully hydrates each task before any update; normal SDD phase agents only return non-mutating task-plan handoff data.
+- Destructive parent-owned Atlas operations still require an explicit user decision and the relevant confirmation flag.
+- Never print or log Atlas tokens/API keys/session tokens.
+
+Parent-owned Atlas operations retain these broader compatibility rules:
+
 - Discover before mutating with `atlas_search`, `atlas_list_*`, `atlas_get_document`, or `atlas_get_task`; never guess workspace/project/board/column/document identifiers.
 - For Atlas SDD documents, resolve logical path `sdd/<change>/<phase>.md` through discovered workspace/project/folder/document records. Read full document content first, preserve the returned revision ID, then write via compare-and-swap; handle conflicts explicitly instead of overwriting.
 - SDD does not automatically create human Atlas tasks. Atlas epics/tasks/subtasks may be created or updated only when task tracking is explicitly requested and approved in the phase contract.

@@ -31,7 +31,7 @@ output: verify-report.md
 outputMode: artifact-contract
 progress: true
 
-Run focused and full verification for {task} using the apply-progress and project artifacts. Include review/judgment blockers.
+Run conformance-only focused and full verification for {task} using the apply-progress and project artifacts. Emit the anchored lifecycle status required by the verify agent contract.
 
 ## sdd-sync
 

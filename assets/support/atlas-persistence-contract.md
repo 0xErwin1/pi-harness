@@ -69,9 +69,32 @@ atlas:///{workspace}/{slug}
 - Destructive tools require explicit user confirmation and `confirm: true` where supported.
 - Some write tools resolve boards/columns by name and may return actionable ambiguity or valid-option errors; do not guess after ambiguity.
 
+## Normal SDD Phase Document Allowlist
+
+Directly persisting SDD phase agents receive only this document-persistence surface. Human Atlas task tracking and every task, board, admin, attachment, move, copy, or delete operation remain parent-owned.
+
+Discovery and read:
+
+- `atlas_search`
+- `atlas_list_workspaces`
+- `atlas_list_projects`
+- `atlas_list_folders`
+- `atlas_list_documents`
+- `atlas_get_document`
+
+Approved creation and content update:
+
+- `atlas_create_folder`
+- `atlas_create_document`
+- `atlas_update_document_content`
+
+For an existing document, call `atlas_get_document`, capture the returned `head_revision_id`, and call `atlas_update_document_content` with `base_revision_id=<head_revision_id>`. Create a folder or document only after the discovery tools confirm that the target is absent.
+
+On any conflict, unavailable Atlas backend or tool, or unapproved write, return `partial` or `blocked`; never overwrite stale content, retry from a stale revision, or claim Atlas success. Save an Engram Atlas pointer only after successful Atlas creation or update. An allowed Engram full-content fallback is not an Atlas pointer and must retain degraded status.
+
 ## MCP Tool Capabilities
 
-Use the tool names available in the MCP host. In Pi they are typically exposed with an `atlas_` prefix.
+The capabilities below describe the broader parent-owned Atlas surface. They do not expand a normal SDD phase agent's allowlist.
 
 ### Discovery and reads
 
@@ -97,26 +120,20 @@ Use these before writes and for normal browsing. For tasks, list/search results 
 
 ### Document and folder writes
 
-Use these for markdown knowledge persistence:
+The parent may use broader document-management tools when the user explicitly requests those operations. Normal SDD phase agents remain limited to the allowlist above.
 
-- `atlas_create_document` — create a markdown document in a project.
-- `atlas_update_document_metadata` — rename or move a document without changing content.
-- `atlas_update_document_content` — update markdown content using compare-and-swap revision semantics.
-- `atlas_move_document`, `atlas_copy_document`, `atlas_delete_document` — reorganize or remove documents.
-- `atlas_create_folder`, `atlas_rename_folder`, `atlas_move_folder`, `atlas_copy_folder`, `atlas_delete_folder` — manage folder hierarchy.
+Document content write protocol:
 
-Document write protocol:
-
-1. Discover workspace and project.
-2. Find the target document by search/list/get, or create it only after confirming it does not already exist.
-3. Before content updates, call `atlas_get_document` with full detail and keep the returned revision ID.
-4. Submit `atlas_update_document_content` with that base revision ID.
-5. On a conflict, inspect the conflict response, re-read current content or apply the returned patch, and retry only when the intended edit is still valid.
-6. Never overwrite current document content from stale context.
+1. Discover the workspace, project, folder, and document without guessing identifiers.
+2. Create the target only after search and list calls confirm that it does not already exist.
+3. Before a content update, call `atlas_get_document` with full detail and capture its `head_revision_id`.
+4. Call `atlas_update_document_content` with `base_revision_id=<head_revision_id>`.
+5. On a conflict, unavailable tool/backend, or unapproved write, return `partial` or `blocked`; never overwrite current content or retry from stale context.
+6. Save an Engram Atlas pointer only after a successful Atlas write.
 
 ### Task and planning writes
 
-Use these for work tracking:
+These tools are parent-owned for SDD. Use them only when the user explicitly requests human Atlas task tracking and the active contract approves mutation:
 
 - `atlas_create_task` — create a task on a board/column.
 - `atlas_update_task` — patch task fields such as title, description, priority, estimate, due date, labels, or custom properties.
@@ -185,9 +202,9 @@ Do not use Atlas for:
 
 For SDD flows, Atlas plus Engram are the default/new Pi Harness persistence path: Atlas stores the full human-readable artifact at logical path `sdd/<change>/<phase>.md`, while Engram stores the stable topic-key summary and pointer. Obsidian remains a legacy/fallback human backend only when explicitly selected. File-backed/OpenSpec artifacts remain opt-in only.
 
-Atlas task tracking is separate from artifact persistence. SDD does not automatically create human Atlas tasks, epics, subtasks, labels, boards, or columns. Task mutation requires explicit user request/approval, discovered workspace/project/board/column targets, and full task hydration before update.
+Atlas task tracking is separate from artifact persistence, remains explicit, and is parent-owned. Normal SDD phase agents do not create, update, move, label, hydrate, or otherwise mutate human Atlas tasks, epics, subtasks, boards, or columns. Parent-owned task mutation requires an explicit user request and approved contract, discovered workspace/project/board/column targets, and full task hydration before update.
 
-When a result is saved to Atlas and is also important future agent context, also save a concise Engram pointer with the Atlas workspace, object type, slug/readable ID, revision when applicable, logical path, and why it matters.
+When an Atlas write succeeds and the result matters for future agent context, save a concise Engram Atlas pointer afterward with the workspace, object type, slug/readable ID, revision when applicable, logical path, and why it matters. Never save a pointer that claims an Atlas write succeeded when Atlas was unavailable, unapproved, or conflicted.
 
 ## Safety Checklist
 

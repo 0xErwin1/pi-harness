@@ -30,7 +30,7 @@ export const FROZEN_FIXTURE_LINE_COUNT = 752;
  * - `core-verbatim`: stays in the rendered core — the always-on floor named
  *   in that ruling (Role, Core Rules, Working Contract, Language Boundary,
  *   Work Routing Ladder, Delegation Rules, Init Guard, Result Contract,
- *   Sub-Agent Dedup, Review Workload Guard, Safety). Work Routing Ladder and
+ *   Sub-Agent Dedup, Safety). Work Routing Ladder and
  *   Delegation Rules are additionally PROTECTED: they must land whole, never
  *   split at a normative/rationale seam.
  * - `lazy-verbatim`: relocates verbatim to the named file under
@@ -82,11 +82,16 @@ export const DISPOSITION_RANGES: DispositionRange[] = [
  * no longer blocks. These pre-diet lines encoded that withdrawn ceremony.
  */
 const OPT_IN_REVIEW: Disposition = { kind: "obsolete", reason: "superseded-by-opt-in-review-policy" };
+const DEMAND_DRIVEN_EXECUTION: Disposition = {
+	kind: "obsolete",
+	reason: "superseded-by-demand-driven-execution-policy",
+};
 
 export const LINE_OVERRIDES: Record<number, Disposition> = {
-	426: { kind: "obsolete", reason: "superseded-by-pointer-map" },
-
+	85: OPT_IN_REVIEW, // simple-delegation review suggestion
 	94: OPT_IN_REVIEW, // default pattern ending in an unconditional fresh-reviewer audit
+	103: DEMAND_DRIVEN_EXECUTION, // SDD routing based on review risk
+	110: DEMAND_DRIVEN_EXECUTION, // SDD routing based on reviewer burden
 	129: OPT_IN_REVIEW, // delegation row: commit/push/PR requires fresh review first
 	130: OPT_IN_REVIEW, // delegation row: incident recovery requires fresh audit first
 	134: OPT_IN_REVIEW, // triggers preamble, before it was scoped to work delegation only
@@ -96,16 +101,33 @@ export const LINE_OVERRIDES: Record<number, Disposition> = {
 	140: OPT_IN_REVIEW, // long-session rule, when `reviewer` was one of its outcomes
 	141: OPT_IN_REVIEW, // fresh review rule
 	150: OPT_IN_REVIEW, // cost/context bullet mandating fresh reviewers after implementation
-	683: OPT_IN_REVIEW, // review-gate described as a gate, citing a `lib/` module that does not exist
-	686: OPT_IN_REVIEW, // pre-PR strong gate that BLOCKS `gh pr create`
-	688: OPT_IN_REVIEW, // orchestrator obligation to run 4R to clear a block
-	690: OPT_IN_REVIEW, // judgment-day by inference after a high-risk SDD phase
-	707: OPT_IN_REVIEW, // lens-selection closer instructing the reader to satisfy the pre-PR block
+	323: DEMAND_DRIVEN_EXECUTION, // apply prompt required a delivery/chain decision
+	325: DEMAND_DRIVEN_EXECUTION, // apply scope was checked against commits
+	384: DEMAND_DRIVEN_EXECUTION, // batching rationale replaced by context/dependency-only policy
+	386: DEMAND_DRIVEN_EXECUTION, // changed-line and task-count batching trigger
+	388: DEMAND_DRIVEN_EXECUTION, // qualification-based batch planning
 
 	// Batched apply-verify gained a severity floor: a WARNING/SUGGESTION nit no
 	// longer stops the cycle, and a cross-batch design gap is surfaced as a scope
 	// decision instead of looping back through an upstream planning phase.
 	390: { kind: "obsolete", reason: "superseded-by-batch-remediation-policy" },
+	392: DEMAND_DRIVEN_EXECUTION, // batching composed with delivery and PR strategy
+	426: { kind: "obsolete", reason: "superseded-by-pointer-map" },
+	551: OPT_IN_REVIEW, // automatic gatekeeper delegated fresh review
+	553: DEMAND_DRIVEN_EXECUTION, // automatic gatekeeper depended on review workload policy
+	660: DEMAND_DRIVEN_EXECUTION, // review workload guard heading
+	662: DEMAND_DRIVEN_EXECUTION, // review workload inspection before apply
+	664: DEMAND_DRIVEN_EXECUTION, // size and delivery-strategy gate
+	666: DEMAND_DRIVEN_EXECUTION, // chain-strategy question
+	668: DEMAND_DRIVEN_EXECUTION, // stacked-to-main delivery choice
+	669: DEMAND_DRIVEN_EXECUTION, // feature-branch-chain delivery choice
+	671: DEMAND_DRIVEN_EXECUTION, // delivery decisions forwarded to apply
+	683: OPT_IN_REVIEW, // review-gate described as a gate, citing a `lib/` module that does not exist
+	685: OPT_IN_REVIEW, // pre-commit and pre-push review suggestion
+	686: OPT_IN_REVIEW, // pre-PR strong gate that BLOCKS `gh pr create`
+	688: OPT_IN_REVIEW, // orchestrator obligation to run 4R to clear a block
+	690: OPT_IN_REVIEW, // judgment-day by inference after a high-risk SDD phase
+	707: OPT_IN_REVIEW, // lens-selection closer instructing the reader to satisfy the pre-PR block
 };
 
 export function dispositionForLine(line: number): Disposition {

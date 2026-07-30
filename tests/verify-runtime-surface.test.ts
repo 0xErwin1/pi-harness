@@ -30,10 +30,16 @@ test("verify-runtime-surface script passes for the checked-in repo surface", () 
 	assert.match(output, /pi-harness runtime surface verified \([0-9]+ entries\)\./);
 });
 
-test("verify-runtime-surface tracks lazy command, testing flow, and vendored question files without old subagent paths", () => {
+test("verify-runtime-surface tracks development lifecycle, testing flow, and vendored question files without old subagent paths", () => {
 	const script = readRepoFile("scripts/verify-runtime-surface.mjs");
 
 	for (const runtimePath of [
+		"scripts/dev-pi.sh",
+		"assets/agents/sdd-verify.md",
+		"assets/agents/sdd-sync.md",
+		"assets/agents/sdd-archive.md",
+		"assets/agents/sdd-onboard.md",
+		"assets/support/sdd-status-contract.md",
 		"assets/agents/sdd-explore-testing.md",
 		"assets/agents/sdd-plan-testing.md",
 		"assets/agents/sdd-run-testing.md",
@@ -56,6 +62,44 @@ test("verify-runtime-surface tracks lazy command, testing flow, and vendored que
 
 	assert.doesNotMatch(script, /path: "vendor\/pi-subagents/);
 	assert.doesNotMatch(script, /path: "packages\/subagents-compat/);
+});
+
+test("verify-runtime-surface validates Home Manager ownership and development isolation", async () => {
+	const runtimeSurface = await import(pathToFileURL(scriptPath).href) as {
+		findOwnershipContractViolations: (root: string) => Array<{ path: string; code: string }>;
+		verifyRuntimeSurface: (root: string) => {
+			ownershipContractViolations: Array<{ path: string; code: string }>;
+		};
+	};
+
+	const result = runtimeSurface.verifyRuntimeSurface(repoRoot);
+	assert.deepEqual(result.ownershipContractViolations, []);
+
+	const fixtureRoot = mkdtempSync(resolve(tmpdir(), "pi-runtime-ownership-"));
+	try {
+		mkdirSync(resolve(fixtureRoot, "nix"), { recursive: true });
+		mkdirSync(resolve(fixtureRoot, "scripts"), { recursive: true });
+		writeFileSync(
+			resolve(fixtureRoot, "nix/home-module.nix"),
+			'home.file.".pi/agent/.pi-harness-owner".text = "schema=1\\nowner=unknown\\nscope=global\\n";\n',
+		);
+		writeFileSync(resolve(fixtureRoot, "scripts/link.sh"), '#!/usr/bin/env bash\nmkdir -p "$HOME/.pi/agent"\n');
+		writeFileSync(
+			resolve(fixtureRoot, "scripts/dev-pi.sh"),
+			'#!/usr/bin/env bash\ncat "$HOME/.pi/agent/.pi-harness-owner"\n',
+		);
+
+		assert.deepEqual(
+			runtimeSurface.findOwnershipContractViolations(fixtureRoot).map(({ path, code }) => ({ path, code })),
+			[
+				{ path: "nix/home-module.nix", code: "missing-home-manager-owner-resource" },
+				{ path: "scripts/link.sh", code: "missing-link-ownership-guard" },
+				{ path: "scripts/dev-pi.sh", code: "global-owner-marker-in-dev-runtime" },
+			],
+		);
+	} finally {
+		rmSync(fixtureRoot, { recursive: true, force: true });
+	}
 });
 
 
@@ -139,6 +183,14 @@ test("README documents the native subagent quick path and package discovery", ()
 test("README keeps unrelated runtime and testing boundaries", () => {
 	const readme = readRepoFile("README.md");
 
+	assert.match(readme, /Home Manager is the sole owner of the global[^\n]+`~\/\.pi\/agent\/`/i);
+	assert.match(readme, /`scripts\/dev-pi\.sh`[^\n]+repository development/i);
+	assert.match(readme, /`pnpm run relink`[^\n]+legacy unmanaged/i);
+	assert.match(readme, /refuses[^\n]+Home Manager/i);
+	assert.match(readme, /review protocols and chained planning[^\n]+explicit/i);
+	assert.match(readme, /verify\s*(?:→|->)\s*sync\s*(?:→|->)\s*archive/i);
+	assert.match(readme, /`\/sdd-sync`/);
+	assert.match(readme, /`\/sdd-onboard`/);
 	assert.match(readme, /`\/btw` loads its model runtime only when invoked/i);
 	assert.match(readme, /upstream `ask_user` tool/i);
 	assert.match(readme, /Atlas\+Engram remains the SDD persistence authority/i);
@@ -146,4 +198,15 @@ test("README keeps unrelated runtime and testing boundaries", () => {
 	assert.match(readme, /`\/sdd-test` starts an independent SDD-testing\/QA flow/i);
 	assert.match(readme, /development `\/sdd-verify` remains separate/i);
 	assert.match(readme, /unsupported|blocked/i);
+});
+
+test("SDD status contract defines safe lifecycle routing without automatic review", () => {
+	const contract = readRepoFile("assets/support/sdd-status-contract.md");
+
+	assert.match(contract, /verify\s*(?:→|->)\s*sync\s*(?:→|->)\s*archive/i);
+	assert.match(contract, /`\/sdd-sync`/);
+	assert.match(contract, /`\/sdd-onboard`/);
+	assert.match(contract, /review protocols and chained planning[^\n]+explicit/i);
+	assert.match(contract, /passing verification[^\n]+sync/i);
+	assert.match(contract, /clean synced report[^\n]+archive/i);
 });

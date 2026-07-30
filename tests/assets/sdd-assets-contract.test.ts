@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -45,6 +46,18 @@ function readTools(path: string): string[] {
 	assert.ok(tools.length > 0, `${path} must declare at least one tool`);
 	return tools;
 }
+
+const atlasDocumentTools = [
+	"atlas_search",
+	"atlas_list_workspaces",
+	"atlas_list_projects",
+	"atlas_list_folders",
+	"atlas_list_documents",
+	"atlas_get_document",
+	"atlas_create_folder",
+	"atlas_create_document",
+	"atlas_update_document_content",
+];
 
 const requiredSddToolsByAgent: Record<string, string[]> = {
 	"sdd-apply.md": ["read", "grep", "glob", "edit", "write", "bash", "mem_search", "mem_get_observation", "mem_save", "mem_update"],
@@ -113,14 +126,15 @@ test("SDD assets do not describe Obsidian or OpenSpec files as the default store
 	);
 });
 
-test("sdd-tasks asset keeps Atlas human task mutation behind explicit approval", () => {
+test("sdd-tasks leaves explicitly approved human Atlas task tracking to the parent", () => {
 	const content = readAsset("agents/sdd-tasks.md");
 
 	assert.match(content, /SddTasksAtlasContract/);
+	assert.match(content, /Human Atlas task tracking remains explicit and parent-owned/i);
 	assert.match(content, /MUST NOT create, update, move, label, hydrate, or otherwise mutate human Atlas tasks/i);
-	assert.match(content, /taskTracking\.approvalState` is `approved`/);
-	assert.match(content, /approved vs unapproved human task tracking/i);
+	assert.match(content, /even when task tracking is approved/i);
 	assert.match(content, /Engram pointer fields/i);
+	assert.doesNotMatch(content, /atlas_get_task/);
 });
 
 test("SDD-testing agents define the concrete TestingPersistenceContract authority model", () => {
@@ -202,6 +216,50 @@ test("SDD package agents declare role-appropriate tools as YAML arrays", () => {
 	}
 });
 
+test("directly persisting SDD agents grant exactly the Atlas document CAS allowlist", () => {
+	for (const fileName of Object.keys(requiredSddToolsByAgent)) {
+		const tools = readTools(join(agentsDir, fileName));
+		const atlasTools = tools.filter((tool) => tool.startsWith("atlas_"));
+		assert.deepEqual(atlasTools, atlasDocumentTools, `${fileName} must receive document persistence tools only`);
+	}
+});
+
+test("SDD Atlas persistence contracts use the public document CAS API and fail closed", () => {
+	const contractAssets = [
+		...sddAgentAssets(),
+		{ path: "support/atlas-persistence-contract.md", content: readAsset("support/atlas-persistence-contract.md") },
+		{ path: "orchestrator/persistence.md", content: readAsset("orchestrator/persistence.md") },
+	];
+
+	for (const asset of contractAssets) {
+		assert.match(
+			asset.content,
+			/atlas_get_document[\s\S]*head_revision_id[\s\S]*atlas_update_document_content[\s\S]*base_revision_id/,
+			`${asset.path} must spell out the document CAS sequence`,
+		);
+		assert.match(
+			asset.content,
+			/conflict[\s\S]*(?:partial|blocked)[\s\S]*never overwrite/i,
+			`${asset.path} must fail closed on an Atlas conflict`,
+		);
+		assert.match(
+			asset.content,
+			/Engram (?:Atlas )?pointer only after (?:a )?successful Atlas (?:creation or update|write)/i,
+			`${asset.path} must order the Engram pointer after Atlas success`,
+		);
+		assert.doesNotMatch(asset.content, /\batlas_update_document\b/, `${asset.path} must not name a nonexistent Atlas tool`);
+	}
+});
+
+test("Atlas support publishes the exact normal SDD document tool surface", () => {
+	const support = readAsset("support/atlas-persistence-contract.md");
+	const match = support.match(/## Normal SDD Phase Document Allowlist\n([\s\S]*?)(?=\n## )/);
+	assert.ok(match, "Atlas support must define the normal SDD phase document allowlist");
+	const tools = [...match[1].matchAll(/`(atlas_[a-z_]+)`/g)].map((entry) => entry[1]);
+
+	assert.deepEqual([...new Set(tools)], atlasDocumentTools);
+});
+
 test("project does not ship local SDD agent overrides", () => {
 	const repoRoot = new URL("../../", import.meta.url).pathname;
 	for (const relativeDir of [join(".pi", "agents"), join(".pi", "subagents")]) {
@@ -210,4 +268,68 @@ test("project does not ship local SDD agent overrides", () => {
 		const overrides = readdirSync(dir).filter((entry) => /^sdd-.*\.md$/i.test(entry));
 		assert.deepEqual(overrides, [], `${relativeDir} must not shadow package SDD agents`);
 	}
+});
+
+const normalSddExecutionAssets = [
+	"agents/sdd-tasks.md",
+	"agents/sdd-apply.md",
+	"agents/sdd-verify.md",
+	"chains/sdd-plan.chain.md",
+	"chains/sdd-full.chain.md",
+	"chains/sdd-verify.chain.md",
+];
+
+const deliveryAndAutomaticReviewPolicy =
+	/Review Workload Forecast|Decision needed before apply|Chained PRs recommended|Chain strategy|400-line|delivery strategy|PR boundary|PR split recommendation|review workload|review\/judgment blockers|fresh reviewer|automatic review/i;
+
+test("normal SDD phase agents and chains stay demand-driven", () => {
+	for (const assetPath of normalSddExecutionAssets) {
+		assert.doesNotMatch(
+			readAsset(assetPath),
+			deliveryAndAutomaticReviewPolicy,
+			`${assetPath} must not impose delivery policy or automatic review on normal SDD execution`,
+		);
+	}
+
+	assert.match(readAsset("agents/sdd-tasks.md"), /RED → GREEN → TRIANGULATE → REFACTOR/);
+	assert.match(readAsset("agents/sdd-apply.md"), /TDD Cycle Evidence/);
+	assert.match(readAsset("chains/sdd-full.chain.md"), /strict TDD/i);
+});
+
+test("standard SDD verification is conformance-only with anchored lifecycle output", () => {
+	const agent = readAsset("agents/sdd-verify.md");
+	const chains = [readAsset("chains/sdd-full.chain.md"), readAsset("chains/sdd-verify.chain.md")];
+
+	assert.match(agent, /standard SDD verification is conformance-only/i);
+	assert.match(agent, /^lifecycle_status: passed\|failed\|blocked\|partial$/m);
+	assert.match(agent, /exactly one `lifecycle_status` line at column 1/i);
+	for (const chain of chains) {
+		assert.match(chain, /conformance-only/i);
+	}
+});
+
+test("explicit review protocols and chained planning remain available outside normal SDD", () => {
+	const reviewPolicy = readAsset("orchestrator/review.md");
+	const reviewChain = readAsset("chains/4r-review.chain.md");
+
+	assert.match(reviewPolicy, /Judgment Day/);
+	assert.match(reviewPolicy, /`4r-review` chain/);
+	assert.match(reviewPolicy, /Maximum 2 fix rounds per review/);
+	assert.match(reviewPolicy, /Scoped re-review/);
+	assert.match(reviewChain, /findings ledger rows/i);
+	assert.match(readAsset("agents/jd-fix-agent.md"), /confirmed Judgment Day findings only/);
+	assert.match(readAsset("orchestrator/skills.md"), /\| Split\/stack\/large PR\s+\| `chained-pr`/);
+});
+
+test("repository does not embed a machine-specific SDD skill root", () => {
+	const repoRoot = new URL("../../", import.meta.url).pathname;
+	const machineSpecificRoot = ["", "home", "iperez", ".tabularium", "AI", "skills"].join("/") + "/";
+	const trackedFiles = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
+		.split("\0")
+		.filter(Boolean);
+	const offenders = trackedFiles.filter((relativePath) =>
+		readFileSync(join(repoRoot, relativePath), "utf8").includes(machineSpecificRoot),
+	);
+
+	assert.deepEqual(offenders, []);
 });
