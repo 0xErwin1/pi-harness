@@ -48,8 +48,10 @@ interface ServerState {
 	client?: McpClient;
 }
 
-const states = new Map<string, ServerState>();
-const registeredToolNames = new Set<string>();
+interface RuntimeState {
+	states: Map<string, ServerState>;
+	registeredToolNames: Set<string>;
+}
 
 function agentDir(): string {
 	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
@@ -319,9 +321,9 @@ async function createClient(name: string, config: McpServerConfig): Promise<McpC
 	return client;
 }
 
-function renderStatus(): string {
-	if (states.size === 0) return "No MCP servers configured.";
-	return [...states.values()]
+function renderStatus(runtime: RuntimeState): string {
+	if (runtime.states.size === 0) return "No MCP servers configured.";
+	return [...runtime.states.values()]
 		.map((state) => {
 			const suffix = state.status === "loaded" ? `${state.tools.length} tool(s)` : (state.error ?? "pending");
 			return `- ${state.name}: ${state.status} — ${suffix}`;
@@ -329,15 +331,23 @@ function renderStatus(): string {
 		.join("\n");
 }
 
-function updateStatus(ctx: ExtensionContext): void {
-	const loaded = [...states.values()].filter((state) => state.status === "loaded").length;
-	ctx.ui.setStatus("mcp", `MCP: ${loaded}/${states.size} servers`);
+function updateStatus(ctx: ExtensionContext, runtime: RuntimeState): void {
+	const loaded = [...runtime.states.values()].filter((state) => state.status === "loaded").length;
+	ctx.ui.setStatus("mcp", `MCP: ${loaded}/${runtime.states.size} servers`);
 }
 
-async function registerServer(pi: ExtensionAPI, ctx: ExtensionContext, name: string, config: McpServerConfig): Promise<void> {
+async function registerServer(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	name: string,
+	config: McpServerConfig,
+	runtime: RuntimeState,
+): Promise<void> {
+	if (runtime.states.has(name)) return;
+
 	const state: ServerState = { name, config, status: "pending", tools: [] };
-	states.set(name, state);
-	updateStatus(ctx);
+	runtime.states.set(name, state);
+	updateStatus(ctx, runtime);
 
 	try {
 		const client = await withTimeout(createClient(name, config), STARTUP_TIMEOUT_MS, `MCP ${name} startup`);
@@ -346,8 +356,8 @@ async function registerServer(pi: ExtensionAPI, ctx: ExtensionContext, name: str
 		for (const tool of tools) {
 			const registeredName = toolName(name, tool.name);
 			state.tools.push(registeredName);
-			if (registeredToolNames.has(registeredName)) continue;
-			registeredToolNames.add(registeredName);
+			if (runtime.registeredToolNames.has(registeredName)) continue;
+			runtime.registeredToolNames.add(registeredName);
 
 			pi.registerTool({
 				name: registeredName,
@@ -371,7 +381,7 @@ async function registerServer(pi: ExtensionAPI, ctx: ExtensionContext, name: str
 		state.client?.close();
 		state.client = undefined;
 	} finally {
-		updateStatus(ctx);
+		updateStatus(ctx, runtime);
 	}
 }
 
@@ -384,10 +394,15 @@ export const __testing = {
 };
 
 export default function mcpExtension(pi: ExtensionAPI): void {
+	const runtime: RuntimeState = {
+		states: new Map<string, ServerState>(),
+		registeredToolNames: new Set<string>(),
+	};
+
 	pi.registerCommand("mcp", {
 		description: "Show MCP server/tool status loaded from ~/.pi/agent/mcp.json.",
 		handler: async (_args, ctx) => {
-			ctx.ui.notify(renderStatus(), states.size === 0 ? "warning" : "info");
+			ctx.ui.notify(renderStatus(runtime), runtime.states.size === 0 ? "warning" : "info");
 		},
 	});
 
@@ -396,23 +411,24 @@ export default function mcpExtension(pi: ExtensionAPI): void {
 		try {
 			config = loadConfig();
 		} catch (error) {
-			states.set("config", {
+			runtime.states.set("config", {
 				name: "config",
 				config: {},
 				status: "failed",
 				tools: [],
 				error: errorMessage(error),
 			});
-			updateStatus(ctx);
+			updateStatus(ctx, runtime);
 			return;
 		}
 
 		const servers = config.mcpServers ?? {};
-		await Promise.all(Object.entries(servers).map(([name, server]) => registerServer(pi, ctx, name, server)));
+		await Promise.all(Object.entries(servers).map(([name, server]) => registerServer(pi, ctx, name, server, runtime)));
 	});
 
 	pi.on("session_shutdown", () => {
-		for (const state of states.values()) state.client?.close();
-		states.clear();
+		for (const state of runtime.states.values()) state.client?.close();
+		runtime.states.clear();
+		runtime.registeredToolNames.clear();
 	});
 }

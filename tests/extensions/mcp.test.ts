@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { __testing } from "../../extensions/mcp.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import mcpExtension, { __testing } from "../../extensions/mcp.ts";
 
 test("MCP tool names are Pi-safe and server-prefixed", () => {
 	assert.equal(__testing.toolName("context-7", "resolve-library-id"), "context_7_resolve_library_id");
@@ -24,6 +27,75 @@ test("SSE MCP responses parse the last data message", () => {
 		__testing.parseSse('event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n\n'),
 		{ jsonrpc: "2.0", id: 1, result: { ok: true } },
 	);
+});
+
+test("MCP tools register in each fresh extension registry while duplicate initialization stays deduplicated", async () => {
+	type SessionHandler = (event: unknown, ctx: unknown) => Promise<void> | void;
+
+	function createFakePi() {
+		const handlers = new Map<string, SessionHandler>();
+		const registeredTools: string[] = [];
+		return {
+			api: {
+				on(event: string, handler: SessionHandler) {
+					handlers.set(event, handler);
+				},
+				registerCommand() {},
+				registerTool(tool: { name: string }) {
+					registeredTools.push(tool.name);
+				},
+			},
+			handlers,
+			registeredTools,
+		};
+	}
+
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-harness-mcp-"));
+	writeFileSync(
+		join(agentDir, "mcp.json"),
+		JSON.stringify({ mcpServers: { atlas: { url: "https://atlas.example/mcp" } } }),
+	);
+
+	const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const originalFetch = globalThis.fetch;
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+		const payload = JSON.parse(String(init?.body)) as { id?: number; method: string };
+		if (payload.method === "notifications/initialized") return new Response("", { status: 200 });
+
+		const result = payload.method === "initialize"
+			? {}
+			: { tools: [{ name: "search", description: "Search Atlas", inputSchema: { type: "object" } }] };
+		return new Response(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result }), {
+			status: 200,
+			headers: { "content-type": "application/json" },
+		});
+	}) as typeof fetch;
+
+	try {
+		const first = createFakePi();
+		const second = createFakePi();
+		mcpExtension(first.api as unknown as Parameters<typeof mcpExtension>[0]);
+		mcpExtension(second.api as unknown as Parameters<typeof mcpExtension>[0]);
+
+		const context = { ui: { setStatus() {}, notify() {} } };
+		const firstSessionStart = first.handlers.get("session_start");
+		const secondSessionStart = second.handlers.get("session_start");
+		assert.equal(typeof firstSessionStart, "function");
+		assert.equal(typeof secondSessionStart, "function");
+
+		await firstSessionStart?.({}, context);
+		await firstSessionStart?.({}, context);
+		await secondSessionStart?.({}, context);
+
+		assert.deepEqual(first.registeredTools, ["atlas_search"]);
+		assert.deepEqual(second.registeredTools, ["atlas_search"]);
+	} finally {
+		globalThis.fetch = originalFetch;
+		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
 });
 
 test("HTTP MCP reconnects once when the cached session is missing", async () => {
